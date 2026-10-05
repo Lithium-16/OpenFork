@@ -36,8 +36,6 @@
   --bad: #ff5a5a;
   --good: #7bd389;
   --ink: #0b0f13;
-  /* Running text: a plain font reads far better than the pixel one at panel sizes. */
-  --read: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   /* The menu's UI scale (1, 1.25 or 1.5); every HUD box zooms by it. */
   --ui-scale: 1;
   color-scheme: dark;
@@ -1426,27 +1424,6 @@ button.danger:hover:not(:disabled) {
 }
 
 /* -- readability and accessibility ---------------------------------------------------------- */
-
-/* Running text in the plain font; headings, labels, buttons and numbers stay pixel. */
-.hint,
-.tagline,
-.panel .sub,
-.panel .grid2 span:nth-child(even),
-.panel .note,
-.unit .meta,
-.feed,
-.legend,
-.help div:not(.classbar),
-.buildbar .about,
-.menu-card p,
-#confirm p,
-.toast,
-.techtree .node .effect {
-  font-family: var(--read);
-  -webkit-font-smoothing: auto;
-  font-smooth: auto;
-  letter-spacing: 0;
-}
 
 /* Everything on top of the map grows with the UI scale: the HUD layer covers the screen and
    is zoomed, so its boxes lay out on a screen 1/scale the size, like browser zoom. */
