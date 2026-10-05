@@ -13,10 +13,12 @@ import {
   buildCost,
   ECON_KINDS,
   type EconKind,
+  LANDING_ATTACK,
   MAX_CITY,
   OPPORTUNISM,
   type Opportunism,
   RESOURCES,
+  SEA_SUPPLY_HOPS,
   type TechId,
   whyNotResearch,
   UNITS,
@@ -55,6 +57,9 @@ const STYLES: Record<BotDifficulty, Style> = {
   normal: { think: 1.5, odds: 1.6, forts: 2, tanks: true, merges: true, reserve: 100, develop: 0.8, smart: true, roads: true, found: 2400, cityCap: 4 },
   hard: { think: 0.6, odds: 1.25, forts: 3, tanks: true, merges: true, reserve: 60, develop: 1, smart: true, roads: true, found: 2000, cityCap: MAX_CITY },
 };
+
+/** Farthest a bot ships troops: this many hops (land to the port, then sea regions). */
+const OVERSEAS_HOPS = 10;
 
 /** What bots research, in order: armies first for the ones that make tanks, else the economy. */
 const RESEARCH_MILITARY: TechId[] = ['tanks', 'rifles', 'farming', 'warehouses', 'trenches', 'shells', 'industry', 'engines', 'railways', 'armour', 'fuel', 'rangefinders', 'banking', 'conscription', 'longGuns', 'kitchens'];
@@ -205,6 +210,13 @@ export class Bot {
         const tanks = me.techs.includes('tanks');
         if (tanks || war) sim.produce(this.player, r, 'factory', !tanks || (war && this.random() < 0.45) ? 'artillery' : 'tank');
       }
+      // A small fleet: a few warships, a couple more at war, when money is not tight.
+      if (this.style.tanks && rs.port && rs.production.port.queue.length === 0 && me.resources.money >= this.style.reserve * 2) {
+        const fleet = [...sim.state.blobs.values()].filter((b) => b.owner === this.player && UNITS[b.type].naval).length;
+        const queued = mine.reduce((n, i) => n + regions[i].production.port.queue.length, 0);
+        const want = Math.min(5, 1 + Math.floor(mine.length / 20)) + (this.enemies(sim).length ? 2 : 0);
+        if (fleet + queued < want) sim.produce(this.player, r, 'port', 'warship');
+      }
     }
 
     // Several things at once when rich; one at a time otherwise.
@@ -235,6 +247,21 @@ export class Bot {
     if (!this.style.defensive && barracks < 1 + Math.floor(mine.length / 12)) {
       const site = cities.filter((r) => can(r, 'barracks')).sort((a, b) => this.frontDistance(sim, a) - this.frontDistance(sim, b))[0];
       if (site !== undefined && sim.build(this.player, site, 'barracks') === null) return;
+    }
+
+    // Ports: one on the coast (two for big countries), in a city if there is one. Early when
+    // there's no land left to take on foot (an island, or boxed in), else when well off.
+    if (!this.style.defensive) {
+      const ports = mine.filter((r) => regions[r].port || sim.pending(regions[r]).some((c) => c.kind === 'port')).length;
+      const want = Math.min(2, 1 + Math.floor(mine.length / 25));
+      const cost = buildCost('port').cost;
+      const boxedIn = !this.reachesNeutral(sim, me.capital);
+      if (ports < want && me.resources.money >= (boxedIn ? 1 : 3) * cost.money && me.resources.steel >= cost.steel) {
+        const site = mine
+          .filter((r) => can(r, 'port'))
+          .sort((a, b) => regions[b].city - regions[a].city || this.hops(sim, me.capital, a) - this.hops(sim, me.capital, b))[0];
+        if (site !== undefined && sim.build(this.player, site, 'port') === null) return;
+      }
     }
 
     // Stores nearly full: a depot (one at a time), as far from the front as we can find.
@@ -381,7 +408,7 @@ export class Bot {
 
     // Units stuck at the edge of a full region count as free again.
     const busy = (b: Blob) => (b.path.length > 0 && b.progress < 1) || (b.progress === 0 && sim.besieged(b.region, b.owner));
-    let idle = blobs.filter((b) => sim.state.blobs.has(b.id) && !busy(b));
+    let idle = blobs.filter((b) => sim.state.blobs.has(b.id) && !busy(b) && !UNITS[b.type].naval && !sim.world.isSea(b.region));
     // Guns stay out of assaults and land grabs: they go one region behind the front.
     const guns = idle.filter((b) => UNITS[b.type].range);
     idle = idle.filter((b) => !UNITS[b.type].range);
@@ -441,8 +468,12 @@ export class Bot {
     idle = idle.filter((b) => !sent.has(b));
 
     if (guns.length) this.placeGuns(sim, guns);
+    this.navy(sim, blobs);
+    this.turnBackBlockaded(sim, blobs);
 
-    // Everyone else: grab neutral land, or else gather at the front.
+    // Everyone else: grab neutral land, or else gather at the front; overseas when there's
+    // nothing to do on foot.
+    const spare: Blob[] = [];
     for (const b of idle) {
       if (sim.state.regions[b.region].owner === this.player && this.threat(sim, b.region) > 0 && b.region !== me.capital) {
         continue; // hold the line
@@ -450,11 +481,177 @@ export class Bot {
       // Defensive: no new land and no marching on the enemy; just man the borders.
       const target = this.style.defensive
         ? (this.stagingArea(sim, b) ?? this.borderPost(sim, b))
-        : (this.expandTarget(sim, b, targeted) ?? this.stagingArea(sim, b) ?? this.nearestEnemy(sim, b) ?? this.borderPost(sim, b));
+        : (this.expandTarget(sim, b, targeted) ?? this.stagingArea(sim, b) ?? this.nearestEnemy(sim, b));
+      if (target === null && !this.style.defensive) {
+        spare.push(b);
+        continue;
+      }
       if (target === null || target === b.region) continue;
       targeted.add(target);
       sim.move(this.player, [b.id], target);
       this.heading.set(target, (this.heading.get(target) ?? 0) + 1);
+    }
+    const ashore = this.overseas(sim, spare, targeted);
+    for (const b of spare) {
+      if (ashore.has(b)) continue;
+      const target = this.borderPost(sim, b);
+      if (target === null || target === b.region) continue;
+      sim.move(this.player, [b.id], target);
+      this.heading.set(target, (this.heading.get(target) ?? 0) + 1);
+    }
+  }
+
+  // -- the sea ------------------------------------------------------------------------------
+
+  /** Whether neutral land can be reached on foot from a region. */
+  private reachesNeutral(sim: Sim, from: number): boolean {
+    const dist = this.bfs(sim, from);
+    return sim.state.regions.some((rs, i) => rs.owner === NEUTRAL && dist[i] > 0);
+  }
+
+  /**
+   * Units with nothing to do on foot, when we have a port: shipped one at a time to the
+   * nearest neutral coast, or all together at an enemy coast they can take.
+   */
+  private overseas(sim: Sim, spare: Blob[], targeted: Set<number>): Set<Blob> {
+    const sent = new Set<Blob>();
+    const regions = sim.state.regions;
+    if (!spare.length || !regions.some((rs) => rs.port && rs.owner === this.player)) return sent;
+    // Enemy coasts first, if all the spare units together clearly win the landing.
+    const atWar = this.enemies(sim).length > 0;
+    if (atWar && spare.length >= 3) {
+      const dist = this.seaBfs(sim, spare[0].region);
+      const ours = spare.reduce((s, b) => s + b.strength * UNITS[b.type].attack, 0) * LANDING_ATTACK;
+      let best = -1;
+      let bestScore = Infinity;
+      regions.forEach((rs, i) => {
+        if (dist[i] < 0 || dist[i] > OVERSEAS_HOPS || sim.world.isSea(i) || !sim.atWar(this.player, rs.owner)) return;
+        const d = this.defence(sim, i);
+        if (ours < this.style.odds * d) return;
+        const score = dist[i] + d / 20;
+        if (score < bestScore) {
+          bestScore = score;
+          best = i;
+        }
+      });
+      if (best >= 0) {
+        const go = [...spare].sort((a, b) => b.strength - a.strength).slice(0, sim.stackCap(best));
+        if (sim.move(this.player, go.map((b) => b.id), best) === null) for (const b of go) sent.add(b);
+        return sent;
+      }
+    }
+    for (const b of spare) {
+      const dist = this.seaBfs(sim, b.region);
+      let best = -1;
+      let bestScore = Infinity;
+      regions.forEach((rs, i) => {
+        if (dist[i] < 0 || dist[i] > OVERSEAS_HOPS || rs.owner !== NEUTRAL || sim.world.isSea(i) || targeted.has(i)) return;
+        const score = dist[i] - 0.3 * sim.world.regions[i].traits.length;
+        if (score < bestScore) {
+          bestScore = score;
+          best = i;
+        }
+      });
+      if (best < 0) break; // none left anywhere
+      if (sim.move(this.player, [b.id], best) !== null) continue;
+      targeted.add(best);
+      sent.add(b);
+    }
+    return sent;
+  }
+
+  /** Hops for troops from a region, by land and by sea from our ports; seas with enemies in
+   * them are blockaded, land of countries at peace with us is closed. */
+  private seaBfs(sim: Sim, from: number): number[] {
+    const dist = new Array<number>(sim.world.regions.length).fill(-1);
+    dist[from] = 0;
+    const queue = [from];
+    for (let q = 0; q < queue.length; q++) {
+      const u = queue[q];
+      // Stop at land we'd have to take first: only the coast is the goal, not beyond it.
+      if (q > 0 && !sim.world.isSea(u) && sim.state.regions[u].owner !== this.player) continue;
+      for (const v of sim.links('infantry', this.player, u)) {
+        if (dist[v] >= 0) continue;
+        const o = sim.state.regions[v].owner;
+        if (o !== NEUTRAL && o !== this.player && !sim.atWar(this.player, o)) continue;
+        if (sim.world.isSea(v) && sim.hostileIn(v, this.player)) continue;
+        dist[v] = dist[u] + 1;
+        queue.push(v);
+      }
+    }
+    return dist;
+  }
+
+  /** Troops at sea with nowhere to go (the landing fell through) or an enemy fleet in their
+   * way: back to the nearest own land. */
+  private turnBackBlockaded(sim: Sim, blobs: Blob[]): void {
+    for (const b of blobs) {
+      if (UNITS[b.type].naval || !sim.world.isSea(b.region) || b.progress > 0) continue;
+      if (b.path.length && !sim.hostileIn(b.path[0], this.player)) continue;
+      const dist = this.seaBfs(sim, b.region);
+      let best = -1;
+      sim.state.regions.forEach((rs, i) => {
+        if (rs.owner === this.player && dist[i] > 0 && (best < 0 || dist[i] < dist[best])) best = i;
+      });
+      if (best >= 0) sim.move(this.player, [b.id], best);
+    }
+  }
+
+  /**
+   * Warships: hurt ones go home to a port to mend; at war the rest hunt enemies at sea they
+   * outgun, else shell the nearest enemy coast; in peacetime they wait off their home port.
+   * They stay within supply reach of our ports.
+   */
+  private navy(sim: Sim, blobs: Blob[]): void {
+    const ships = blobs.filter((b) => UNITS[b.type].naval && sim.state.blobs.has(b.id) && !b.path.length && b.progress === 0);
+    if (!ships.length) return;
+    const regions = sim.state.regions;
+    const ports = regions.flatMap((rs, i) => (rs.port && rs.owner === this.player ? [i] : []));
+    if (!ports.length) return;
+    // Sea hops from our ports (0: the seas off a port).
+    const reach = new Map<number, number>();
+    const queue: number[] = [];
+    for (const p of ports) {
+      for (const c of sim.world.regions[p].coast) if (!reach.has(c.id)) {
+        reach.set(c.id, 0);
+        queue.push(c.id);
+      }
+    }
+    for (let q = 0; q < queue.length; q++) {
+      const d = reach.get(queue[q]) as number;
+      if (d + 1 >= SEA_SUPPLY_HOPS) continue;
+      for (const n of sim.world.neighbors(queue[q])) if (!reach.has(n.id)) {
+        reach.set(n.id, d + 1);
+        queue.push(n.id);
+      }
+    }
+    const seas = [...reach.keys()];
+    const enemyAt = (sea: number) => sim.blobsIn(sea).filter((x) => sim.atWar(this.player, x.owner)).reduce((s, x) => s + x.strength * (UNITS[x.type].naval ? 1 : 0.2), 0);
+    const fleet = ships.reduce((s, b) => s + b.strength, 0);
+    let target = -1;
+    if (this.enemies(sim).length) {
+      // Enemies at sea we outgun, nearest first; else an enemy coast to shell.
+      const hunt = seas.filter((r) => enemyAt(r) > 0 && fleet >= this.style.odds * enemyAt(r)).sort((a, b) => (reach.get(a) as number) - (reach.get(b) as number))[0];
+      const shell = seas
+        .filter((r) => enemyAt(r) === 0 && sim.world.regions[r].coast.some((c) => sim.atWar(this.player, regions[c.id].owner)))
+        .sort((a, b) => (reach.get(a) as number) - (reach.get(b) as number))[0];
+      target = hunt ?? shell ?? -1;
+    }
+    for (const b of ships) {
+      const home = sim.world.isSea(b.region) ? -1 : b.region;
+      let go = target;
+      if (b.strength < 0.5 * b.size) {
+        // Mend in port.
+        if (home >= 0) continue;
+        go = ports.find((p) => sim.world.regions[p].coast.some((c) => c.id === b.region)) ?? ports[0];
+      } else if (go < 0) {
+        // Peacetime: off the nearest port.
+        if (sim.world.isSea(b.region) && reach.get(b.region) === 0) continue;
+        go = seas.find((r) => reach.get(r) === 0) ?? -1;
+      }
+      if (go >= 0 && go !== b.region && (this.heading.get(go) ?? 0) < sim.stackCap(go)) {
+        if (sim.move(this.player, [b.id], go) === null) this.heading.set(go, (this.heading.get(go) ?? 0) + 1);
+      }
     }
   }
 

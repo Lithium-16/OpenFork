@@ -70,6 +70,8 @@ export interface RegionState {
   econ: Record<EconKind, number>;
   barracks: boolean;
   factory: boolean;
+  /** A port (coastal regions only): ships are built and dock here, troops board here. */
+  port: boolean;
   /** Depots: storage (see STORE_PER_DEPOT). */
   depots: number;
   production: Record<ProductionBuilding, ProductionLine>;
@@ -158,8 +160,9 @@ export function emptyRegion(): RegionState {
     econ: { farm: 0, mine: 0, well: 0, market: 0, lab: 0 },
     depots: 0,
     barracks: false,
+    port: false,
     factory: false,
-    production: { barracks: emptyLine(), factory: emptyLine() },
+    production: { barracks: emptyLine(), factory: emptyLine(), port: emptyLine() },
     construction: null,
     buildQueue: [],
     capture: null,

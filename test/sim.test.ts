@@ -1054,3 +1054,113 @@ describe('tanks need research', () => {
     assert.equal(s.research(0, 'engines'), null, 'and Engines opens up');
   });
 });
+
+describe('the sea', () => {
+  /** A's coast 0 - sea 1 - sea 2 - B's coast 3, plus A's inland 4 behind 0. */
+  function strait() {
+    const map = makeMap(
+      [{ country: 'A' }, { sea: true }, { sea: true }, { country: 'B' }, { country: 'A' }],
+      [[0, 1], [1, 2], [2, 3], [4, 0]],
+      [{ id: 'A', capital: 4 }, { id: 'B', capital: 3 }],
+    );
+    const s = sim(map, ['A', 'B']);
+    clearBlobs(s);
+    return s;
+  }
+
+  it('builds ports only on a coast', () => {
+    const s = strait();
+    rich(s);
+    assert.match(s.build(0, 4, 'port') ?? '', /coast/);
+    assert.equal(s.build(0, 0, 'port'), null);
+  });
+
+  it('makes warships at a port', () => {
+    const s = strait();
+    rich(s);
+    s.state.regions[0].port = true;
+    assert.equal(s.produce(0, 0, 'port', 'warship'), null);
+    assert.deepEqual(s.state.regions[0].production.port.queue, ['warship']);
+    assert.match(s.produce(0, 0, 'port', 'infantry') ?? '', /can't make/);
+  });
+
+  it('ships troops across from their own port, and only from one', () => {
+    const s = strait();
+    s.declareWar(0, 1);
+    const inf = place(s, 0, 'infantry', 4, 10);
+    assert.equal(s.move(0, [inf.id], 3), 'no route', 'no port, no crossing');
+    s.state.regions[0].port = true;
+    assert.equal(s.move(0, [inf.id], 3), null);
+    assert.deepEqual(inf.path, [0, 1, 2, 3]);
+    assert.match(s.move(0, [inf.id], 1) ?? '', /troops cross the sea/);
+    run(s, 120);
+    assert.equal(s.state.regions[3].owner, 0, 'landed and took it');
+  });
+
+  it('never makes the sea anyone\'s', () => {
+    const s = strait();
+    s.state.regions[0].port = true;
+    const ship = place(s, 0, 'warship', 0, 10);
+    assert.equal(s.move(0, [ship.id], 2), null);
+    run(s, 60);
+    assert.equal(ship.region, 2);
+    assert.equal(s.state.regions[2].owner, -1);
+    assert.match(s.move(0, [ship.id], 3) ?? '', /ships go to sea regions/);
+  });
+
+  it('enemy ships block transports and sink them', () => {
+    const s = strait();
+    s.declareWar(0, 1);
+    s.state.regions[0].port = true;
+    s.state.regions[3].port = true;
+    const ship = place(s, 1, 'warship', 2, 20);
+    const inf = place(s, 0, 'infantry', 0, 10);
+    assert.equal(s.move(0, [inf.id], 3), null);
+    run(s, 60);
+    assert.ok(inf.region !== 3 && s.state.regions[3].owner === 1, 'never landed');
+    assert.ok(!s.state.blobs.has(inf.id) || inf.strength < 5, `troops at sea took a beating (${inf.strength})`);
+    assert.ok(ship.strength > 15, `the ship barely noticed (${ship.strength})`);
+  });
+
+  it('landings hit weaker than attacks over land', () => {
+    const lost = (fromSea: boolean) => {
+      const s = strait();
+      s.declareWar(0, 1);
+      const def = place(s, 1, 'infantry', 3, 10);
+      def.entrench = 0;
+      const atk = place(s, 0, 'infantry', fromSea ? 2 : 3, 10);
+      if (fromSea) {
+        atk.path = [3];
+      } else {
+        // The same fight on land: the attacker next door in A's region 0 would be across the
+        // sea, so stand it in the defender's region instead (both fight at full strength).
+        atk.path = [];
+      }
+      run(s, 3);
+      return 10 - def.strength;
+    };
+    assert.ok(lost(true) > 0, 'a landing still hurts');
+    assert.ok(lost(true) < lost(false), `landing ${lost(true)} vs land ${lost(false)}`);
+  });
+
+  it('warships shell the coast and the seas next to theirs', () => {
+    const s = strait();
+    s.declareWar(0, 1);
+    s.state.regions[0].port = true;
+    const ship = place(s, 0, 'warship', 2, 10);
+    const target = place(s, 1, 'infantry', 3, 10);
+    s.tick(0.1);
+    assert.equal(ship.bombarding, 3);
+    assert.ok(target.strength < 10);
+  });
+
+  it('ships are supplied near their own ports only', () => {
+    const s = strait();
+    const ship = place(s, 0, 'warship', 2, 10);
+    s.tick(0.1);
+    assert.equal(ship.supply, 0, 'no port anywhere');
+    s.state.regions[0].port = true;
+    s.tick(0.1);
+    assert.equal(ship.supply, 1);
+  });
+});

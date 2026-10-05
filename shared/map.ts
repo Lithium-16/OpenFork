@@ -1,8 +1,10 @@
 // The map format: what scripts/build-map.ts writes to public/maps/<id>.json, and what the
 // server (rules) and the client (drawing, picking) read.
 //
-// The map is a pixel grid. Every land pixel belongs to one region; water is WATER. The
-// terrain picture is a separate PNG of the same size (public/maps/<id>-terrain.png).
+// The map is a pixel grid. Every land pixel belongs to one region; water is WATER. Open sea
+// is split into sea regions, in their own grid (seaGrid), so everything about land keeps
+// working on land alone. The terrain picture is a separate PNG of the same size
+// (public/maps/<id>-terrain.png).
 
 export const WATER = 0xffff;
 
@@ -24,8 +26,20 @@ export interface Neighbor {
   dist: number;
 }
 
+/** A land region and a sea region that touch along a coast. */
+export interface Coast {
+  id: number;
+  /** Coast pixels shared. */
+  border: number;
+  /** Distance between the two label points, in pixels. */
+  dist: number;
+}
+
 export interface Region {
   id: number;
+  /** A sea region: nobody owns it; only ships and troops being shipped are ever in it.
+   * Its `neighbors` are the sea regions next to it. */
+  sea?: boolean;
   name: string;
   /** ISO 3166-1 alpha-2 of the country it belongs to at the start. */
   country: string;
@@ -41,7 +55,10 @@ export interface Region {
   /** Label point: the pixel deepest inside the region. */
   x: number;
   y: number;
+  /** Land: the land regions next to it. Sea: the sea regions next to it. */
   neighbors: Neighbor[];
+  /** Land: the sea regions on its coast. Sea: the land regions on its shores. */
+  coast: Coast[];
 }
 
 export interface Country {
@@ -63,8 +80,10 @@ export interface GameMap {
   kmPerPx: number;
   regions: Region[];
   countries: Country[];
-  /** Region id per pixel, row-major, run-length encoded (see encodeGrid). */
+  /** Region id per pixel, row-major, run-length encoded (see encodeGrid). Sea is WATER. */
   grid: string;
+  /** Sea region id per pixel of open sea, WATER everywhere else; same encoding. */
+  seaGrid: string;
   /** Where the map data came from. */
   attribution: string;
 }

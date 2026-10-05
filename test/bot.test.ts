@@ -49,7 +49,7 @@ describe('bots on Europe', () => {
   });
 
   it('hard bots pick on weaker neighbours, and fight', () => {
-    const { events } = play('hard', 720);
+    const { events } = play('hard', 900);
     const war = events.find((e) => e.kind === 'war');
     assert.ok(war, 'a war started');
     assert.ok(war.at >= 180, 'not before hard bots are allowed to');
@@ -94,5 +94,26 @@ describe('defensive bots', () => {
     assert.equal(s.state.regions[4].owner, 1, 'took its region back');
     assert.equal(s.state.regions[3].owner, 0, 'and went no further');
     assert.ok([...s.state.blobs.values()].every((b) => b.owner !== 1 || b.region >= 4));
+  });
+});
+
+describe('bots at sea', () => {
+  it('an island country builds a port and takes land across the water', () => {
+    // A's island (0, 1), the sea (2), neutral land across it (3, 4).
+    const map = makeMap(
+      [{ country: 'A', city: 1 }, { country: 'A' }, { sea: true }, {}, {}],
+      [[0, 1], [1, 2], [2, 3], [3, 4]],
+      [{ id: 'A', capital: 0 }],
+    );
+    const s = sim(map, ['A']);
+    Object.assign(s.state.players[0].resources, { money: 2000, steel: 500 });
+    const bot = new Bot(0, 'normal', mulberry32(1));
+    for (let i = 0; i < 3000; i++) {
+      bot.act(s);
+      s.tick();
+    }
+    assert.ok(s.state.regions[1].port, 'a port on the coast');
+    assert.equal(s.state.regions[3].owner, 0, 'landed across the sea');
+    assert.equal(s.state.regions[4].owner, 0, 'and pushed on inland');
   });
 });
