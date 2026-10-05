@@ -114,7 +114,7 @@ setInterval(() => game.tick(), TICK_MS);
 
 ## Font
 
-[Pixelify Sans](https://github.com/eifetx/Pixelify-Sans) by the Pixelify Sans Project Authors,
+[VT323](https://github.com/phoikoi/VT323) by the VT323 Project Authors,
 under the SIL Open Font License 1.1 (`public/fonts/OFL.txt`).
 
 ## Known limits / next steps
