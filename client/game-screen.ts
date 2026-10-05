@@ -33,6 +33,7 @@ import {
   type TechId,
   TECHS,
   techCost,
+  SEA_SUPPLY_HOPS,
   UNITS,
   type UnitType,
   unitStats,
@@ -59,6 +60,7 @@ const BUILD_LABEL: Record<BuildingKind, string> = {
   road: 'Road',
   depot: 'Depot',
   lab: 'Lab',
+  port: 'Port',
 };
 /** The build bar, in groups; hotkeys 1-9 then - follow this order. */
 const BAR: Array<{ group: string; kinds: BuildingKind[] }> = [
@@ -66,17 +68,18 @@ const BAR: Array<{ group: string; kinds: BuildingKind[] }> = [
   { group: 'City', kinds: ['city'] },
   { group: 'Military', kinds: ['fort', 'barracks', 'factory'] },
   { group: 'Logistics', kinds: ['road', 'depot'] },
+  { group: 'Sea', kinds: ['port'] },
 ];
 const HOTKEYS: BuildingKind[] = BAR.flatMap((g) => g.kinds);
 /** The key for each of HOTKEYS. */
-const HOTKEY_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '-', '='];
+const HOTKEY_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '-', '=', 'p'];
 /** Region row fields of the economic buildings. */
 const ECON_FIELD: Record<EconKind, number> = { farm: 9, mine: 10, well: 11, market: 12, lab: 14 };
 const tech = (id: TechId): Tech => TECHS.find((t) => t.id === id) as Tech;
-const UNIT_NAME: Record<UnitType, string> = { infantry: 'Infantry', tank: 'Tanks', artillery: 'Artillery' };
-const UNIT_SHORT: Record<UnitType, string> = { infantry: 'INF', tank: 'ARM', artillery: 'ART' };
+const UNIT_NAME: Record<UnitType, string> = { infantry: 'Infantry', tank: 'Tanks', artillery: 'Artillery', warship: 'Warships' };
+const UNIT_SHORT: Record<UnitType, string> = { infantry: 'INF', tank: 'ARM', artillery: 'ART', warship: 'NAV' };
 /** The key that orders each unit at the selected region. */
-const UNIT_KEY: Record<UnitType, string> = { infantry: 'q', tank: 'e', artillery: 'r' };
+const UNIT_KEY: Record<UnitType, string> = { infantry: 'q', tank: 'e', artillery: 'r', warship: 'f' };
 /** A region with no traits or city, for the plain yield of a building. */
 const PLAIN_REGION = { traits: [], terrain: 'plains', size: 'medium' } as unknown as Region;
 const gives = (kind: EconKind, traits: Region['traits'] = [], city = 0) =>
@@ -90,7 +93,8 @@ const BUILD_HELP: Record<BuildingKind, string> = {
   city: `City: found one (a supply hub that pays tax) or expand one: more tax and manpower, a slot, +1 stack cap, supply reaches further.`,
   fort: `Fort: defenders get a bonus, enemies move and capture slower here. Up to ${MAX_FORT} levels.`,
   barracks: 'Barracks: trains infantry (Q). In a city.',
-  factory: 'Factory: builds tanks (E). In a city.',
+  factory: 'Factory: builds tanks (E) and artillery (R). In a city.',
+  port: 'Port: builds warships (F); your troops board here to cross the sea, and ships mend and resupply here. On a coast.',
   road: 'Road: drag across your regions. Crossing is faster and supply reaches further.',
   lab: `Lab: +${gives('lab')} research points/s for the tech tree (without labs a country makes ${BASE_RESEARCH}/s). In a city.`,
   depot: `Depot: stores ${STORE_PER_DEPOT.money} more money and manpower, ${STORE_PER_DEPOT.steel} more steel and oil (cities store ${STORE_PER_CITY_LEVEL.money} / ${STORE_PER_CITY_LEVEL.steel} per level). Anywhere you own; if it's taken, the enemy takes its share of your stock.`,
@@ -824,7 +828,7 @@ export class GameScreen {
       this.setDemolishing(!this.demolishing);
     } else if (k >= '1' && k <= '9' && k.length === 1) {
       this.setPlacing(HOTKEYS[Number(k) - 1]);
-    } else if (k === '-' || k === '=') {
+    } else if (k === '-' || k === '=' || k === 'p') {
       this.setPlacing(HOTKEYS[HOTKEY_KEYS.indexOf(k)]);
     } else if (k === 'q' && this.region >= 0) {
       this.send({ o: 'produce', region: this.region, building: 'barracks' });
@@ -832,6 +836,8 @@ export class GameScreen {
       this.send({ o: 'produce', region: this.region, building: 'factory', unit: 'tank' });
     } else if (k === 'r' && this.region >= 0) {
       this.send({ o: 'produce', region: this.region, building: 'factory', unit: 'artillery' });
+    } else if (k === 'f' && this.region >= 0) {
+      this.send({ o: 'produce', region: this.region, building: 'port', unit: 'warship' });
     } else return;
     this.renderPanel();
   }
@@ -1420,6 +1426,7 @@ export class GameScreen {
   /** Why a unit is short of supply ('' if it isn't). */
   private supplyWhy(b: BlobRow): string {
     if (b[10] >= 0.99 || !this.snap) return '';
+    if (this.map.regions[b[6]]?.sea) return `over ${SEA_SUPPLY_HOPS} seas from a port`;
     const row = this.snap.regions[b[6]];
     if (row[0] !== b[1]) return 'short in foreign land';
     if (!(row[3] & 4)) return 'cut off';
@@ -1484,7 +1491,7 @@ export class GameScreen {
       el('span', { class: 'swatch', style: `background:${colorOf(this.players, b[1])}` }),
       el('span', {}, [`${UNIT_SHORT[type]} ${Math.ceil(b[3])}/${b[4]}`]),
       el('span', { class: 'meta' }, [
-        `TRN ${b[5]} · SUP ${Math.round(b[10] * 100)}%${this.supplyWhy(b) ? ` (${this.supplyWhy(b).toUpperCase()})` : ''} · DUG ${Math.round(b[9] * 100)}%`,
+        `TRN ${b[5]} · SUP ${Math.round(b[10] * 100)}%${this.supplyWhy(b) ? ` (${this.supplyWhy(b).toUpperCase()})` : ''} ${UNITS[type].naval ? '' : this.map.regions[b[6]]?.sea ? ' · AT SEA' : ` · DUG ${Math.round(b[9] * 100)}%`}`,
         el('br'),
         where.toUpperCase(),
       ]),
@@ -1561,9 +1568,32 @@ export class GameScreen {
       el('div', { class: 'sub' }, [`${country} · ${region.terrain} · ${region.size}${region.traits.length ? ` · ${region.traits.join(', ')}` : ''}`]),
     ];
     const here = snap.blobs.filter((b) => b[6] === region.id && b[8] === 0);
+    if (region.sea) {
+      // The sea: nobody's. Ships sail it and shell its coasts; troops cross it from a port.
+      const mine = snap.blobs.filter((b) => b[6] === region.id && b[1] === this.you).length;
+      out[0] = classbar('Intel // Sea', 'Open sea');
+      out[2] = el('div', { class: 'sub' }, ['Open sea: nobody owns it']);
+      const coasts = region.coast.map((c) => this.map.regions[c.id].name);
+      out.push(
+        el('div', { class: 'grid2' }, [
+          el('span', {}, ['Coasts']),
+          el('span', {}, [coasts.length > 6 ? `${coasts.slice(0, 6).join(', ')} +${coasts.length - 6}` : coasts.join(', ') || 'none']),
+          el('span', {}, ['Stack']),
+          el('span', {}, [`${mine} / ${stackCap(region, 0, 0)} of yours`]),
+        ]),
+        el('div', { class: 'sub' }, [
+          'Warships fight here and shell the coasts and seas next to it. Troops sent across the sea board at your port and land on the far coast; enemy warships in the way stop and sink them.',
+        ]),
+      );
+      if (here.length) {
+        out.push(el('div', { class: 'line' }, ['Units here']));
+        for (const b of here) out.push(this.unitRow(b, b[1] === this.you));
+      }
+      return out;
+    }
     // The stack cap counts every token in the region, moving out or waiting included.
     const myCount = snap.blobs.filter((b) => b[6] === region.id && b[1] === this.you).length;
-    const used = rr[9] + rr[10] + rr[11] + rr[12] + rr[13] + rr[14] + (rr[1] > 0 ? 1 : 0) + (rr[3] & 1 ? 1 : 0) + (rr[3] & 2 ? 1 : 0);
+    const used = rr[9] + rr[10] + rr[11] + rr[12] + rr[13] + rr[14] + (rr[1] > 0 ? 1 : 0) + (rr[3] & 1 ? 1 : 0) + (rr[3] & 2 ? 1 : 0) + (rr[3] & 8 ? 1 : 0);
     const info: Array<[string, string]> = [
       ['Owner', owner >= 0 ? (this.players[owner]?.name ?? '?') : 'Neutral'],
       ['City', rr[2] > 0 ? `level ${rr[2]} / ${MAX_CITY} · supplies ${supplyReach(rr[2], this.techsOf(owner))} regions out` : 'none'],
@@ -1588,6 +1618,7 @@ export class GameScreen {
       if (rr[1] > 0) built.push(['fort', `Fort ${rr[1]}`]);
       if (rr[3] & 1) built.push(['barracks', 'Barracks']);
       if (rr[3] & 2) built.push(['factory', 'Factory']);
+      if (rr[3] & 8) built.push(['port', 'Port']);
       for (let i = 0; i < rr[13]; i++) built.push(['depot', 'Depot']);
       const knock = (kind: BuildingKind) =>
         el('button', { class: 'x', 'data-act': 'demolish', 'data-region': String(region.id), 'data-kind': kind }, ['Demolish']);
@@ -1640,7 +1671,7 @@ export class GameScreen {
     const status = line.queue.length
       ? `${line.queue.map((t) => UNIT_NAME[t].toLowerCase()).join(', ')}${line.progress < 0 ? ' // awaiting resources' : ''}`
       : 'idle';
-    out.push(el('div', { class: 'line' }, [`${line.building === 'barracks' ? 'Barracks' : 'Factory'}: ${status}`]), cellBar(Math.max(0, line.progress)));
+    out.push(el('div', { class: 'line' }, [`${BUILD_LABEL[line.building]}: ${status}`]), cellBar(Math.max(0, line.progress)));
     const adds: HTMLElement[] = [];
     for (const type of unitsOf(line.building)) {
       const stats = unitStats(type, this.myTechs());
