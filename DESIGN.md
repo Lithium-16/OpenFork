@@ -62,14 +62,16 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
   storage, up to the captor's own room.
 - **Research** (T, its own screen): a tech tree of five branches, three tiers each, one tech
   at a time. Each needs the one before it in its branch, and most top-tier techs also need a
-  middle-tier one from another branch: Conscription and Synthetic fuel need Industry, Long
-  guns and Banking need Railways. The screen draws the tree with its lines (green once
+  middle-tier one from another branch: Conscription needs Industry, Long guns and Banking
+  need Railways. The screen draws the tree with its lines (green once
   researched, moving along the line into the tech under way), the tech under way filling up,
   and how much of the tree is done. Tiers cost $250 / 500 / 900 and 30 / 80 / 150 steel and take
   60 / 90 / 120 s, paid up front (refunded if cancelled).
   - Infantry: Rifles (+20% attack), Trenches (dig in twice as fast, dug in +50%),
     Conscription (−30% manpower).
-  - Armour: Engines (+20% speed), Armour plate (+30% defence), Synthetic fuel (−50% oil).
+  - Armour (four tiers): **Tanks (factories can build tanks: nobody can before it)**,
+    Engines (+20% speed), Armour plate (+30% defence), Synthetic fuel (−50% oil; tier IV,
+    $1200 + 200 steel, 150 s).
   - Artillery: Heavy shells (+30%), Rangefinders (forts no help against shells), Long guns
     (range 3).
   - Economy: Farming (farms +30%), Industry (mines and wells +30%), Banking (markets and
@@ -125,7 +127,8 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
   air come later.
 - **Stat-based:** each type has attack, defense, speed, cost and upkeep. **Terrain matters
   a lot:** tanks are strong on plains and weak in forest and mountains.
-- **Production:** you order a blob at a barracks (infantry) or factory (tanks or artillery),
+- **Production:** you order a blob at a barracks (infantry) or factory (artillery, and tanks
+  once the Tanks tech is researched),
   and a "repeat" toggle keeps producing. A new blob appears in the building's region.
 - **Artillery:** standing still and in supply, it shells enemy units up to **2 regions away**
   (its own side's fights first, else the strongest enemy force). Shells ignore digging in

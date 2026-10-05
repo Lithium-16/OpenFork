@@ -1020,3 +1020,17 @@ describe('research', () => {
     assert.equal(unitStats('artillery', ['shells', 'rangefinders', 'longGuns']).range, 3);
   });
 });
+
+describe('tanks need research', () => {
+  it('a factory makes tanks only after Tanks is researched', () => {
+    const s = duel();
+    rich(s);
+    s.state.regions[0].factory = true;
+    assert.match(s.produce(0, 0, 'factory', 'tank') ?? '', /research Tanks first/);
+    assert.equal(s.produce(0, 0, 'factory'), null, 'unspecified: artillery, which needs nothing');
+    assert.deepEqual(s.state.regions[0].production.factory.queue, ['artillery']);
+    s.state.players[0].techs = ['tanks'];
+    assert.equal(s.produce(0, 0, 'factory', 'tank'), null);
+    assert.equal(s.research(0, 'engines'), null, 'and Engines opens up');
+  });
+});

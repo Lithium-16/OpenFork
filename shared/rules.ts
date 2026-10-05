@@ -428,7 +428,7 @@ export function supplyReach(city: number, techs: Techs = []): number {
 
 export type TechId =
   | 'rifles' | 'trenches' | 'conscription'
-  | 'engines' | 'armour' | 'fuel'
+  | 'tanks' | 'engines' | 'armour' | 'fuel'
   | 'shells' | 'rangefinders' | 'longGuns'
   | 'farming' | 'industry' | 'banking'
   | 'warehouses' | 'railways' | 'kitchens';
@@ -452,9 +452,10 @@ export const TECHS: readonly Tech[] = [
   { id: 'rifles', branch: 'Infantry', tier: 1, name: 'Rifles', effect: 'Infantry +20% attack', needs: [] },
   { id: 'trenches', branch: 'Infantry', tier: 2, name: 'Trenches', effect: 'Dig in twice as fast; dug in +50% stronger', needs: ['rifles'] },
   { id: 'conscription', branch: 'Infantry', tier: 3, name: 'Conscription', effect: 'Infantry −30% manpower', needs: ['trenches', 'industry'] },
-  { id: 'engines', branch: 'Armour', tier: 1, name: 'Engines', effect: 'Tanks +20% speed', needs: [] },
-  { id: 'armour', branch: 'Armour', tier: 2, name: 'Armour plate', effect: 'Tanks +30% defence', needs: ['engines'] },
-  { id: 'fuel', branch: 'Armour', tier: 3, name: 'Synthetic fuel', effect: 'Tanks −50% oil', needs: ['armour', 'industry'] },
+  { id: 'tanks', branch: 'Armour', tier: 1, name: 'Tanks', effect: 'Factories can build tanks', needs: [] },
+  { id: 'engines', branch: 'Armour', tier: 2, name: 'Engines', effect: 'Tanks +20% speed', needs: ['tanks'] },
+  { id: 'armour', branch: 'Armour', tier: 3, name: 'Armour plate', effect: 'Tanks +30% defence', needs: ['engines'] },
+  { id: 'fuel', branch: 'Armour', tier: 4, name: 'Synthetic fuel', effect: 'Tanks −50% oil', needs: ['armour'] },
   { id: 'shells', branch: 'Artillery', tier: 1, name: 'Heavy shells', effect: 'Artillery +30% shelling', needs: [] },
   { id: 'rangefinders', branch: 'Artillery', tier: 2, name: 'Rangefinders', effect: 'Forts no help against shells', needs: ['shells'] },
   { id: 'longGuns', branch: 'Artillery', tier: 3, name: 'Long guns', effect: 'Artillery range 3', needs: ['rangefinders', 'railways'] },
@@ -471,7 +472,8 @@ export const TECH_BRANCHES = ['Infantry', 'Armour', 'Artillery', 'Economy', 'Log
 export function techCost(tier: number): { cost: Resources; seconds: number } {
   if (tier <= 1) return { cost: res(250, 30), seconds: 60 };
   if (tier === 2) return { cost: res(500, 80), seconds: 90 };
-  return { cost: res(900, 150), seconds: 120 };
+  if (tier === 3) return { cost: res(900, 150), seconds: 120 };
+  return { cost: res(1200, 200), seconds: 150 };
 }
 
 /** Why a tech can't be researched (given what's done), or null. */
@@ -483,6 +485,9 @@ export function whyNotResearch(id: TechId, techs: Techs): string | null {
   if (missing.length) return `needs ${missing.join(' and ')} first`;
   return null;
 }
+
+/** Units that need a tech before anyone can build them. */
+export const UNIT_TECH: Partial<Record<UnitType, TechId>> = { tank: 'tanks' };
 
 /** A unit type's stats for a country, its techs counted. */
 export function unitStats(type: UnitType, techs: Techs = []): UnitStats {

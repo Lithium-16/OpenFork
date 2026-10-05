@@ -59,8 +59,8 @@ const STYLES: Record<BotDifficulty, Style> = {
 };
 
 /** What bots research, in order: armies first for the ones that make tanks, else the economy. */
-const RESEARCH_MILITARY: TechId[] = ['rifles', 'farming', 'warehouses', 'trenches', 'shells', 'industry', 'engines', 'railways', 'armour', 'fuel', 'rangefinders', 'banking', 'conscription', 'longGuns', 'kitchens'];
-const RESEARCH_ECONOMY: TechId[] = ['farming', 'warehouses', 'rifles', 'industry', 'trenches', 'railways', 'banking', 'kitchens', 'conscription', 'shells', 'engines', 'armour', 'rangefinders', 'fuel', 'longGuns'];
+const RESEARCH_MILITARY: TechId[] = ['tanks', 'rifles', 'farming', 'warehouses', 'trenches', 'shells', 'industry', 'engines', 'railways', 'armour', 'fuel', 'rangefinders', 'banking', 'conscription', 'longGuns', 'kitchens'];
+const RESEARCH_ECONOMY: TechId[] = ['farming', 'warehouses', 'rifles', 'industry', 'trenches', 'railways', 'banking', 'kitchens', 'conscription', 'shells', 'tanks', 'engines', 'armour', 'rangefinders', 'fuel', 'longGuns'];
 
 export class Bot {
   readonly player: number;
@@ -194,9 +194,11 @@ export class Bot {
       const rs = regions[r];
       if (rs.barracks && rs.production.barracks.queue.length === 0) sim.produce(this.player, r, 'barracks');
       if (this.style.tanks && rs.factory && rs.production.factory.queue.length === 0) {
-        // At war, about every other order is guns.
-        const guns = this.enemies(sim).length > 0 && this.random() < 0.45;
-        sim.produce(this.player, r, 'factory', guns ? 'artillery' : 'tank');
+        // Tanks once researched (at war, about every other order is guns); until then guns,
+        // and only at war, so peacetime money goes to researching Tanks.
+        const war = this.enemies(sim).length > 0;
+        const tanks = me.techs.includes('tanks');
+        if (tanks || war) sim.produce(this.player, r, 'factory', !tanks || (war && this.random() < 0.45) ? 'artillery' : 'tank');
       }
     }
 
@@ -236,7 +238,7 @@ export class Bot {
       const tech = order.find((t) => whyNotResearch(t, me.techs) === null);
       const tier = TECHS.find((t) => t.id === tech)?.tier ?? 1;
       const { cost } = techCost(tier);
-      if (tech && me.resources.money >= cost.money + this.style.reserve && me.resources.steel >= cost.steel) sim.research(this.player, tech);
+      if (tech && me.resources.money >= cost.money + this.style.reserve / 2 && me.resources.steel >= cost.steel) sim.research(this.player, tech);
     }
 
     // Stores nearly full: a depot (one at a time), as far from the front as we can find.

@@ -62,6 +62,7 @@ import {
   TRAINING_PROTECTION,
   TRUCE_SECONDS,
   unitsOf,
+  UNIT_TECH,
   type TechId,
   type Techs,
   TECHS,
@@ -750,8 +751,12 @@ export class Sim {
     if (!rs[building]) return `no ${building} here`;
     const line = rs.production[building];
     if (line.queue.length >= MAX_QUEUE) return 'queue is full';
-    const type = unit ?? unitsOf(building)[0];
+    const p = this.state.players[playerId];
+    // Unless told otherwise, the first unit the building makes that we can build.
+    const type = unit ?? unitsOf(building).find((t) => !UNIT_TECH[t] || p.techs.includes(UNIT_TECH[t] as TechId)) ?? unitsOf(building)[0];
     if (UNITS[type].producedAt !== building) return `a ${building} can't make ${type}`;
+    const needs = UNIT_TECH[type];
+    if (needs && !p.techs.includes(needs)) return `research ${TECHS.find((t) => t.id === needs)?.name} first`;
     line.queue.push(type);
     return null;
   }
