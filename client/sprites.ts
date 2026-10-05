@@ -195,6 +195,19 @@ export const ICONS = {
     ['...OyO...', '...OyO...', '..OyWyO..', '..OyyyO..', '.OyyWyyO.', '.OyyyyyO.', 'OyyyWyyyO', 'OOOOOOOOO'],
     { y: '#b59a6a' },
   ),
+  lab: art(
+    [
+      '...OOO...',
+      '..OWWWO..',
+      '.OWBBBWO.',
+      'OOOOOOOOO',
+      'OGGGGGGGO',
+      'OGBOOOBGO',
+      'OGGOyOGGO',
+      'OOOOOOOOO',
+    ],
+    { y: '#c19a5b' },
+  ),
   depot: art(
     [
       '...OOO...',
@@ -306,6 +319,7 @@ export const MAP_ART = {
   mine: art(['.KKK.', '.K.K.', 'KKKKK', 'kkkkk'], LAND),
   well: art(['.K.', '.K.', 'KKK', 'K.K', 'KKK'], LAND),
   market: art(['AHAH', 'AHAH', 'HHHH', 'HdHH'], LAND),
+  lab: art(['.SS.', 'SSSS', 'HHHH', 'HdHH'], LAND),
   /** Construction: scaffolding with a crane whose arm swings between two frames. */
   scaffold: [
     art(['KKKKK.', '..K...', 'Y.K...', 'YYKYY.', 'Y.K.Y.', 'YYYYY.'], { ...LAND, Y: '#d9a441' }),
@@ -351,6 +365,20 @@ export const HUD = {
     'OGGGGGGGO',
     'OOOOOOOOO',
   ]),
+  research: art(
+    [
+      '..OOOOO..',
+      '...OWO...',
+      '...OWO...',
+      '..OWWWO..',
+      '.OWBBBWO.',
+      'OWBBBBBWO',
+      'OBBCBBBBO',
+      'OBBBBCBBO',
+      '.OOOOOOO.',
+    ],
+    { B: '#7fd0c4', C: '#e8fff9' },
+  ),
   oil: art(
     [
       '....O....',

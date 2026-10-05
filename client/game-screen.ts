@@ -3,6 +3,7 @@ import type { GameMap, Region } from '../shared/map.ts';
 import type { BlobRow, GameEvent, GamePlayer, Order, ProductionView, Snapshot } from '../shared/protocol.ts';
 import { BUILDING_INDEX, UNIT_INDEX } from '../shared/protocol.ts';
 import {
+  BASE_RESEARCH,
   BUILD_NEEDS,
   BUILD_QUEUE,
   type BuildingKind,
@@ -57,19 +58,20 @@ const BUILD_LABEL: Record<BuildingKind, string> = {
   factory: 'Factory',
   road: 'Road',
   depot: 'Depot',
+  lab: 'Lab',
 };
 /** The build bar, in groups; hotkeys 1-9 then - follow this order. */
 const BAR: Array<{ group: string; kinds: BuildingKind[] }> = [
-  { group: 'Economy', kinds: ['farm', 'mine', 'well', 'market'] },
+  { group: 'Economy', kinds: ['farm', 'mine', 'well', 'market', 'lab'] },
   { group: 'City', kinds: ['city'] },
   { group: 'Military', kinds: ['fort', 'barracks', 'factory'] },
   { group: 'Logistics', kinds: ['road', 'depot'] },
 ];
 const HOTKEYS: BuildingKind[] = BAR.flatMap((g) => g.kinds);
 /** The key for each of HOTKEYS. */
-const HOTKEY_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '-'];
+const HOTKEY_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '-', '='];
 /** Region row fields of the economic buildings. */
-const ECON_FIELD: Record<EconKind, number> = { farm: 9, mine: 10, well: 11, market: 12 };
+const ECON_FIELD: Record<EconKind, number> = { farm: 9, mine: 10, well: 11, market: 12, lab: 14 };
 const tech = (id: TechId): Tech => TECHS.find((t) => t.id === id) as Tech;
 const UNIT_NAME: Record<UnitType, string> = { infantry: 'Infantry', tank: 'Tanks', artillery: 'Artillery' };
 const UNIT_SHORT: Record<UnitType, string> = { infantry: 'INF', tank: 'ARM', artillery: 'ART' };
@@ -90,6 +92,7 @@ const BUILD_HELP: Record<BuildingKind, string> = {
   barracks: 'Barracks: trains infantry (Q). In a city.',
   factory: 'Factory: builds tanks (E). In a city.',
   road: 'Road: drag across your regions. Crossing is faster and supply reaches further.',
+  lab: `Lab: +${gives('lab')} research points/s for the tech tree (without labs a country makes ${BASE_RESEARCH}/s). In a city.`,
   depot: `Depot: stores ${STORE_PER_DEPOT.money} more money and manpower, ${STORE_PER_DEPOT.steel} more steel and oil (cities store ${STORE_PER_CITY_LEVEL.money} / ${STORE_PER_CITY_LEVEL.steel} per level). Anywhere you own; if it's taken, the enemy takes its share of your stock.`,
 };
 
@@ -357,18 +360,26 @@ export class GameScreen {
     const box2 = (x: number, y: number) => `left:${x}px;top:${y}px;width:${W}px;height:${H}px`;
     const r = at('root', 0);
     const root = el('div', { class: 'node root done', style: box2(r.x, r.y) }, [el('b', {}, [TECH_ROOT.name]), el('span', { class: 'effect' }, [TECH_ROOT.effect]), el('span', { class: 'foot' }, ['✓ Start'])]);
+    // How long a tech takes from here: research points still owed, less the stock, over
+    // what labs and cities make.
+    const rate = me.income[4];
+    const eta = (owed: number) => {
+      const left = owed - res.research;
+      if (left <= 0) return 'ready now';
+      return rate > 0 ? `~${Math.ceil(left / rate)} s` : 'build labs';
+    };
     const nodes = TECHS.map((t) => {
       const st = state(t.id);
-      const { cost, seconds } = techCost(t.tier);
+      const cost = techCost(t.tier);
       const p = at(t.id, t.tier);
       const foot: Array<Node | string> =
         st === 'done'
           ? ['✓ Researched']
           : st === 'active' && busy
-            ? [`${Math.round(busy[1] * 100)}% · ${Math.ceil(seconds * (1 - busy[1]))} s left`]
+            ? [`${Math.round(busy[1] * 100)}% · ${eta(cost * (1 - busy[1]))}`]
             : st === 'locked'
               ? [whyNotResearch(t.id, me.techs) ?? '']
-              : [costChips(cost, res), ` · ${seconds}s`];
+              : [costChips({ research: cost }, res), ` · ${eta(cost)}`];
       return el('div', { class: `node ${st} b-${t.branch.toLowerCase()}`, style: box2(p.x, p.y), ...(st === 'open' ? { 'data-tech': t.id } : {}) }, [
         el('span', { class: 'tier' }, [t.branch]),
         el('b', {}, [t.name]),
@@ -813,8 +824,8 @@ export class GameScreen {
       this.setDemolishing(!this.demolishing);
     } else if (k >= '1' && k <= '9' && k.length === 1) {
       this.setPlacing(HOTKEYS[Number(k) - 1]);
-    } else if (k === '-') {
-      this.setPlacing(HOTKEYS[HOTKEY_KEYS.indexOf('-')]);
+    } else if (k === '-' || k === '=') {
+      this.setPlacing(HOTKEYS[HOTKEY_KEYS.indexOf(k)]);
     } else if (k === 'q' && this.region >= 0) {
       this.send({ o: 'produce', region: this.region, building: 'barracks' });
     } else if (k === 'e' && this.region >= 0) {
@@ -959,7 +970,7 @@ export class GameScreen {
   /** Slots taken in a region, counting builds under way and waiting (mirrors Sim.slotsUsed). */
   private slotsUsed(region: number): number {
     const rr = (this.snap as Snapshot).regions[region];
-    let n = rr[9] + rr[10] + rr[11] + rr[12] + rr[13] + (rr[1] > 0 ? 1 : 0) + (rr[3] & 1 ? 1 : 0) + (rr[3] & 2 ? 1 : 0);
+    let n = rr[9] + rr[10] + rr[11] + rr[12] + rr[13] + rr[14] + (rr[1] > 0 ? 1 : 0) + (rr[3] & 1 ? 1 : 0) + (rr[3] & 2 ? 1 : 0);
     let fort = rr[1] > 0;
     for (const [kind] of this.pending(region)) {
       if (kind === 'fort') {
@@ -998,7 +1009,7 @@ export class GameScreen {
 
   private resources(): Resources {
     const me = (this.snap as Snapshot).players[this.you as number];
-    return { money: me.res[0], manpower: me.res[1], steel: me.res[2], oil: me.res[3] };
+    return { money: me.res[0], manpower: me.res[1], steel: me.res[2], oil: me.res[3], research: me.res[4] };
   }
 
   /** Why `kind` can't be built in a region right now, or null if it can (mirrors Sim.whyNotBuild). */
@@ -1552,7 +1563,7 @@ export class GameScreen {
     const here = snap.blobs.filter((b) => b[6] === region.id && b[8] === 0);
     // The stack cap counts every token in the region, moving out or waiting included.
     const myCount = snap.blobs.filter((b) => b[6] === region.id && b[1] === this.you).length;
-    const used = rr[9] + rr[10] + rr[11] + rr[12] + rr[13] + (rr[1] > 0 ? 1 : 0) + (rr[3] & 1 ? 1 : 0) + (rr[3] & 2 ? 1 : 0);
+    const used = rr[9] + rr[10] + rr[11] + rr[12] + rr[13] + rr[14] + (rr[1] > 0 ? 1 : 0) + (rr[3] & 1 ? 1 : 0) + (rr[3] & 2 ? 1 : 0);
     const info: Array<[string, string]> = [
       ['Owner', owner >= 0 ? (this.players[owner]?.name ?? '?') : 'Neutral'],
       ['City', rr[2] > 0 ? `level ${rr[2]} / ${MAX_CITY} · supplies ${supplyReach(rr[2], this.techsOf(owner))} regions out` : 'none'],
@@ -1570,8 +1581,7 @@ export class GameScreen {
     }
 
     if (owner === this.you && this.you !== null) {
-      const me = snap.players[this.you];
-      const res: Resources = { money: me.res[0], manpower: me.res[1], steel: me.res[2], oil: me.res[3] };
+      const res = this.resources();
       // What's built (each can be knocked down to free its slot).
       const built: Array<[BuildingKind, string]> = [];
       for (const k of ECON_KINDS) for (let i = 0; i < rr[ECON_FIELD[k]]; i++) built.push([k, BUILD_LABEL[k]]);
@@ -1617,7 +1627,7 @@ export class GameScreen {
 
   /** What a region makes per second, or why it makes nothing. */
   private yieldLine(region: Region, rr: Snapshot['regions'][number]): string {
-    const y = regionYield(region, rr[2], { farm: rr[9], mine: rr[10], well: rr[11], market: rr[12] }, this.techsOf(rr[0]));
+    const y = regionYield(region, rr[2], { farm: rr[9], mine: rr[10], well: rr[11], market: rr[12], lab: rr[14] }, this.techsOf(rr[0]));
     const parts = RESOURCES.filter((k) => y[k] > 0).map((k) => `+${Math.round(y[k] * 100) / 100} ${k}/s`);
     if (!parts.length) return 'nothing (build a farm, mine, oil well or market)';
     const idle = rr[0] >= 0 && !(rr[3] & 4) ? ' (stopped: out of supply)' : '';

@@ -16,8 +16,10 @@ export interface Resources {
   manpower: number;
   steel: number;
   oil: number;
+  /** Research points: spent on techs (see TECHS), made by labs and cities. */
+  research: number;
 }
-export const RESOURCES: readonly (keyof Resources)[] = ['money', 'manpower', 'steel', 'oil'];
+export const RESOURCES: readonly (keyof Resources)[] = ['money', 'manpower', 'steel', 'oil', 'research'];
 
 export interface UnitStats {
   /** Most strength one blob can have; merging stops here. */
@@ -56,10 +58,10 @@ export const UNITS: Record<UnitType, UnitStats> = {
     attack: 1,
     defense: 1.2,
     terrainAttack: { plains: 1, forest: 1, hills: 1, mountains: 1 },
-    cost: { money: 50, manpower: 100, steel: 0, oil: 0 },
+    cost: { money: 50, manpower: 100, steel: 0, oil: 0, research: 0 },
     buildTime: 20,
     upkeep: 0.02,
-    refillCost: { money: 1, manpower: 5, steel: 0, oil: 0 },
+    refillCost: { money: 1, manpower: 5, steel: 0, oil: 0, research: 0 },
     supplyNeed: 1,
     producedAt: 'barracks',
   },
@@ -70,10 +72,10 @@ export const UNITS: Record<UnitType, UnitStats> = {
     attack: 2.5,
     defense: 1.5,
     terrainAttack: { plains: 1.2, forest: 0.6, hills: 0.7, mountains: 0.4 },
-    cost: { money: 90, manpower: 30, steel: 38, oil: 18 },
+    cost: { money: 90, manpower: 30, steel: 38, oil: 18, research: 0 },
     buildTime: 30,
     upkeep: 0.06,
-    refillCost: { money: 3, manpower: 1, steel: 3, oil: 1 },
+    refillCost: { money: 3, manpower: 1, steel: 3, oil: 1, research: 0 },
     supplyNeed: 2,
     producedAt: 'factory',
   },
@@ -85,10 +87,10 @@ export const UNITS: Record<UnitType, UnitStats> = {
     attack: 0.2,
     defense: 0.35,
     terrainAttack: { plains: 1, forest: 1, hills: 1, mountains: 1 },
-    cost: { money: 80, manpower: 30, steel: 30, oil: 0 },
+    cost: { money: 80, manpower: 30, steel: 30, oil: 0, research: 0 },
     buildTime: 30,
     upkeep: 0.04,
-    refillCost: { money: 2, manpower: 3, steel: 2, oil: 0 },
+    refillCost: { money: 2, manpower: 3, steel: 2, oil: 0, research: 0 },
     supplyNeed: 1.5,
     producedAt: 'factory',
     range: 2,
@@ -192,18 +194,18 @@ export const STACK_MIN = 2;
 // make the matching building yield more (see econYield).
 
 export type StartingResources = 'low' | 'normal' | 'high';
-export const STARTING: Resources = { money: 150, manpower: 250, steel: 40, oil: 20 };
+export const STARTING: Resources = { money: 150, manpower: 250, steel: 40, oil: 20, research: 0 };
 export const STARTING_MULTIPLIER: Record<StartingResources, number> = { low: 0.5, normal: 1, high: 2 };
 
 // -- buildings --------------------------------------------------------------------------------
 
 export type ProductionBuilding = 'barracks' | 'factory';
 /** Economic buildings: each takes a slot and raises one resource. */
-export type EconKind = 'farm' | 'mine' | 'well' | 'market';
-export const ECON_KINDS: readonly EconKind[] = ['farm', 'mine', 'well', 'market'];
+export type EconKind = 'farm' | 'mine' | 'well' | 'market' | 'lab';
+export const ECON_KINDS: readonly EconKind[] = ['farm', 'mine', 'well', 'market', 'lab'];
 /** 'city' founds a city, or expands one that's there; 'road' is built across a border. */
 export type BuildingKind = EconKind | 'city' | 'fort' | ProductionBuilding | 'road' | 'depot';
-export const BUILDING_KINDS: readonly BuildingKind[] = ['farm', 'mine', 'well', 'market', 'city', 'fort', 'barracks', 'factory', 'road', 'depot'];
+export const BUILDING_KINDS: readonly BuildingKind[] = ['farm', 'mine', 'well', 'market', 'city', 'fort', 'barracks', 'factory', 'road', 'depot', 'lab'];
 export const MAX_FORT = 3;
 export const MAX_CITY = 5;
 /** Builds a region can have waiting behind the one under way. */
@@ -217,7 +219,9 @@ export const FOUND_CITY_MIN_HOPS = 2;
 /** Crossing a border with a road takes this share of the time. */
 export const ROAD_SPEED = 0.6;
 /** What a city gives per level, every second (tax and manpower). */
-export const CITY_YIELD: Resources = { money: 0.8, manpower: 0.25, steel: 0, oil: 0 };
+export const CITY_YIELD: Resources = { money: 0.8, manpower: 0.25, steel: 0, oil: 0, research: 0 };
+/** Research points every country makes without labs: enough to crawl up the tree. */
+export const BASE_RESEARCH = 0.1;
 /** Your capital starts at least this big; cities of countries nobody plays start at 1. */
 export const START_CAPITAL_LEVEL = 3;
 export const NEUTRAL_CITY_LEVEL = 1;
@@ -226,12 +230,12 @@ export const NEUTRAL_CITY_LEVEL = 1;
 
 /** What a country can stockpile: each city level stores this much, each depot this much more.
  * Income beyond it is lost. Taking a city or depot takes its share of the owner's stock. */
-export const STORE_PER_CITY_LEVEL: Resources = { money: 250, manpower: 250, steel: 120, oil: 120 };
-export const STORE_PER_DEPOT: Resources = { money: 1000, manpower: 1000, steel: 500, oil: 500 };
+export const STORE_PER_CITY_LEVEL: Resources = { money: 250, manpower: 250, steel: 120, oil: 120, research: 100 };
+export const STORE_PER_DEPOT: Resources = { money: 1000, manpower: 1000, steel: 500, oil: 500, research: 200 };
 
 /** What one region stores. */
 export function storeOf(city: number, depots: number, techs: Techs = []): Resources {
-  const out = { money: 0, manpower: 0, steel: 0, oil: 0 };
+  const out = { money: 0, manpower: 0, steel: 0, oil: 0, research: 0 };
   const more = techs.includes('warehouses') ? 1.5 : 1;
   for (const k of RESOURCES) out[k] = (STORE_PER_CITY_LEVEL[k] * city + STORE_PER_DEPOT[k] * depots) * more;
   return out;
@@ -257,13 +261,15 @@ export function econYield(kind: EconKind, region: Region, city = 0): Partial<Res
       return { oil: 0.5 };
     case 'market':
       return { money: city > 0 ? 0.6 : 0.4 };
+    case 'lab':
+      return { research: 0.5 };
   }
 }
 
 /** Everything a region yields per second while it's supplied and not fought over: its city's
  * tax plus its economic buildings. */
 export function regionYield(region: Region, city: number, econ: Record<EconKind, number>, techs: Techs = []): Resources {
-  const out: Resources = { money: 0, manpower: 0, steel: 0, oil: 0 };
+  const out: Resources = { money: 0, manpower: 0, steel: 0, oil: 0, research: 0 };
   const bank = techs.includes('banking') ? 1.25 : 1;
   out.money += CITY_YIELD.money * city * bank;
   out.manpower += CITY_YIELD.manpower * city;
@@ -272,6 +278,7 @@ export function regionYield(region: Region, city: number, econ: Record<EconKind,
     mine: techs.includes('industry') ? 1.3 : 1,
     well: techs.includes('industry') ? 1.3 : 1,
     market: bank,
+    lab: 1,
   };
   for (const kind of ECON_KINDS) {
     const y = econYield(kind, region, city);
@@ -292,6 +299,7 @@ export function canBuildOn(kind: BuildingKind, region: Region, city: number): bo
       return t.includes('oil');
     case 'barracks':
     case 'factory':
+    case 'lab':
       return city > 0;
     default:
       return true;
@@ -305,9 +313,10 @@ export const BUILD_NEEDS: Partial<Record<BuildingKind, string>> = {
   well: 'an oil field',
   barracks: 'a city',
   factory: 'a city',
+  lab: 'a city',
 };
 
-const res = (money: number, steel = 0): Resources => ({ money, manpower: 0, steel, oil: 0 });
+const res = (money: number, steel = 0): Resources => ({ money, manpower: 0, steel, oil: 0, research: 0 });
 
 /** Cost and build time. `level` is the level reached: fort 1-3; city 1 = found, 2-5 = expand. */
 export function buildCost(kind: BuildingKind, level = 1): { cost: Resources; seconds: number } {
@@ -332,6 +341,8 @@ export function buildCost(kind: BuildingKind, level = 1): { cost: Resources; sec
       return { cost: res(30, 5), seconds: 30 };
     case 'depot':
       return { cost: res(120, 20), seconds: 45 };
+    case 'lab':
+      return { cost: res(150, 30), seconds: 60 };
   }
 }
 
@@ -469,12 +480,10 @@ export const TECHS: readonly Tech[] = [
 /** What every country starts with: the root of the tree. */
 export const TECH_ROOT = { name: 'Modern State', effect: 'Where every country starts' };
 
-/** What researching a tier costs, paid when it starts (refunded if cancelled). */
-export function techCost(tier: number): { cost: Resources; seconds: number } {
-  if (tier <= 1) return { cost: res(250, 30), seconds: 60 };
-  if (tier === 2) return { cost: res(500, 80), seconds: 90 };
-  if (tier === 3) return { cost: res(900, 150), seconds: 120 };
-  return { cost: res(1200, 200), seconds: 150 };
+/** Research points a tech of a tier takes. They're paid in as research goes: from the stock
+ * first, then as labs and cities make them, so more labs mean faster research. */
+export function techCost(tier: number): number {
+  return [0, 60, 150, 300, 450][Math.min(4, Math.max(1, tier))];
 }
 
 /** Why a tech can't be researched (given what's done), or null. */
