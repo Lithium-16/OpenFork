@@ -3,9 +3,9 @@
 import { decodeGrid, type GameMap, WATER } from '../shared/map.ts';
 import type { BlobRow, GamePlayer, Snapshot } from '../shared/protocol.ts';
 import { UNIT_INDEX } from '../shared/protocol.ts';
-import { BUILDING_KINDS, type BuildingKind, ROAD_SUPPLY_HOP, supplyCapacity, supplyReach, UNITS } from '../shared/rules.ts';
+import { BUILDING_KINDS, type BuildingKind, regionYield, RESOURCES, ROAD_SUPPLY_HOP, supplyCapacity, supplyReach, UNITS } from '../shared/rules.ts';
 import { Fx } from './fx.ts';
-import { art, blit, blitCentred, FRAME_H, FRAME_W, ICONS, INK, MAP_ART, pixelDigits, ROAD_COLOR, ROAD_SHADE, shade, type Sprite, unitFrame } from './sprites.ts';
+import { art, blit, blitCentred, digitsWidth, FRAME_H, FRAME_W, HUD, ICONS, INK, MAP_ART, pixelDigits, ROAD_COLOR, ROAD_SHADE, romanSprite, shade, type Sprite, unitFrame } from './sprites.ts';
 
 export interface Camera {
   x: number;
@@ -38,8 +38,9 @@ interface Item {
   group: string;
   /** Part of the expanded stack: never merged or pushed, drawn on top. */
   pinned?: boolean;
-  /** Defenders under attack: what helps them hold (shown as a shield badge). */
-  shield?: { fort: number; dug: boolean; river: boolean };
+  /** Defenders under attack: their fort and whether the attackers come over a river (shown
+   * on the shield badge). */
+  shield?: { fort: number; river: boolean };
   /** Position in map coordinates. */
   tx: number;
   ty: number;
@@ -72,6 +73,10 @@ export class MapView {
   cam: Camera = { x: 0, y: 0, scale: 1 };
   /** Supply overlay on (for the player `you`). */
   overlay = false;
+  /** Yield overlay on: what each of your regions makes per second. */
+  yields = false;
+  /** Building slots of your regions, [used, all], shown as boxes (placing or yield overlay). */
+  slots: Map<number, [number, number]> | null = null;
   private readonly supplyLayer: HTMLCanvasElement;
   private supplySnap: Snapshot | null = null;
   private supplyImg: ImageData | null = null;
@@ -81,7 +86,7 @@ export class MapView {
   /** The stack shown as single tokens after a click on it, or null. */
   expanded: string | null = null;
   /** Placement mode: where the building can go, and the region under the cursor. */
-  placement: { valid: Set<number>; hover: number } | null = null;
+  placement: { valid: Set<number>; hover: number; demolish?: boolean } | null = null;
   /** Orders sent but not yet in a snapshot, drawn at once so input feels instant. */
   readonly pending: {
     move: { ids: number[]; to: number; since: number } | null;
@@ -926,8 +931,9 @@ export class MapView {
     }
   }
 
-  /** Placement: valid regions tinted green, everything else dimmed (changed regions only). */
-  private updatePlaceLayer(valid: Set<number>): void {
+  /** Placement: valid regions tinted green (red when demolishing), everything else dimmed
+   * (changed regions only). */
+  private updatePlaceLayer(valid: Set<number>, demolish: boolean): void {
     const W = this.map.width;
     const ctx = this.placeLayer.getContext('2d') as CanvasRenderingContext2D;
     if (!this.placeImg) {
@@ -940,10 +946,11 @@ export class MapView {
     const d = this.placeImg.data;
     let [x0, y0, x1, y1] = [W, this.map.height, -1, -1];
     for (let r = 0; r < this.shownValid.length; r++) {
-      const on = valid.has(r) ? 1 : 0;
+      const on = valid.has(r) ? (demolish ? 2 : 1) : 0;
       if (on === this.shownValid[r]) continue;
       this.shownValid[r] = on;
-      for (const p of this.regionPixels[r]) d.set(on ? [70, 220, 100, 120] : [8, 11, 14, 140], p * 4);
+      const tint = on === 2 ? [230, 80, 70, 120] : on === 1 ? [70, 220, 100, 120] : [8, 11, 14, 140];
+      for (const p of this.regionPixels[r]) d.set(tint, p * 4);
       const o = r * 4;
       x0 = Math.min(x0, this.regionBox[o]);
       y0 = Math.min(y0, this.regionBox[o + 1]);
@@ -1026,7 +1033,7 @@ export class MapView {
     if (this.fx.level === 'full') this.drawAmbient(snap);
     if (showSupply) ctx.drawImage(this.supplyLayer, 0, 0);
     if (place) {
-      this.updatePlaceLayer(place.valid);
+      this.updatePlaceLayer(place.valid, !!place.demolish);
       ctx.drawImage(this.placeLayer, 0, 0);
     }
     if (lit >= 0) ctx.drawImage(this.highlight, 0, 0);
@@ -1119,24 +1126,35 @@ export class MapView {
       const y = Math.round(fy);
       if (x < -80 || y < -80 || x > this.canvas.clientWidth + 80 || y > this.canvas.clientHeight + 80) continue;
 
-      // Icons in a row above the units: capital, fort, barracks, factory (towns are on the map).
-      const icons: Sprite[] = [];
-      if (capitals.has(region.id)) icons.push(ICONS.capital);
-      if (rr[1] > 0) for (let i = 0; i < rr[1]; i++) icons.push(ICONS.fort);
-      if (rr[3] & 1) icons.push(ICONS.barracks);
-      if (rr[3] & 2) icons.push(ICONS.factory);
+      // Icons in a row above the units: capital or city, and fort, each with its level as a
+      // roman numeral on its bottom-right corner; then barracks, factory.
+      const icons: Array<{ s: Sprite; level?: number }> = [];
+      const city = rr[2];
+      if (capitals.has(region.id)) icons.push({ s: ICONS.capital, level: city });
+      else if (city > 0) icons.push({ s: ICONS.city, level: city });
+      if (rr[1] > 0) icons.push({ s: ICONS.fort, level: rr[1] });
+      if (rr[3] & 1) icons.push({ s: ICONS.barracks });
+      if (rr[3] & 2) icons.push({ s: ICONS.factory });
       const showIcons = icons.length > 0 && zoom >= 0.5;
       const iconBottom = y + tokenTop - 2;
       if (showIcons) {
-        const gap = ipx;
-        const total = icons.reduce((sum, i) => sum + i.width * ipx, 0) + gap * (icons.length - 1);
+        const gap = 2 * ipx;
+        // The numeral hangs 2 art pixels past the icon's right edge and 2 below it.
+        const width = (i: { s: Sprite; level?: number }) => i.s.width * ipx + (i.level ? 2 * ipx : 0);
+        const total = icons.reduce((sum, i) => sum + width(i), 0) + gap * (icons.length - 1);
         let ix = Math.round(x - total / 2);
         for (const icon of icons) {
-          blit(ctx, icon, ix, iconBottom - icon.height * ipx, ipx);
-          ix += icon.width * ipx + gap;
+          blit(ctx, icon.s, ix, iconBottom - icon.s.height * ipx, ipx);
+          if (icon.level) {
+            const n = romanSprite(icon.level);
+            blit(ctx, n, ix + (icon.s.width + 2 - n.width) * ipx, iconBottom - (n.height - 2) * ipx, ipx);
+          }
+          ix += width(icon) + gap;
         }
       } else if (capitals.has(region.id)) {
         blitCentred(ctx, ICONS.capital, x, y, 1);
+      } else if (city > 0) {
+        blitCentred(ctx, ICONS.city, x, y, 1);
       }
 
       // Name, in the pixel font, above everything else (not over a battle unless zoomed in).
@@ -1152,6 +1170,50 @@ export class MapView {
         if (this.supply.hubs.includes(region.id)) blitCentred(ctx, ICONS.crate, x - 12 * ipx, y + tokenTop - 6 * ipx, ipx);
         const load = (this.supply.need.get(region.id) ?? 0) / supplyCapacity(region, rr[2]);
         if (load > 0) cells(ctx, x, y + below + 8 * px, Math.min(1, load), load > 1 ? '#ff5a5a' : load > 0.75 ? '#ffb347' : '#7bd389', px);
+      }
+
+      // Under your regions, on one dark plate: what the region makes per second (yield
+      // overlay; grey while it makes nothing: out of supply or fought over), then its building
+      // slots as boxes, filled when used, hollow green when free (yield overlay and placement).
+      const slots = this.slots?.get(region.id);
+      if (you !== null && rr[0] === you && zoom >= 0.5 && (this.yields || slots)) {
+        const econ = { farm: rr[9], mine: rr[10], well: rr[11], market: rr[12] };
+        const y0 = regionYield(region, rr[2], econ);
+        const parts = this.yields ? RESOURCES.filter((k) => y0[k] > 0).map((k) => ({ k, text: `+${Math.round(y0[k] * 10) / 10}` })) : [];
+        const is = Math.max(2, ipx);
+        const ds = Math.max(2, ipx);
+        const w = (p: { text: string }) => 9 * is + ds + digitsWidth(p.text, ds);
+        const boxes = slots ? slots[1] * 5 * is - is : 0;
+        const items = parts.length + (slots ? 1 : 0);
+        if (items) {
+          const total = parts.reduce((sum, p) => sum + w(p), 0) + boxes + 3 * ds * (items - 1);
+          const cy = Math.round(y + below + 12 * px + 6 * is);
+          ctx.fillStyle = 'rgba(11, 15, 19, 0.75)';
+          ctx.fillRect(Math.round(x - total / 2) - 2 * ds, cy - 6 * is, total + 4 * ds, 12 * is);
+          let ix = Math.round(x - total / 2);
+          const working = (rr[3] & 4) !== 0 && (owners.get(region.id)?.size ?? 0) <= 1;
+          for (const p of parts) {
+            blit(ctx, HUD[p.k], ix, cy - Math.round(4.5 * is), is);
+            pixelDigits(ctx, p.text, ix + 9 * is + ds + digitsWidth(p.text, ds) / 2, cy, ds, working ? '#7bd389' : '#8b9aa6');
+            ix += w(p) + 3 * ds;
+          }
+          if (slots) {
+            const [used, all] = slots;
+            const top = cy - 2 * is;
+            for (let i = 0; i < all; i++) {
+              const bx = ix + i * 5 * is;
+              if (i < used) {
+                ctx.fillStyle = '#9aa7b1';
+                ctx.fillRect(bx, top, 4 * is, 4 * is);
+              } else {
+                ctx.fillStyle = '#7bd389';
+                ctx.fillRect(bx, top, 4 * is, 4 * is);
+                ctx.fillStyle = INK;
+                ctx.fillRect(bx + is, top + is, 2 * is, 2 * is);
+              }
+            }
+          }
+        }
       }
 
       // Capture progress: 8 cells in the capturer's colour, under the units.
@@ -1244,7 +1306,7 @@ export class MapView {
         const river = sorted.some((b) => b[1] !== holder && overRiver(b));
         for (const sl of middle) {
           if (sl.owner === holder && !sl.moving) {
-            (sl as Item).shield = { fort: snap.regions[region][1], dug: sl.rows.some((b) => b[9] >= 0.5), river };
+            (sl as Item).shield = { fort: snap.regions[region][1], river };
           }
         }
       }
@@ -1695,9 +1757,12 @@ export class MapView {
         ctx.fillRect(bx, Math.round(y0 + h - px - (i + 1) * cell), px, Math.max(px, Math.round(cell) - px));
       }
     }
-    // Defenders under attack: a shield with fort level, dug in and river.
-    if (it.shield && !it.moving) {
-      const sh = shieldSprite(it.shield.fort, it.shield.dug, it.shield.river);
+    // A shield beside units that are digging in (it fills with earth from the bottom as they
+    // entrench, the slowest unit of a stack counting, and stays full once they're dug in)
+    // or under attack (with the fort level and a river the attackers cross).
+    const dig = it.moving ? 0 : Math.min(...rows.map((b) => b[9]));
+    if (!it.moving && (it.shield || dig > 0)) {
+      const sh = shieldSprite(it.shield?.fort ?? 0, dig, it.shield?.river ?? false);
       blit(ctx, sh, x0 - (sh.width + 1) * px, y0 + px, px);
     }
     // Selected: blinking corner brackets.
@@ -1713,12 +1778,20 @@ function battleRegion(b: BlobRow): number {
 }
 
 const shieldCache = new Map<string, HTMLCanvasElement>();
-/** A defender's shield: fort pips at the top, a blue wave for a river, a brown bar if dug in. */
-function shieldSprite(fort: number, dug: boolean, river: boolean): HTMLCanvasElement {
-  const key = `${fort}${dug}${river}`;
+/** The shield badge: earth fills it from the bottom as the units dig in (`dig` 0..1), with
+ * fort pips at the top and a blue wave for a river when they're under attack. */
+function shieldSprite(fort: number, dig: number, river: boolean): HTMLCanvasElement {
+  const rows = ['OOOOOOO', 'OGGGGGO', 'OGGGGGO', 'OGGGGGO', 'OGGGGGO', 'OGGGGGO', '.OGGGO.', '..OGO..', '...O...'].map((r) => r.split(''));
+  // Earth fills the inside by area, pixel by pixel from the tip up (each row left to right),
+  // full only once dug in; the row being filled is lighter, like fresh earth.
+  const inside: Array<[number, number]> = [];
+  for (let y = rows.length - 1; y >= 0; y--) for (let x = 0; x < 7; x++) if (rows[y][x] === 'G') inside.push([y, x]);
+  const filled = dig >= 1 ? inside.length : Math.min(inside.length - 1, Math.floor(dig * inside.length));
+  const key = `${fort}${filled}${river}`;
   let c = shieldCache.get(key);
   if (c) return c;
-  const rows = ['OOOOOOO', 'OGGGGGO', 'OGGGGGO', 'OGGGGGO', 'OGGGGGO', 'OGGGGGO', '.OGGGO.', '..OGO..', '...O...'].map((r) => r.split(''));
+  const surface = filled > 0 && filled < inside.length ? inside[filled - 1][0] : -1;
+  for (const [y, x] of inside.slice(0, filled)) rows[y][x] = y === surface ? 'd' : 'D';
   for (let i = 0; i < Math.min(3, fort); i++) rows[2][1 + i * 2] = 'K';
   if (river) {
     rows[4][1] = 'B';
@@ -1727,10 +1800,9 @@ function shieldSprite(fort: number, dug: boolean, river: boolean): HTMLCanvasEle
     rows[3][2] = 'B';
     rows[3][4] = 'B';
   }
-  if (dug) for (let x = 2; x <= 4; x++) rows[6][x] = 'D';
   c = art(
     rows.map((r) => r.join('')),
-    { G: '#c9d1d6', K: '#3b4248', B: '#4fa3e0', D: '#8a6a3d' },
+    { G: '#c9d1d6', K: '#3b4248', B: '#4fa3e0', D: '#9c7442', d: '#c49a5c' },
   );
   shieldCache.set(key, c);
   return c;

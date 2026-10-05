@@ -50,9 +50,10 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
 
 ## 3. Economy
 - Resources: **money, manpower, oil, steel**.
-- **Yields:** every region gives a little money + manpower. Traits add the rest: industry →
-  steel, oil field → oil, farmland → manpower. Cities pay tax: +0.6 money and +0.15 manpower
-  per level, every second.
+- **Yields:** land yields nothing by itself. Cities pay tax (+0.8 money and +0.25 manpower
+  per level, every second) and economic buildings make the rest. Traits make the matching
+  building better: farmland → farms, industry → mines, oil field → oil wells (only there).
+  The yield overlay (B) shows what each of your regions makes; the region panel says it too.
 - **Upkeep:** each blob costs money per minute, scaled by its size and type. If income goes
   below upkeep, **blobs wither**: they lose strength and training until you're back in the
   plus.
@@ -70,11 +71,14 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
 - **Slots:** a region has 1 (2 if large), plus its city level. Every
   building but cities and roads takes one (a fort takes one for all its levels). Choosing
   what a region is for is the trade-off; demolishing frees a slot at once, with no refund.
+  Your regions show their slots as boxes (filled = used, hollow green = free) while you place
+  or demolish, and with the yield overlay. **Demolish mode** (0 or the build bar): pick a
+  building and click your regions that have one (tinted red).
 - **Economic buildings** go only within 2 regions of one of your cities:
-  - Farm (+0.3 manpower/s): farmland or plains.
-  - Mine (+0.4 steel/s on industry, +0.25 on hills or mountains).
-  - Oil well (+0.4 oil/s): oil fields.
-  - Market (+0.4 money/s): anywhere.
+  - Farm (+0.4 manpower/s, +0.6 on farmland): farmland or plains.
+  - Mine (+0.6 steel/s on industry, +0.3 on hills or mountains).
+  - Oil well (+0.5 oil/s): oil fields.
+  - Market (+0.4 money/s, +0.6 in a city): anywhere.
   Several of the same kind per region are fine.
 - **Military buildings:** fort (levels 1–3) anywhere you own; barracks and factory in cities.
 - **Roads** join two of your regions across their border: crossing is 40% faster (for
@@ -108,7 +112,10 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
 - **Merging and splitting:**
   - Only same-type blobs merge, in any amounts (a 5 and a 10 make a 15). The merged blob's
     training is the size-weighted average minus a penalty, and it stops at 100 strength
-    (the rest stays behind).
+    (the rest stays behind). Units in a fight can't merge, nor can a unit below 25% of its
+    full strength (no patching wrecks together).
+  - **Disband** (Del): the units go, and half the manpower their remaining strength cost
+    comes back. Not in a fight.
   - Splitting is free and takes any amount: half (X), one batch, or a number typed in the
     unit panel. Both parts keep their training.
   - Bots keep units around two batches, and merge bigger only when a region is full.
@@ -163,7 +170,8 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
 - **Defender bonus = fort + entrenchment + river crossing**, added together, for the region
   owner's blobs standing in it. The river bonus counts the attackers coming over a river
   edge. **Entrenchment** builds up while a blob holds still and is lost when it moves or
-  attacks.
+  attacks. A shield beside the token fills with earth as it digs in and stays full once it's
+  dug in (under attack, the same shield also shows the fort level and a river crossed).
 - **Capturing waits** while a region is fought over, inside or from next door.
 - Anyone can reinforce either side mid-battle. With 3 or more sides, **each side spreads its
   damage over all hostile sides in proportion to their strength**.
@@ -252,11 +260,12 @@ going their way. A bot playing for a disconnected person never starts a war.
 | Merge penalty | −10 training |
 | Capture time, empty plains, medium size | 6.5 s (× terrain/size/fort, ÷ training) |
 | Infantry / tank production | 20 s / 30 s |
+| Infantry / tank batch cost | $50 + 100 manpower (10 strength) / $90 + 30 manpower + 38 steel + 18 oil (5 strength) |
 | Truce after peace / peace offer stands | 180 s / 30 s |
 | Supply reach from a city | 3 + its level (roads: half a hop) |
 | Supply capacity of a region | 90 × terrain × (1 + 0.25 × city level); infantry needs 1 per point, tanks 2 |
-| Base yield per region (money / manpower) | 0.12 / 0.15 per s |
-| Starting resources (normal) | $120, 120 manpower, 25 steel, 20 oil |
+| Yield of land without buildings | none (city tax: 0.8 money, 0.25 manpower per level per s) |
+| Starting resources (normal) | $150, 250 manpower, 40 steel, 20 oil |
 | Build times | farm, market 60 s; mine, oil well 75 s; fort 60 s per level; barracks 60 s; factory 120 s; road 30 s |
 | Stack cap | 2–4 tokens by size/terrain, +1 per fort level, +1 per city level |
 | Slots | 1 (large: 2), + city level |
