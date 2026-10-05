@@ -53,34 +53,37 @@
     </main>
 
     <main id="game" class="screen hidden">
-      <canvas id="map"></canvas>
-      <div id="topbar" class="hud topbar"></div>
-      <div class="rightcol">
-        <div id="players" class="hud players"></div>
-        <div id="offers" class="hud offers hidden"></div>
+      <canvas id="map" aria-label="Map of Europe: click a region or unit, right click to send units"></canvas>
+      <!-- Everything over the map, zoomed together by the UI size setting. -->
+      <div id="hud" class="hud-layer">
+        <div id="topbar" class="hud topbar" role="toolbar" aria-label="Resources and views"></div>
+        <div class="rightcol">
+          <div id="players" class="hud players" role="region" aria-label="Countries"></div>
+          <div id="offers" class="hud offers hidden"></div>
+        </div>
+        <div id="panel" class="hud panel hidden" role="region" aria-label="Selection"></div>
+        <div id="research" class="techtree hidden" role="dialog" aria-label="Research"></div>
+        <div id="feed" class="hud feed" role="log" aria-live="polite" aria-label="Situation report"></div>
+        <div id="legend" class="hud legend hidden">
+          <div class="classbar"><span>Supply</span><span>V</span></div>
+          <div><i class="key in"></i>in supply <i class="key edge"></i>edge of reach <i class="key over"></i>overloaded <i class="key cut"></i>cut off</div>
+          <div>Overloaded: more troops than the region feeds (orange dot on units); they wither. Cut off: no supply at all (red cross on units).</div>
+          <div>Crate = hub (capital, city) · bar under units = load vs capacity</div>
+        </div>
+        <div id="buildbar" class="hud buildbar hidden" role="toolbar" aria-label="Build"></div>
+        <div id="minimap-box" class="hud minimap">
+          <div class="classbar"><span>Theatre</span></div>
+          <canvas id="minimap" aria-label="Minimap: click to move the view"></canvas>
+        </div>
+        <div id="help" class="hud help" role="region" aria-label="Controls">
+          <button class="classbar fold" id="help-fold" aria-expanded="true" aria-controls="help"><span id="help-fold-title">Controls</span><span id="help-fold-label">Hide ▴</span></button>
+          <div><b>LMB</b> select · <b>drag</b> box · <b>RMB</b> send · <b>RMB drag</b> pan · <b>wheel</b> zoom</div>
+          <div><b>click</b> stack: expand · <b>2×click</b> select stack · <b>X</b> split · <b>G</b> merge · <b>H</b> halt · <b>Del</b> disband</div>
+          <div><b>1-9</b> build: click a region, roads: drag (<b>shift</b> more, <b>esc</b> stop) · <b>-</b> road · <b>=</b> depot · <b>P</b> port · <b>Q</b>/<b>E</b>/<b>R</b>/<b>F</b> produce · <b>T</b> research</div>
+          <div><b>V</b> supply · <b>B</b> yield · <b>Space</b> capital · <b>M</b> mute · <b>?</b> keys · <b>Esc</b> menu</div>
+        </div>
       </div>
-      <div id="panel" class="hud panel hidden"></div>
-      <div id="research" class="techtree hidden"></div>
-      <div id="feed" class="hud feed"></div>
-      <div id="legend" class="hud legend hidden">
-        <div class="classbar"><span>Supply</span><span>V</span></div>
-        <div><i class="key in"></i>in supply <i class="key edge"></i>edge of reach <i class="key over"></i>overloaded <i class="key cut"></i>cut off</div>
-        <div>Overloaded: more troops than the region feeds (orange cube on units); they wither. Cut off: no supply at all.</div>
-        <div>Crate = hub (capital, city) · bar under units = load vs capacity</div>
-      </div>
-      <div id="buildbar" class="hud buildbar hidden"></div>
-      <div id="minimap-box" class="hud minimap">
-        <div class="classbar"><span>Theatre</span></div>
-        <canvas id="minimap"></canvas>
-      </div>
-      <div id="help" class="hud help">
-        <div class="classbar fold" id="help-fold"><span>Controls</span><span id="help-fold-label">Hide ▴</span></div>
-        <div><b>LMB</b> select · <b>drag</b> box · <b>RMB</b> send · <b>RMB drag</b> pan · <b>wheel</b> zoom</div>
-        <div><b>click</b> stack: expand · <b>2×click</b> select stack · <b>X</b> split · <b>G</b> merge · <b>H</b> halt · <b>Del</b> disband</div>
-        <div><b>1-9</b> build: click a region, roads: drag (<b>shift</b> more, <b>esc</b> stop) · <b>-</b> road · <b>=</b> depot · <b>P</b> port · <b>Q</b>/<b>E</b>/<b>R</b>/<b>F</b> produce · <b>T</b> research</div>
-        <div><b>V</b> supply · <b>B</b> yield · <b>Space</b> capital · <b>M</b> mute · <b>Esc</b> menu</div>
-      </div>
-      <div id="over" class="overlay hidden">
+      <div id="over" class="overlay hidden" role="dialog" aria-modal="true" aria-labelledby="over-title">
         <div class="card">
           <div class="classbar"><span>Flash // End of operations</span></div>
           <h2 id="over-title"></h2>
@@ -90,18 +93,24 @@
           </div>
         </div>
       </div>
-      <div id="menu" class="overlay hidden">
+      <div id="menu" class="overlay hidden" role="dialog" aria-modal="true" aria-label="Menu">
         <div class="card menu-card">
           <div class="classbar"><span>Command // Menu</span><span>Esc</span></div>
           <button id="menu-resume" class="primary">Resume</button>
           <button id="menu-surrender" class="danger">Surrender</button>
           <button id="menu-leave">Back to menu</button>
+          <div id="menu-scale" class="opts" role="group" aria-label="UI size">
+            <span>UI size</span>
+            <button data-scale="1">100%</button>
+            <button data-scale="1.25">125%</button>
+            <button data-scale="1.5">150%</button>
+          </div>
           <p id="menu-note" class="hint"></p>
         </div>
       </div>
     </main>
 
-    <div id="confirm" class="overlay hidden">
+    <div id="confirm" class="overlay hidden" role="alertdialog" aria-modal="true" aria-labelledby="confirm-head" aria-describedby="confirm-text">
       <div class="card">
         <div class="classbar"><span id="confirm-head">Confirm</span></div>
         <p id="confirm-text"></p>
@@ -111,8 +120,8 @@
         </div>
       </div>
     </div>
-    <div id="toast" class="toast hidden"></div>
-    <div id="offline" class="offline hidden">Signal lost: reconnecting…</div>
+    <div id="toast" class="toast hidden" role="status" aria-live="assertive"></div>
+    <div id="offline" class="offline hidden" role="alert">Signal lost: reconnecting…</div>
     <script type="module" src="app.js"></script>
   </body>
 </html>

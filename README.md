@@ -48,9 +48,10 @@ to your friends, pick countries, and start. Bots fill the empty seats.
 | T / Tech button | research screen: the tech tree with its lines and progress (one tech at a time; the button shows progress too) |
 | V | supply overlay: hubs, reach, cut-off regions, load per region |
 | B | yield overlay: what each of your regions makes per second (grey while it's stopped) |
-| Esc / Menu button | menu: surrender, or back to the main menu (a bot plays your country on); Esc first clears a selection or placement |
+| Esc / Menu button | menu: surrender, back to the main menu (a bot plays your country on), and UI size (100/125/150%, as far as the window allows; remembered); Esc first clears a selection or placement |
+| ? | show or hide the Controls box (open in your first game, folded to "? Keys" after that) |
 | M / Sound button | sound on or off (remembered) |
-| FX button | effects full or reduced (reduced drops the ambient water, clouds, smoke and traffic; it switches itself on a struggling machine) |
+| FX button | effects full or reduced (reduced drops the ambient water, clouds, smoke, traffic and the pennant flutter; it starts reduced when the system asks for less motion, and switches itself on a struggling machine) |
 | Minimap (bottom right) | click or drag to move the view |
 | Player list (top right) | declare war, offer or accept peace |
 | Space | back to your capital |
