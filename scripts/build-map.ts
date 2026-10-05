@@ -20,12 +20,18 @@ import {
   type Trait,
   WATER,
 } from '../shared/map.ts';
-import { INCLUDE, INDUSTRY, MAX_LON, OIL, PLAYABLE, RUSSIA_MAX_LABEL_LON, TURKEY_KEEP, TURKEY_MAX_LON } from './map/europe.ts';
+import { INCLUDE, INDUSTRY, ISLAND_MIN_PX, KEEP_BOX, MAX_LON, OIL, PLAYABLE, RUSSIA_MAX_LABEL_LON, TURKEY_KEEP, TURKEY_MAX_LON } from './map/europe.ts';
 import { drawLine, fillPolygon, Grid, Laea, lines, polygons } from './map/geo.ts';
 import { Elevation, LandCover, naturalEarth } from './map/sources.ts';
 
 const KM = 3; // km per pixel
-const TARGET_REGIONS = 300;
+const TARGET_REGIONS = 330;
+/** Open sea is split into regions about this many times a land region's median area. */
+const SEA_AREA_FACTOR = 4;
+/** Sea farther than this (px) from land in play is left out: open ocean nobody needs. */
+const SEA_REACH = 100;
+/** Bodies of water smaller than this (px) aren't sea regions (they stay plain water). */
+const SEA_MIN_PX = 1500;
 const AREA_EXPONENT = 0.75; // how strongly a country's area sets its share of regions
 const MIN_FRACTION = 0.3; // regions smaller than this × median are merged away
 const SPLIT_FRACTION = 1.7; // regions bigger than this × their country's average are split
@@ -75,7 +81,7 @@ for (let i = 0; i < unitOf.length; i++) {
   if (lon > MAX_LON || (units[unitOf[i]].country === 'TR' && lon > TURKEY_MAX_LON)) unitOf[i] = -1;
 }
 
-// Keep the largest 4-connected landmass: islands wait for naval.
+// Keep the mainland and every island from ISLAND_MIN_PX up, inside KEEP_BOX.
 {
   const comp = new Int32Array(unitOf.length).fill(-1);
   const sizes: number[] = [];
@@ -98,9 +104,22 @@ for (let i = 0; i < unitOf.length; i++) {
     }
     sizes.push(n);
   }
-  const main = sizes.indexOf(Math.max(...sizes));
-  for (let i = 0; i < unitOf.length; i++) if (comp[i] !== main) unitOf[i] = -1;
-  log(`mainland: ${sizes[main]} px (dropped ${sizes.length - 1} islands)`);
+  // Where each landmass is, to leave out the far-off ones.
+  const sumLon = new Float64Array(sizes.length);
+  const sumLat = new Float64Array(sizes.length);
+  for (let i = 0; i < unitOf.length; i++) {
+    if (comp[i] === -1) continue;
+    const [lon, lat] = full.toLonLat(i % full.width, Math.floor(i / full.width));
+    sumLon[comp[i]] += lon;
+    sumLat[comp[i]] += lat;
+  }
+  const keep = sizes.map((n, c) => {
+    const lon = sumLon[c] / n;
+    const lat = sumLat[c] / n;
+    return n >= ISLAND_MIN_PX && lon >= KEEP_BOX.minLon && lon <= KEEP_BOX.maxLon && lat >= KEEP_BOX.minLat && lat <= KEEP_BOX.maxLat;
+  });
+  for (let i = 0; i < unitOf.length; i++) if (comp[i] === -1 || !keep[comp[i]]) unitOf[i] = -1;
+  log(`kept ${keep.filter(Boolean).length} landmasses, dropped ${keep.filter((k) => !k).length} small or far-off islands`);
 }
 
 // Crop to the land plus a margin.
@@ -240,13 +259,15 @@ const median = () => {
 // Micro-states and slivers join the neighbour they share the longest border with.
 function absorbSmall(): void {
   const min = median() * MIN_FRACTION;
+  // Small islands have nothing to join: they stay small regions of their own.
+  const alone = new Set<number>();
   for (;;) {
-    const small = [...groups].filter(([, g]) => g.area < min).sort((a, b) => a[1].area - b[1].area)[0];
+    const small = [...groups].filter(([id, g]) => g.area < min && !alone.has(id)).sort((a, b) => a[1].area - b[1].area)[0];
     if (!small) break;
     const [id, g] = small;
     const [into] = [...g.border].sort((a, b) => b[1] - a[1])[0] ?? [];
-    if (into === undefined) break;
-    merge(into, id);
+    if (into === undefined) alone.add(id);
+    else merge(into, id);
   }
 }
 absorbSmall();
@@ -307,6 +328,7 @@ relabel();
   const largest = new Map<number, number>();
   for (const p of pieces) largest.set(p.group, Math.max(largest.get(p.group) ?? 0, p.px.length));
   let moved = 0;
+  let next = Math.max(...units.keys()) + 1;
   for (const p of pieces) {
     if (p.px.length === largest.get(p.group)) continue;
     const touch = new Map<number, number>();
@@ -316,7 +338,10 @@ relabel();
       }
     }
     const [into] = [...touch].sort((a, b) => b[1] - a[1])[0] ?? [-1];
-    for (const i of p.px) owner[i] = into;
+    // A piece touching no other land is an island of that province: a region of its own.
+    const to = into === -1 ? next++ : into;
+    if (into === -1) units[to] = { ...units[p.group] };
+    for (const i of p.px) owner[i] = to;
     moved += p.px.length;
   }
   rebuildGroups();
@@ -570,16 +595,151 @@ const regions: Region[] = groupIds.map((g, r) => {
     x: label[r][0],
     y: label[r][1],
     neighbors,
+    coast: [],
   };
 });
 dedupeNames(regions, new Set(regions.filter((r) => names[r.id]).map((r) => r.id)));
+
+// -- 3b. the sea -------------------------------------------------------------------------------
+
+// Open sea: water that isn't inside any country (so not lakes), in bodies big enough, and
+// not the Caspian (east of 45°E). Each body is split into compact sea regions: k-means
+// seeds, grown outward through the water so every sea region is one piece.
+const admin0 = await naturalEarth('ne_10m_admin_0_countries');
+const land0 = new Uint8Array(N);
+for (const f of admin0) for (const rings of polygons(f.geometry)) fillPolygon(grid, rings, (i) => (land0[i] = 1));
+const seaOf = new Int32Array(N).fill(-1);
+let S = 0;
+{
+  // How far each water pixel is from land in play (through water).
+  const reach = new Int32Array(N).fill(-1);
+  const near: number[] = [];
+  for (let i = 0; i < N; i++) {
+    if (regionOf[i] === WATER || land0[i] === 0) continue;
+    if (neighbors4(i, W, H).some((j) => regionOf[j] === WATER && !land0[j])) {
+      reach[i] = 0;
+      near.push(i);
+    }
+  }
+  for (let q = 0; q < near.length; q++) {
+    for (const j of neighbors4(near[q], W, H)) {
+      if (reach[j] === -1 && regionOf[j] === WATER && !land0[j]) {
+        reach[j] = reach[near[q]] + 1;
+        if (reach[j] < SEA_REACH) near.push(j);
+      }
+    }
+  }
+  const open = (i: number) => regionOf[i] === WATER && !land0[i] && reach[i] > 0;
+  const seen = new Uint8Array(N);
+  const target = median() * SEA_AREA_FACTOR;
+  for (let s0 = 0; s0 < N; s0++) {
+    if (seen[s0] || !open(s0)) continue;
+    const px = [s0];
+    seen[s0] = 1;
+    let west = Infinity;
+    for (let q = 0; q < px.length; q++) {
+      west = Math.min(west, grid.toLonLat(px[q] % W, Math.floor(px[q] / W))[0]);
+      for (const j of neighbors4(px[q], W, H)) {
+        if (!seen[j] && open(j)) {
+          seen[j] = 1;
+          px.push(j);
+        }
+      }
+    }
+    if (px.length < SEA_MIN_PX || west > 45) continue;
+    const k = Math.max(1, Math.round(px.length / target));
+    // k-means on a sample (a whole sea is too many pixels), then grow from the seeds.
+    const sample = px.filter((_, n) => n % 7 === 0);
+    const seeds = k === 1 ? [px[0]] : kmeans(sample, k, W);
+    const queue: number[] = [];
+    seeds.forEach((sd, n) => {
+      seaOf[sd] = S + n;
+      queue.push(sd);
+    });
+    const inBody = new Uint8Array(N);
+    for (const i of px) inBody[i] = 1;
+    for (let q = 0; q < queue.length; q++) {
+      for (const j of neighbors4(queue[q], W, H)) {
+        if (inBody[j] && seaOf[j] === -1) {
+          seaOf[j] = seaOf[queue[q]];
+          queue.push(j);
+        }
+      }
+    }
+    S += k;
+  }
+}
+// Names: the Natural Earth sea or gulf covering most of each sea region (smaller ones win
+// where they overlap bigger ones).
+const marine = (await naturalEarth('ne_10m_geography_marine_polys'))
+  .map((f) => ({ name: String(f.properties.name ?? f.properties.NAME ?? '').replace('North Atlantic Ocean', 'Atlantic'), rings: polygons(f.geometry) }))
+  .filter((m) => m.name);
+const marineAt = new Int32Array(N).fill(-1);
+{
+  const areaOf = marine.map((m) => {
+    let n = 0;
+    for (const rings of m.rings) fillPolygon(grid, rings, () => n++);
+    return n;
+  });
+  const order = marine.map((_, n) => n).sort((a, b) => areaOf[b] - areaOf[a]);
+  for (const n of order) for (const rings of marine[n].rings) fillPolygon(grid, rings, (i) => (marineAt[i] = n));
+}
+const seaArea = new Array<number>(S).fill(0);
+const seaNameVotes = Array.from({ length: S }, () => new Map<number, number>());
+const seaBorders = Array.from({ length: S }, () => new Map<number, number>());
+const seaCoast = Array.from({ length: S }, () => new Map<number, number>());
+const landCoast = Array.from({ length: R }, () => new Map<number, number>());
+for (let i = 0; i < N; i++) {
+  const z = seaOf[i];
+  if (z === -1) continue;
+  seaArea[z]++;
+  if (marineAt[i] !== -1) seaNameVotes[z].set(marineAt[i], (seaNameVotes[z].get(marineAt[i]) ?? 0) + 1);
+  for (const j of neighbors4(i, W, H)) {
+    const y = seaOf[j];
+    if (y !== -1 && y !== z) seaBorders[z].set(y, (seaBorders[z].get(y) ?? 0) + 1);
+    const r = regionOf[j];
+    if (r !== WATER) {
+      seaCoast[z].set(r, (seaCoast[z].get(r) ?? 0) + 1);
+      landCoast[r].set(z, (landCoast[r].get(z) ?? 0) + 1);
+    }
+  }
+}
+const seaLabel = deepest((i) => seaOf[i], S);
+const pointOf = (id: number) => (id < R ? label[id] : seaLabel[id - R]);
+const dist = (a: number, b: number) => Math.round(Math.hypot(pointOf(a)[0] - pointOf(b)[0], pointOf(a)[1] - pointOf(b)[1]) * 10) / 10;
+const coastList = (from: number, m: Map<number, number>, offset: number) =>
+  [...m].map(([id, border]) => ({ id: id + offset, border, dist: dist(from, id + offset) })).sort((a, b) => a.id - b.id);
+regions.forEach((r) => (r.coast = coastList(r.id, landCoast[r.id], R)));
+const seas: Region[] = Array.from({ length: S }, (_, z) => {
+  const best = [...seaNameVotes[z]].sort((a, b) => b[1] - a[1])[0];
+  return {
+    id: R + z,
+    sea: true,
+    name: best ? marine[best[0]].name : 'Open Sea',
+    country: '',
+    terrain: 'plains' as Terrain,
+    traits: [],
+    size: 'large' as RegionSize,
+    area: seaArea[z],
+    x: seaLabel[z][0],
+    y: seaLabel[z][1],
+    neighbors: [...seaBorders[z]]
+      .map(([y, border]) => ({ id: R + y, border, river: false, dist: dist(R + z, R + y) }))
+      .sort((a, b) => a.id - b.id),
+    coast: coastList(R + z, seaCoast[z], 0),
+  };
+});
+dedupeNames(seas, new Set());
+regions.push(...seas);
+const seaGrid = new Uint16Array(N).fill(WATER);
+for (let i = 0; i < N; i++) if (seaOf[i] !== -1) seaGrid[i] = R + seaOf[i];
+log(`${S} sea regions; ${regions.filter((r) => !r.sea && r.coast.length).length} coastal land regions`);
 
 // -- 4. the terrain picture ------------------------------------------------------------------
 
 // Land that isn't playable (islands, Asia, Africa) is drawn too, greyed out.
 const scenery = new Uint8Array(N);
 {
-  const admin0 = await naturalEarth('ne_10m_admin_0_countries');
   for (const f of admin0) for (const rings of polygons(f.geometry)) fillPolygon(grid, rings, (i) => (scenery[i] = 1));
   for (const f of lakes) for (const rings of polygons(f.geometry)) fillPolygon(grid, rings, (i) => (scenery[i] = 0));
 }
@@ -603,6 +763,9 @@ for (let y = 0; y < H; y++) {
     } else {
       const depth = Math.min(1, Math.max(0, -elev[i] / 2500));
       c = SHALLOW.map((v, k) => v + (DEEP[k] - v) * Math.sqrt(depth));
+      // Sea region borders: a faint dotted line.
+      const z = seaOf[i];
+      if (z !== -1 && (x + y) % 3 === 0 && neighbors4(i, W, H).some((j) => seaOf[j] !== -1 && seaOf[j] !== z)) c = c.map((v) => v + 38);
     }
     png.data[o] = clamp(c[0]);
     png.data[o + 1] = clamp(c[1]);
@@ -639,6 +802,7 @@ const map: GameMap = {
   regions,
   countries,
   grid: encodeGrid(regionOf),
+  seaGrid: encodeGrid(seaGrid),
   attribution:
     'Borders, rivers, lakes and places: Natural Earth (public domain). Land cover: Natural Earth II (public domain). ' +
     'Elevation: AWS Terrain Tiles (Mapzen/Tilezen) from SRTM, GMTED2010, ETOPO1 and EU-DEM (produced using Copernicus data and information funded by the European Union).',
@@ -650,7 +814,7 @@ const tally = (k: (r: Region) => string) => {
   for (const r of regions) m.set(k(r), (m.get(k(r)) ?? 0) + 1);
   return [...m].map(([a, b]) => `${a} ${b}`).join(', ');
 };
-log(`wrote ${R} regions, ${countries.length} countries`);
+log(`wrote ${R} land regions, ${S} sea regions, ${countries.length} countries`);
 console.log(`  terrain: ${tally((r) => r.terrain)}`);
 console.log(`  traits: ${tally((r) => r.traits.join('+') || '-')}`);
 console.log(`  river borders: ${regions.reduce((s, r) => s + r.neighbors.filter((n) => n.river).length, 0) / 2}`);
@@ -726,14 +890,20 @@ function kmeans(px: number[], k: number, w: number): number[] {
 
 /** For each region, the pixel farthest from its edge (ties: nearest the centroid). */
 function labelPoints(): Array<[number, number]> {
+  return deepest((i) => (regionOf[i] === WATER ? -1 : regionOf[i]), R);
+}
+
+/** For each of `count` areas (`of` gives a pixel's area, -1 for none), the pixel farthest
+ * from its edge (ties: nearest the centroid). */
+function deepest(of: (i: number) => number, count: number): Array<[number, number]> {
   const dist = new Int32Array(N).fill(-1);
   const queue: number[] = [];
   for (let i = 0; i < N; i++) {
-    const r = regionOf[i];
-    if (r === WATER) continue;
+    const r = of(i);
+    if (r === -1) continue;
     const x = i % W;
     const y = Math.floor(i / W);
-    const edge = x === 0 || y === 0 || x === W - 1 || y === H - 1 || neighbors4(i, W, H).some((j) => regionOf[j] !== r);
+    const edge = x === 0 || y === 0 || x === W - 1 || y === H - 1 || neighbors4(i, W, H).some((j) => of(j) !== r);
     if (edge) {
       dist[i] = 0;
       queue.push(i);
@@ -742,24 +912,24 @@ function labelPoints(): Array<[number, number]> {
   for (let q = 0; q < queue.length; q++) {
     const i = queue[q];
     for (const j of neighbors4(i, W, H)) {
-      if (dist[j] === -1 && regionOf[j] === regionOf[i]) {
+      if (dist[j] === -1 && of(j) === of(i)) {
         dist[j] = dist[i] + 1;
         queue.push(j);
       }
     }
   }
-  const cxy = Array.from({ length: R }, () => [0, 0, 0]);
+  const cxy = Array.from({ length: count }, () => [0, 0, 0]);
   for (let i = 0; i < N; i++) {
-    const r = regionOf[i];
-    if (r === WATER) continue;
+    const r = of(i);
+    if (r === -1) continue;
     cxy[r][0] += i % W;
     cxy[r][1] += Math.floor(i / W);
     cxy[r][2]++;
   }
-  const best: Array<[number, number, number, number]> = Array.from({ length: R }, () => [-1, Infinity, 0, 0]);
+  const best: Array<[number, number, number, number]> = Array.from({ length: count }, () => [-1, Infinity, 0, 0]);
   for (let i = 0; i < N; i++) {
-    const r = regionOf[i];
-    if (r === WATER) continue;
+    const r = of(i);
+    if (r === -1) continue;
     const x = i % W;
     const y = Math.floor(i / W);
     const c = Math.hypot(x - cxy[r][0] / cxy[r][2], y - cxy[r][1] / cxy[r][2]);
