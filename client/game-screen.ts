@@ -287,6 +287,9 @@ export class GameScreen {
         if ((e.target as HTMLElement).closest('button')) this.sfx.tick();
       });
     }
+    // The controls panel folds to its strip and back (remembered).
+    on($('#help-fold'), 'click', () => this.foldHelp(!$('#help').classList.contains('folded')));
+    this.foldHelp(stored(HELP_FOLDED) === '1');
     // Diplomacy buttons (ORBAT, peace offers): act on press, see diplomacyAction.
     for (const sel of ['#players', '#offers']) {
       on($(sel), 'pointerdown', (e: PointerEvent) => {
@@ -906,6 +909,12 @@ export class GameScreen {
     this.renderTopbar();
   }
 
+  private foldHelp(folded: boolean): void {
+    $('#help').classList.toggle('folded', folded);
+    $('#help-fold-label').textContent = folded ? 'Show ▾' : 'Hide ▴';
+    store(HELP_FOLDED, folded ? '1' : '0');
+  }
+
   private setYields(on: boolean): void {
     this.view.yields = on && this.you !== null;
     this.renderTopbar();
@@ -1330,6 +1339,25 @@ export class GameScreen {
       el('div', { class: 'costline' }, [`${stats.batch} ${label.toLowerCase()}:`, costChips(stats.cost, res), `${stats.buildTime}s`]),
       el('div', { class: 'buttons' }, [add, repeat, cancel]),
     ];
+  }
+}
+
+const HELP_FOLDED = 'openfork.helpFolded';
+
+/** localStorage, or nothing when it's blocked. */
+function stored(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function store(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // storage blocked: not remembered
   }
 }
 
