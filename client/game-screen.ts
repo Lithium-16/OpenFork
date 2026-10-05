@@ -25,6 +25,8 @@ import {
   supplyCapacity,
   supplyReach,
   UNITS,
+  type UnitType,
+  unitsOf,
 } from '../shared/rules.ts';
 import { FrameMeter } from './fx.ts';
 import { colorOf, MapView } from './map-view.ts';
@@ -54,6 +56,10 @@ const BAR: Array<{ group: string; kinds: BuildingKind[] }> = [
 const HOTKEYS: BuildingKind[] = BAR.flatMap((g) => g.kinds);
 /** Region row fields of the economic buildings. */
 const ECON_FIELD: Record<EconKind, number> = { farm: 9, mine: 10, well: 11, market: 12 };
+const UNIT_NAME: Record<UnitType, string> = { infantry: 'Infantry', tank: 'Tanks', artillery: 'Artillery' };
+const UNIT_SHORT: Record<UnitType, string> = { infantry: 'INF', tank: 'ARM', artillery: 'ART' };
+/** The key that orders each unit at the selected region. */
+const UNIT_KEY: Record<UnitType, string> = { infantry: 'q', tank: 'e', artillery: 'r' };
 /** A region with no traits or city, for the plain yield of a building. */
 const PLAIN_REGION = { traits: [], terrain: 'plains', size: 'medium' } as unknown as Region;
 const gives = (kind: EconKind, traits: Region['traits'] = [], city = 0) =>
@@ -649,7 +655,9 @@ export class GameScreen {
     } else if (k === 'q' && this.region >= 0) {
       this.send({ o: 'produce', region: this.region, building: 'barracks' });
     } else if (k === 'e' && this.region >= 0) {
-      this.send({ o: 'produce', region: this.region, building: 'factory' });
+      this.send({ o: 'produce', region: this.region, building: 'factory', unit: 'tank' });
+    } else if (k === 'r' && this.region >= 0) {
+      this.send({ o: 'produce', region: this.region, building: 'factory', unit: 'artillery' });
     } else return;
     this.renderPanel();
   }
@@ -1287,7 +1295,7 @@ export class GameScreen {
       b[8] > 0 ? `→ ${this.map.regions[b[7]].name}` : b[11] & 4 && b[7] >= 0 ? `attacking ${this.map.regions[b[7]].name}` : this.map.regions[b[6]].name;
     const row = el('div', { class: `unit${this.selected.has(b[0]) ? ' sel' : ''}` }, [
       el('span', { class: 'swatch', style: `background:${colorOf(this.players, b[1])}` }),
-      el('span', {}, [`${type === 'tank' ? 'ARM' : 'INF'} ${Math.ceil(b[3])}/${b[4]}`]),
+      el('span', {}, [`${UNIT_SHORT[type]} ${Math.ceil(b[3])}/${b[4]}`]),
       el('span', { class: 'meta' }, [
         `TRN ${b[5]} · SUP ${Math.round(b[10] * 100)}%${this.supplyWhy(b) ? ` (${this.supplyWhy(b).toUpperCase()})` : ''} · DUG ${Math.round(b[9] * 100)}%`,
         el('br'),
@@ -1439,29 +1447,29 @@ export class GameScreen {
   }
 
   private productionLine(line: ProductionView, res: Resources): HTMLElement[] {
-    const type = line.building === 'barracks' ? 'infantry' : 'tank';
-    const stats = UNITS[type];
-    const label = type === 'tank' ? 'Tanks' : 'Infantry';
-    const add = el('button', {}, [
-      `${line.building === 'barracks' ? 'Q' : 'E'} + ${label}`,
-    ]) as HTMLButtonElement;
-    add.disabled = line.queue.length >= 5;
-    add.onclick = () => this.send({ o: 'produce', region: line.region, building: line.building });
+    // One order button and cost line per unit the building makes (factory: tanks, artillery).
+    const out: HTMLElement[] = [];
+    const status = line.queue.length
+      ? `${line.queue.map((t) => UNIT_NAME[t].toLowerCase()).join(', ')}${line.progress < 0 ? ' // awaiting resources' : ''}`
+      : 'idle';
+    out.push(el('div', { class: 'line' }, [`${line.building === 'barracks' ? 'Barracks' : 'Factory'}: ${status}`]), cellBar(Math.max(0, line.progress)));
+    const adds: HTMLElement[] = [];
+    for (const type of unitsOf(line.building)) {
+      const stats = UNITS[type];
+      const add = el('button', {}, [`${UNIT_KEY[type].toUpperCase()} + ${UNIT_NAME[type]}`]) as HTMLButtonElement;
+      add.disabled = line.queue.length >= 5;
+      add.onclick = () => this.send({ o: 'produce', region: line.region, building: line.building, unit: type });
+      adds.push(add);
+      // What one order costs, in plain sight (short resources in red).
+      out.push(el('div', { class: 'costline' }, [`${stats.batch} ${UNIT_NAME[type].toLowerCase()}:`, costChips(stats.cost, res), `${stats.buildTime}s`]));
+    }
     const repeat = el('button', {}, [line.repeat ? 'Repeat: on' : 'Repeat: off']);
     repeat.onclick = () => this.send({ o: 'repeat', region: line.region, building: line.building, on: !line.repeat });
     const cancel = el('button', {}, ['Cancel last']) as HTMLButtonElement;
     cancel.disabled = line.queue.length === 0;
     cancel.onclick = () => this.send({ o: 'cancel', region: line.region, building: line.building });
-    const status = line.queue.length
-      ? `${line.queue.length} queued${line.progress < 0 ? ' // awaiting resources' : ''}`
-      : 'idle';
-    return [
-      el('div', { class: 'line' }, [`${line.building === 'barracks' ? 'Barracks' : 'Factory'}: ${status}`]),
-      cellBar(Math.max(0, line.progress)),
-      // What one order costs, in plain sight (short resources in red).
-      el('div', { class: 'costline' }, [`${stats.batch} ${label.toLowerCase()}:`, costChips(stats.cost, res), `${stats.buildTime}s`]),
-      el('div', { class: 'buttons' }, [add, repeat, cancel]),
-    ];
+    out.push(el('div', { class: 'buttons' }, [...adds, repeat, cancel]));
+    return out;
   }
 }
 

@@ -128,7 +128,7 @@ export class Game {
       case 'demolish':
         return s.demolish(id, order.region, order.kind);
       case 'produce':
-        return s.produce(id, order.region, order.building);
+        return s.produce(id, order.region, order.building, order.unit);
       case 'repeat':
         return s.setRepeat(id, order.region, order.building, order.on);
       case 'cancel':
@@ -215,6 +215,7 @@ export class Game {
         round(b.supply, 2),
         (b.hold ? 1 : 0) | (b.crossedRiver ? 2 : 0) | (b.attacking >= 0 ? 4 : 0),
         b.from,
+        b.bombarding,
       ]);
     }
     const pair = (key: string, sep: string) => key.split(sep).map(Number) as [number, number];

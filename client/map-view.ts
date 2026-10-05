@@ -3,7 +3,7 @@
 import { decodeGrid, type GameMap, WATER } from '../shared/map.ts';
 import type { BlobRow, GamePlayer, Snapshot } from '../shared/protocol.ts';
 import { UNIT_INDEX } from '../shared/protocol.ts';
-import { BUILDING_KINDS, type BuildingKind, regionYield, RESOURCES, ROAD_SUPPLY_HOP, supplyCapacity, supplyReach, UNITS } from '../shared/rules.ts';
+import { BUILDING_KINDS, type BuildingKind, regionYield, RESOURCES, ROAD_SUPPLY_HOP, supplyCapacity, supplyReach, UNITS, type UnitType } from '../shared/rules.ts';
 import { Fx } from './fx.ts';
 import { art, blit, blitCentred, digitsWidth, FRAME_H, FRAME_W, HUD, ICONS, INK, MAP_ART, pixelDigits, ROAD_COLOR, ROAD_SHADE, romanSprite, shade, type Sprite, unitFrame } from './sprites.ts';
 
@@ -1510,6 +1510,8 @@ export class MapView {
 
   /** When each fight on screen fires its next artillery round. */
   private readonly nextBoom = new Map<number, number>();
+  /** When each gun fires its next shell. */
+  private readonly nextShell = new Map<number, number>();
 
   /** Fights on screen: tracers, muzzle flashes, smoke and artillery. */
   private battleEffects(snap: Snapshot, items: Item[], now: number, px: number): void {
@@ -1573,6 +1575,37 @@ export class MapView {
         this.sounds?.boom(Math.min(1, scale / 2));
         this.nextBoom.set(r, now + 2000 + Math.random() * 2000);
       } else this.nextBoom.set(r, due);
+    }
+    // Guns shelling a region: a flash where they stand, then a shell bursting over there.
+    for (const b of snap.blobs) {
+      const target = b[13];
+      if (target < 0) {
+        this.nextShell.delete(b[0]);
+        continue;
+      }
+      const due = this.nextShell.get(b[0]) ?? now + Math.random() * 1500;
+      if (now < due) {
+        this.nextShell.set(b[0], due);
+        continue;
+      }
+      this.nextShell.set(b[0], now + 1500 + Math.random() * 1500);
+      const gun = this.map.regions[b[6]];
+      const [gx, gy] = this.toScreen(gun.x, gun.y);
+      const pix = this.regionPixels[target];
+      const i = pix[Math.floor(Math.random() * pix.length)];
+      const x = i % W;
+      const y = (i - x) / W;
+      const [sx, sy] = this.toScreen(x, y);
+      const onScreen = (px2: number, py2: number) => px2 > -80 && py2 > -80 && px2 < cw + 80 && py2 < chh + 80;
+      if (!onScreen(gx, gy) && !onScreen(sx, sy)) continue;
+      this.fx.add({ kind: 'flash', x: gun.x, y: gun.y - 2, vx: 0, vy: 0, life: 200, size: 4, color: '#ffe08a' });
+      this.fx.add({ kind: 'smoke', x: gun.x, y: gun.y - 2, vx: 2, vy: -4, life: 1400, size: 3, color: '#b9bdc0' });
+      this.fx.add({ kind: 'tracer', x: gun.x, y: gun.y, x2: x, y2: y, vx: 0, vy: 0, life: 350, size: 1, color: '#ffcf6b' });
+      this.fx.add({ kind: 'boom', x, y, vx: 0, vy: 0, born: now + 350, life: 560, size: 6, color: '#ff9a3c' });
+      for (let k = 0; k < 2; k++) {
+        this.fx.add({ kind: 'smoke', x: x + (Math.random() - 0.5) * 2, y, vx: 1 + Math.random() * 2, vy: -3 - Math.random() * 3, born: now + 450 + k * 90, life: 2000, size: 4, color: '#5a5f63' });
+      }
+      if (onScreen(sx, sy)) this.sounds?.boom(Math.min(1, scale / 2) * 0.7);
     }
     // Small-arms fire for the fights on screen, a few crackles a second at most.
     if (fights && Math.random() < dt * Math.min(6, 2 * fights)) this.sounds?.gun(Math.min(1, 0.35 + 0.1 * fights) * Math.min(1, scale / 1.5));
@@ -1826,7 +1859,7 @@ const tokenCache = new Map<string, HTMLCanvasElement>();
 function tokenSprite(rows: BlobRow[], color: string, px: number, beat: number): HTMLCanvasElement {
   const byType = new Map<string, number>();
   for (const b of rows) byType.set(UNIT_INDEX[b[2]], (byType.get(UNIT_INDEX[b[2]]) ?? 0) + b[3]);
-  const type = ([...byType].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'infantry') as 'infantry' | 'tank';
+  const type = ([...byType].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'infantry') as UnitType;
   const strength = rows.reduce((s, b) => s + b[3], 0);
   const size = rows.reduce((s, b) => s + b[4], 0);
   const supply = Math.min(...rows.map((b) => b[10]));

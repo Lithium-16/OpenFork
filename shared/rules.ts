@@ -8,8 +8,8 @@ export const SNAPSHOT_EVERY_TICKS = 2;
 
 // -- units ------------------------------------------------------------------------------------
 
-export type UnitType = 'infantry' | 'tank';
-export const UNIT_TYPES: readonly UnitType[] = ['infantry', 'tank'];
+export type UnitType = 'infantry' | 'tank' | 'artillery';
+export const UNIT_TYPES: readonly UnitType[] = ['infantry', 'tank', 'artillery'];
 
 export interface Resources {
   money: number;
@@ -42,6 +42,10 @@ export interface UnitStats {
   supplyNeed: number;
   /** Building that produces it. */
   producedAt: ProductionBuilding;
+  /** Artillery: shells enemies this many regions away while standing still, at this attack
+   * (its `attack` is only for close combat). It never joins an assault from the border. */
+  range?: number;
+  bombard?: number;
 }
 
 export const UNITS: Record<UnitType, UnitStats> = {
@@ -73,7 +77,32 @@ export const UNITS: Record<UnitType, UnitStats> = {
     supplyNeed: 2,
     producedAt: 'factory',
   },
+  artillery: {
+    maxSize: 100,
+    batch: 5,
+    speed: 0.7,
+    // Guns, not riflemen: next to useless up close, and it breaks fast.
+    attack: 0.2,
+    defense: 0.35,
+    terrainAttack: { plains: 1, forest: 1, hills: 1, mountains: 1 },
+    cost: { money: 80, manpower: 30, steel: 30, oil: 0 },
+    buildTime: 30,
+    upkeep: 0.04,
+    refillCost: { money: 2, manpower: 3, steel: 2, oil: 0 },
+    supplyNeed: 1.5,
+    producedAt: 'factory',
+    range: 2,
+    bombard: 2,
+  },
 };
+
+/** Shells hit dug-in units as hard as any (no digging-in bonus), and forts count this share. */
+export const BOMBARD_FORT_SHARE = 0.5;
+
+/** What a production building makes: the first is what it makes unless told otherwise. */
+export function unitsOf(building: ProductionBuilding): UnitType[] {
+  return UNIT_TYPES.filter((t) => UNITS[t].producedAt === building);
+}
 
 // -- movement ---------------------------------------------------------------------------------
 

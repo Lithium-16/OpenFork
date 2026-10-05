@@ -851,3 +851,76 @@ describe('capitals', () => {
     assert.ok(events.includes('eliminated') && events.includes('won'));
   });
 });
+
+describe('artillery', () => {
+  /** A at war with B on the duel chain; A owns 0-3, B owns 4-7. */
+  function war() {
+    const s = duel();
+    clearBlobs(s);
+    s.declareWar(1, 0);
+    s.state.regions.forEach((rs, i) => (rs.owner = i < 4 ? 0 : 1));
+    return s;
+  }
+
+  it('shells enemies up to two regions away, not three', () => {
+    const s = war();
+    const gun = place(s, 0, 'artillery', 2, 10);
+    const near = place(s, 1, 'infantry', 4, 10);
+    s.tick(0.1);
+    assert.equal(gun.bombarding, 4);
+    assert.ok(near.strength < 10);
+    s.state.blobs.delete(near.id);
+    const far = place(s, 1, 'infantry', 5, 10);
+    s.tick(0.1);
+    assert.equal(gun.bombarding, -1);
+    assert.equal(far.strength, 10);
+  });
+
+  it('waits at the border and shells instead of storming in', () => {
+    const s = war();
+    const gun = place(s, 0, 'artillery', 3, 10);
+    const enemy = place(s, 1, 'infantry', 4, 10);
+    assert.equal(s.move(0, [gun.id], 4), null);
+    run(s, 2);
+    assert.equal(gun.region, 3);
+    assert.equal(gun.attacking, -1);
+    assert.equal(gun.strength, 10, 'nobody shoots back at it from next door');
+    assert.ok(enemy.strength < 10);
+  });
+
+  it('breaks fast up close', () => {
+    const s = war();
+    s.state.regions[2].owner = 1;
+    const gun = place(s, 0, 'artillery', 1, 10);
+    const rifles = place(s, 0, 'infantry', 3, 10);
+    s.state.regions[3].owner = 1;
+    const a = place(s, 1, 'infantry', 1, 10);
+    const b = place(s, 1, 'infantry', 3, 10);
+    run(s, 5);
+    assert.ok(10 - gun.strength > 2 * (10 - rifles.strength), `gun lost ${10 - gun.strength}, rifles ${10 - rifles.strength}`);
+    assert.ok(a.strength > b.strength, 'and hits back weakly');
+  });
+
+  it('shells ignore digging in', () => {
+    const hit = (entrench: number) => {
+      const s = war();
+      place(s, 0, 'artillery', 2, 10);
+      const target = place(s, 1, 'infantry', 4, 10);
+      target.entrench = entrench;
+      s.tick(0.1);
+      return 10 - target.strength;
+    };
+    assert.ok(hit(0) > 0);
+    assert.ok(Math.abs(hit(1) - hit(0)) < 1e-9);
+  });
+
+  it('comes from the factory, not the barracks', () => {
+    const s = duel();
+    rich(s);
+    s.state.regions[0].factory = true;
+    s.state.regions[0].barracks = true;
+    assert.match(s.produce(0, 0, 'barracks', 'artillery') ?? '', /can't make/);
+    assert.equal(s.produce(0, 0, 'factory', 'artillery'), null);
+    assert.deepEqual(s.state.regions[0].production.factory.queue, ['artillery']);
+  });
+});
