@@ -102,7 +102,8 @@ export interface Player {
   cap: Resources;
   /** Techs researched, and the one under way (paid for). */
   techs: TechId[];
-  research: { tech: TechId; progress: number; seconds: number; cost: Resources } | null;
+  /** The tech under way: research points paid in so far, out of what it takes. */
+  research: { tech: TechId; paid: number; cost: number } | null;
   upkeep: number;
 }
 
@@ -154,7 +155,7 @@ export function emptyRegion(): RegionState {
     owner: NEUTRAL,
     fort: 0,
     city: 0,
-    econ: { farm: 0, mine: 0, well: 0, market: 0 },
+    econ: { farm: 0, mine: 0, well: 0, market: 0, lab: 0 },
     depots: 0,
     barracks: false,
     factory: false,

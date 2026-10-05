@@ -5,6 +5,7 @@ import {
   type BotDifficulty,
   type BuildingKind,
   BROKE_LOSS,
+  BASE_RESEARCH,
   BROKE_TRAINING,
   bombardFortShare,
   BUILD_NEEDS,
@@ -101,7 +102,7 @@ export const MAX_QUEUE = 5;
 /** Path cost added for regions with enemy blobs in them, so routes go around fights. */
 const FIGHT_PATH_PENALTY = 40;
 
-const zero = (): Resources => ({ money: 0, manpower: 0, steel: 0, oil: 0 });
+const zero = (): Resources => ({ money: 0, manpower: 0, steel: 0, oil: 0, research: 0 });
 
 export class Sim {
   readonly world: World;
@@ -148,6 +149,7 @@ export class Sim {
           manpower: STARTING.manpower * mult,
           steel: STARTING.steel * mult,
           oil: STARTING.oil * mult,
+          research: STARTING.research * mult,
         },
         broke: false,
         income: zero(),
@@ -537,24 +539,22 @@ export class Sim {
     return null;
   }
 
-  /** Starts researching a tech (one at a time), paying for it now. */
+  /** Starts researching a tech (one at a time). Research points are paid in as it goes. */
   research(playerId: number, tech: TechId): string | null {
     const p = this.player(playerId);
     if (!p?.alive) return 'you are not in the game';
     if (p.research) return 'already researching';
     const why = whyNotResearch(tech, p.techs);
     if (why) return why;
-    const { cost, seconds } = techCost(TECHS.find((t) => t.id === tech)?.tier ?? 1);
-    if (!this.pay(p, cost)) return 'not enough resources';
-    p.research = { tech, progress: 0, seconds, cost };
+    p.research = { tech, paid: 0, cost: techCost(TECHS.find((t) => t.id === tech)?.tier ?? 1) };
     return null;
   }
 
-  /** Stops the research under way, with a full refund. */
+  /** Stops the research under way; the points paid in come back. */
   unresearch(playerId: number): string | null {
     const p = this.player(playerId);
     if (!p?.research) return 'nothing being researched';
-    this.refund(p, p.research.cost);
+    p.resources.research += p.research.paid;
     p.research = null;
     return null;
   }
@@ -1220,6 +1220,7 @@ export class Sim {
     const players = this.state.players;
     for (const p of players) {
       p.income = zero();
+      p.income.research = BASE_RESEARCH;
       p.upkeep = 0;
     }
     this.state.regions.forEach((rs, i) => {
@@ -1230,17 +1231,20 @@ export class Sim {
     this.updateCaps();
     for (const p of players) {
       if (!p.alive) continue;
+      // Income fills the stores up to their size; the rest is lost (a stock already over the
+      // size, after losing a depot, stays but doesn't grow).
+      for (const k of RESOURCES) p.resources[k] = Math.max(p.resources[k], Math.min(p.cap[k], p.resources[k] + p.income[k] * dt));
+      // Research takes its points from the stock as they come.
       if (p.research) {
-        p.research.progress += dt;
-        if (p.research.progress >= p.research.seconds) {
+        const pay = Math.min(p.resources.research, p.research.cost - p.research.paid);
+        p.research.paid += pay;
+        p.resources.research -= pay;
+        if (p.research.paid >= p.research.cost - 1e-9) {
           p.techs.push(p.research.tech);
           this.events.push({ kind: 'researched', player: p.id, tech: p.research.tech });
           p.research = null;
         }
       }
-      // Income fills the stores up to their size; the rest is lost (a stock already over the
-      // size, after losing a depot, stays but doesn't grow).
-      for (const k of RESOURCES) p.resources[k] = Math.max(p.resources[k], Math.min(p.cap[k], p.resources[k] + p.income[k] * dt));
       p.resources.money -= p.upkeep * dt;
       p.broke = p.resources.money < 0;
       if (p.broke) p.resources.money = 0;
@@ -1308,7 +1312,7 @@ export class Sim {
         const want = Math.min(b.size - b.strength, REFILL_RATE * dt * b.supply);
         if (want > 0) {
           const cost = UNITS[b.type].refillCost;
-          if (this.pay(p, { money: cost.money * want, manpower: cost.manpower * want, steel: cost.steel * want, oil: cost.oil * want })) {
+          if (this.pay(p, { money: cost.money * want, manpower: cost.manpower * want, steel: cost.steel * want, oil: cost.oil * want, research: 0 })) {
             b.strength += want;
           }
         }

@@ -49,7 +49,10 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
   tinted in the owner's colour, and province borders and blob counters drawn on top.
 
 ## 3. Economy
-- Resources: **money, manpower, oil, steel**.
+- Resources: **money, manpower, oil, steel and research points**. Research points pay for
+  the tech tree: every country makes 0.1/s, and each **lab** (a building, in cities only,
+  $150 + 30 steel, 60 s) makes 0.5/s more. They're stored like the rest (100 per city level,
+  200 per depot) and taken with a captured city or depot like the rest.
 - **Yields:** land yields nothing by itself. Cities pay tax (+0.8 money and +0.25 manpower
   per level, every second) and economic buildings make the rest. Traits make the matching
   building better: farmland → farms, industry → mines, oil field → oil wells (only there).
@@ -62,10 +65,12 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
   storage, up to the captor's own room.
 - **Research** (T, its own screen): a tech tree, one tech at a time. Every country starts at
   the root (Modern State), which splits into four lines, and each tech opens one or two more;
-  a tech needs only its parent. Cost goes by depth: $250 / 500 / 900 and 30 / 80 / 150 steel,
-  60 / 90 / 120 s, paid up front (refunded if cancelled). The screen draws it as a tree
-  growing down, lines green once researched and moving into the tech under way, which fills
-  up; the header shows how much of the tree is done.
+  a tech needs only its parent. It costs **research points** by depth: 60 / 150 / 300. They're
+  paid in as research goes, from the stock first and then as they're made, so more labs mean
+  faster research and a saved-up stock finishes a tech at once; cancelling gives back what was
+  paid in. The screen draws it as a tree growing down, lines green once researched and
+  moving into the tech under way, which fills up (with the time left at the current rate);
+  the header shows how much of the tree is done.
   - Army: Rifles (+20% infantry attack) → Trenches (dig in twice as fast, dug in +50%) and
     Heavy shells (+30% shelling) → Rangefinders (forts no help against shells) and Long guns
     (range 3).
