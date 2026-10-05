@@ -95,7 +95,7 @@ function echelon(size: number, max: number): string[] {
  * A NATO unit symbol: a rectangle in the owner's colour with a dark outline, a lighter top
  * edge, and the branch mark inside: infantry ✕, armour an oval, artillery a filled dot.
  */
-export function unitFrame(type: 'infantry' | 'tank' | 'artillery', size: number, max: number, color: string): Sprite {
+export function unitFrame(type: 'infantry' | 'tank' | 'artillery' | 'warship', size: number, max: number, color: string): Sprite {
   const marks = echelon(size, max);
   const key = `unit:${type}:${marks[1]}:${color}`;
   return cached(key, () => {
@@ -129,6 +129,14 @@ export function unitFrame(type: 'infantry' | 'tank' | 'artillery', size: number,
       const ox = Math.floor((W - 5) / 2);
       const oy = Math.floor((H - 5) / 2);
       dot.forEach((row, y) => {
+        for (let x = 0; x < row.length; x++) if (row[x] === 'S') grid[oy + y][ox + x] = 'S';
+      });
+    } else if (type === 'warship') {
+      // A hull with a funnel, 11×5, centred.
+      const hull = ['....SS.....', '..SSSSSS...', 'SSSSSSSSSSS', '.SSSSSSSSS.', '..SSSSSSS..'];
+      const ox = Math.floor((W - 11) / 2);
+      const oy = Math.floor((H - 5) / 2);
+      hull.forEach((row, y) => {
         for (let x = 0; x < row.length; x++) if (row[x] === 'S') grid[oy + y][ox + x] = 'S';
       });
     } else {
@@ -208,6 +216,22 @@ export const ICONS = {
     ],
     { y: '#c19a5b' },
   ),
+  port: art(
+    [
+      '....O....',
+      '...OBO...',
+      '....O....',
+      'OOOOBOOOO',
+      '....B....',
+      'OB..B..BO',
+      '.OB.B.BO.',
+      '..OBBBO..',
+      '...OOO...',
+    ],
+    { B: '#3f6f9e' },
+  ),
+  /** Troops aboard transports: a little boat on the unit's corner. */
+  afloat: art(['....OO.....', '....OWO....', 'OOOOOWOOOOO', 'OWWWWWWWWWO', '.OBBBBBBBO.', '..OOOOOOO..'], { B: '#3f6f9e' }),
   depot: art(
     [
       '...OOO...',

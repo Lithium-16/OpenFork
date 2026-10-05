@@ -5,11 +5,12 @@ inspired by OpenFront but written from scratch. Friends play together in a priva
 and bots take the other countries. The rules are in **[DESIGN.md](DESIGN.md)**.
 
 Status: first playable. Everyone starts at peace; bots go to war when attacked or when they
-see a weak neighbour (by difficulty). You can play a land war on mainland Europe (319 regions from real
-provinces) with infantry, tanks and artillery, forts, entrenchment, supply, storage and depots,
+see a weak neighbour (by difficulty). You can play a war over Europe with Britain, Ireland and the big islands (348 land regions
+from real provinces and 51 sea regions) with infantry, tanks, artillery and warships, ports
+and troops shipped across the sea, forts, entrenchment, supply, storage and depots,
 labs and research points,
 a tech tree, production, and
-defensive/easy/normal/hard bots, or pure PvP with no bots. Naval, air, alliances and fog of war come later.
+defensive/easy/normal/hard bots, or pure PvP with no bots. Air, alliances and fog of war come later.
 
 ## Run it
 
@@ -37,14 +38,14 @@ to your friends, pick countries, and start. Bots fill the empty seats.
 | Left click / drag | select a unit or region / box-select your units (Shift adds) |
 | Click a stack | expand it into its units, to pick single ones (click elsewhere closes it) |
 | Double-click | a stack of yours: all of its units; elsewhere: all your units in that region |
-| Right click | send the selected units to a region (they path there, fighting and capturing on the way) |
+| Right click | send the selected units to a region (they path there, fighting and capturing on the way; across the sea they board at your port and land on the far coast; warships go to sea regions and your ports) |
 | Right drag, WASD, arrows | pan |
 | Wheel | zoom |
 | X / G / H | split in half / merge (any amounts, up to 100; not in a fight or below 25% strength) / halt the selected units; the unit panel splits off a batch or any number |
 | Del | disband the selected units (asks first; half the manpower of their strength back; not in a fight) |
-| 1–9, -, = or the build bar | placement mode: farm, mine, oil well, market, lab, city (found or expand), fort, barracks, factory, road (-), depot (=). Click one of your regions (roads: drag across regions); Shift places more, Esc / right click stops; a busy region queues it. Your regions show their slots as boxes (hollow green = free) |
+| 1–9, -, =, P or the build bar | placement mode: farm, mine, oil well, market, lab, city (found or expand), fort, barracks, factory, road (-), depot (=), port (P, on a coast). Click one of your regions (roads: drag across regions); Shift places more, Esc / right click stops; a busy region queues it. Your regions show their slots as boxes (hollow green = free) |
 | 0 | demolish mode: pick a building, click your regions that have one (red); no refund |
-| Q / E / R | queue infantry / tanks / artillery at the selected region's barracks / factory |
+| Q / E / R / F | queue infantry / tanks / artillery / warships at the selected region's barracks / factory / port |
 | T / Tech button | research screen: the tech tree with its lines and progress (one tech at a time; the button shows progress too) |
 | V | supply overlay: hubs, reach, cut-off regions, load per region |
 | B | yield overlay: what each of your regions makes per second (grey while it's stopped) |
@@ -121,4 +122,4 @@ under the SIL Open Font License 1.1 (`public/fonts/OFL.txt`).
 - Balance is first-pass. Bot-only matches end in 17–40 minutes, but two evenly matched hard
   bots can stall into a long war; tune `shared/rules.ts` from real games.
 - Guest identities live in memory: a server restart forgets who was who (and running games).
-- Not built yet: naval, air, alliances, fog of war, procedural maps, the Kernel module.
+- Not built yet: air, alliances, fog of war, procedural maps, the Kernel module.

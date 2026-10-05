@@ -51,6 +51,8 @@ export class MapView {
   private readonly ctx: CanvasRenderingContext2D;
   readonly map: GameMap;
   readonly grid: Uint16Array;
+  /** Sea region per pixel of open sea, WATER elsewhere. */
+  readonly seaGrid: Uint16Array;
   private readonly terrain: HTMLImageElement;
   private readonly territory: HTMLCanvasElement;
   private readonly highlight: HTMLCanvasElement;
@@ -127,6 +129,7 @@ export class MapView {
     this.map = map;
     this.terrain = terrain;
     this.grid = decodeGrid(map.grid, map.width * map.height);
+    this.seaGrid = map.seaGrid ? decodeGrid(map.seaGrid, map.width * map.height) : new Uint16Array(map.width * map.height).fill(WATER);
     this.territory = offscreen(map.width, map.height);
     this.highlight = offscreen(map.width, map.height);
     this.supplyLayer = offscreen(map.width, map.height);
@@ -245,7 +248,8 @@ export class MapView {
     const x = Math.floor(mx);
     const y = Math.floor(my);
     if (x < 0 || y < 0 || x >= this.map.width || y >= this.map.height) return -1;
-    const r = this.grid[y * this.map.width + x];
+    const i = y * this.map.width + x;
+    const r = this.grid[i] === WATER ? this.seaGrid[i] : this.grid[i];
     return r === WATER ? -1 : r;
   }
 
@@ -970,8 +974,9 @@ export class MapView {
     if (region < 0) return;
     const img = ctx.createImageData(W, this.map.height);
     // A dithered checkerboard, the pixel-art way to show a selection.
-    for (let i = 0; i < this.grid.length; i++) {
-      if (this.grid[i] !== region) continue;
+    const grid = this.map.regions[region]?.sea ? this.seaGrid : this.grid;
+    for (let i = 0; i < grid.length; i++) {
+      if (grid[i] !== region) continue;
       const x = i % W;
       if ((x + (i - x) / W) % 2) continue;
       img.data[i * 4] = 230;
@@ -1136,6 +1141,7 @@ export class MapView {
       if (rr[1] > 0) icons.push({ s: ICONS.fort, level: rr[1] });
       if (rr[3] & 1) icons.push({ s: ICONS.barracks });
       if (rr[3] & 2) icons.push({ s: ICONS.factory });
+      if (rr[3] & 8) icons.push({ s: ICONS.port });
       if (rr[13] > 0) icons.push({ s: ICONS.depot, level: rr[13] > 1 ? rr[13] : undefined });
       const showIcons = icons.length > 0 && zoom >= 0.5;
       const iconBottom = y + tokenTop - 2;
@@ -1161,6 +1167,14 @@ export class MapView {
 
       // Name, in the pixel font, above everything else (not over a battle unless zoomed in).
       const busy = (owners.get(region.id)?.size ?? 0) > 1;
+      if (region.sea) {
+        // Sea names: wide-set, in sea blue, from further out than land names.
+        if (zoom >= 0.6 && (!busy || zoom >= 1.8)) {
+          const size = zoom >= 1.8 ? 16 : 12;
+          pixelText(ctx, region.name.toUpperCase().split('').join(' '), x, y + tokenTop - 3 - size / 2, size, '#8fb8d8');
+        }
+        continue;
+      }
       if (zoom >= 0.9 && (!busy || zoom >= 1.8)) {
         const size = zoom >= 1.8 ? 16 : 12;
         const top = showIcons ? iconBottom - 10 * ipx : y + tokenTop;
@@ -1780,6 +1794,10 @@ export class MapView {
     const beat = Math.floor((now + rows[0][0] * 137) / 700) % 2;
     const token = tokenSprite(rows, color, px, beat);
     ctx.drawImage(token, p.x - TOKEN_AX * px, p.y - TOKEN_AY * px);
+    // Troops at sea, aboard transports: a boat just right of the frame.
+    if (this.map.regions[rows[0][6]]?.sea && rows.some((b) => !UNITS[UNIT_INDEX[b[2]]].naval)) {
+      blit(ctx, ICONS.afloat, x0 + w + 3 * px, y0 + h - 6 * px, px);
+    }
     // On the move: a bar of 5 cells left of the frame fills up until the hop to the next region.
     if (it.moving) {
       const progress = Math.min(1, Math.max(...rows.map((b) => b[8])));
