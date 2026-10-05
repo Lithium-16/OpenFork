@@ -391,7 +391,7 @@ export class GameScreen {
 
     const box2 = (x: number, y: number) => `left:${x}px;top:${y}px;width:${W}px;height:${H}px`;
     const r = at('root', 0);
-    const root = el('div', { class: 'node root done', style: box2(r.x, r.y) }, [el('b', {}, [TECH_ROOT.name]), el('span', { class: 'effect' }, [TECH_ROOT.effect]), el('span', { class: 'foot' }, ['✓ Start'])]);
+    const root = el('div', { class: 'node root done', style: box2(r.x, r.y) }, [el('b', {}, [TECH_ROOT.name]), el('span', { class: 'effect' }, [TECH_ROOT.effect]), el('span', { class: 'foot' }, ['Start'])]);
     // How long a tech takes from here: research points still owed, less the stock, over
     // what labs and cities make.
     const rate = me.income[4];
@@ -406,7 +406,7 @@ export class GameScreen {
       const p = at(t.id, t.tier);
       const foot: Array<Node | string> =
         st === 'done'
-          ? ['✓ Researched']
+          ? ['Researched']
           : st === 'active' && busy
             ? [`${Math.round(busy[1] * 100)}% · ${eta(cost * (1 - busy[1]))}`]
             : st === 'locked'
@@ -1173,7 +1173,7 @@ export class GameScreen {
     $('#help').classList.toggle('folded', folded);
     $('#help-fold').setAttribute('aria-expanded', String(!folded));
     $('#help-fold-title').textContent = folded ? '? Keys' : 'Controls';
-    $('#help-fold-label').textContent = folded ? '' : 'Hide ▴';
+    $('#help-fold-label').textContent = folded ? '' : 'Hide';
     if (remember) store(HELP_FOLDED, folded ? '1' : '0');
   }
 
@@ -1240,7 +1240,7 @@ export class GameScreen {
       return el('span', { class: `res${full ? ' full' : ''}` }, [
         el('img', { src: hudIcon(k), alt: k }),
         el('span', { class: 'stock' }, [el('b', {}, [fmt(p.res[i])]), el('i', { class: 'gauge' }, [el('i', { style: `width:${Math.round(fill * 100)}%` })])]),
-        el('small', { class: rate < 0 ? 'neg' : '' }, [full && rate > 0 ? `FULL ${fmt(p.cap[i])}` : `${rate >= 0 ? '+' : ''}${rate.toFixed(1)}/s`]),
+        el('small', { class: rate < 0 ? 'neg' : '' }, [full && rate > 0 ? 'FULL' : `${rate >= 0 ? '+' : ''}${rate.toFixed(1)}/s`]),
       ]);
     });
     if (p.broke) parts.push(el('span', { class: 'broke' }, ['BROKE: UNITS WITHERING']));
@@ -1455,7 +1455,7 @@ export class GameScreen {
   private unitRow(b: BlobRow, selectable: boolean, inRegion = -1): HTMLElement {
     const type = UNIT_INDEX[b[2]];
     const where =
-      b[8] > 0 ? `→ ${this.map.regions[b[7]].name}` : b[11] & 4 && b[7] >= 0 ? `attacking ${this.map.regions[b[7]].name}` : b[6] === inRegion ? '' : this.map.regions[b[6]].name;
+      b[8] > 0 ? `to ${this.map.regions[b[7]].name}` : b[11] & 4 && b[7] >= 0 ? `attacking ${this.map.regions[b[7]].name}` : b[6] === inRegion ? '' : this.map.regions[b[6]].name;
     // Only what's worth saying: full supply, no training and not dug in go unmentioned.
     const status: string[] = [];
     if (b[5] > 0) status.push(`trained ${b[5]}`);
@@ -1623,7 +1623,7 @@ export class GameScreen {
             levels[kind] += 1;
             return kind === 'city' && levels.city === 1 ? 'Found city' : `${BUILD_LABEL[kind]} ${levels[kind]}`;
           }
-          return kind === 'road' ? `Road → ${this.map.regions[target]?.name ?? '?'}` : BUILD_LABEL[kind];
+          return kind === 'road' ? `Road to ${this.map.regions[target]?.name ?? '?'}` : BUILD_LABEL[kind];
         };
         const cancel = (index: number) =>
           el('button', { class: 'x', 'data-act': 'unbuild', 'data-region': String(region.id), 'data-index': String(index), 'aria-label': 'Cancel' }, ['×']);
