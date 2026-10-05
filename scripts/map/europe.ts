@@ -1,11 +1,11 @@
-// What goes on the Europe map: mainland Europe from the Atlantic to the Urals, modern
-// countries, no islands (DESIGN.md §2).
+// What goes on the Europe map: Europe from the Atlantic to the Urals with Britain, Ireland
+// and the bigger islands, modern countries, and the seas between them (DESIGN.md §2).
 
 /** Countries whose provinces are on the map (ISO 3166-1 alpha-2; Kosovo is XK). */
 export const INCLUDE = new Set(
   (
     'PT ES FR AD MC BE NL LU DE CH LI AT IT SM VA DK NO SE FI PL CZ SK HU SI HR BA RS XK ME AL MK ' +
-    'GR BG RO MD UA BY LT LV EE RU TR'
+    'GR BG RO MD UA BY LT LV EE RU TR GB IE'
   ).split(' '),
 );
 
@@ -17,6 +17,11 @@ export const TURKEY_MAX_LON = 29.0;
 export const RUSSIA_MAX_LABEL_LON = 62;
 /** Nothing east of the Urals. */
 export const MAX_LON = 61;
+
+/** Islands are kept from this many pixels up (about 2700 km² at 3 km/px). */
+export const ISLAND_MIN_PX = 300;
+/** Land outside this box is left off (the Canaries, Azores, Madeira, the Arctic islands). */
+export const KEEP_BOX = { minLon: -11, maxLon: 61, minLat: 34, maxLat: 70 };
 
 /** Start countries and their capitals (lon, lat). */
 export const PLAYABLE: Array<{ id: string; name: string; capital: [number, number] }> = [
@@ -38,6 +43,7 @@ export const PLAYABLE: Array<{ id: string; name: string; capital: [number, numbe
   { id: 'CZ', name: 'Czech Republic', capital: [14.42, 50.09] },
   { id: 'HU', name: 'Hungary', capital: [19.04, 47.5] },
   { id: 'BG', name: 'Bulgaria', capital: [23.32, 42.7] },
+  { id: 'GB', name: 'United Kingdom', capital: [-0.13, 51.51] },
 ];
 
 /** Big industrial areas: the region containing each point gets the industry trait. */
@@ -67,6 +73,10 @@ export const INDUSTRY: Array<[string, number, number]> = [
   ['Chelyabinsk', 60.5, 55.3],
   ['Samara', 50.15, 53.2],
   ['Wallonia', 4.44, 50.41],
+  ['West Midlands', -1.9, 52.48],
+  ['Manchester', -2.24, 53.48],
+  ['Glasgow', -4.25, 55.86],
+  ['South Wales', -3.18, 51.48],
 ];
 
 /** Oil fields: the region containing each point gets the oil trait. */
@@ -83,4 +93,5 @@ export const OIL: Array<[string, number, number]> = [
   ['Zala', 16.8, 46.6],
   ['Boryslav', 23.4, 49.3],
   ['Poltava', 34.5, 49.6],
+  ['North Sea (Aberdeen)', -2.1, 57.15],
 ];

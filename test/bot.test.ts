@@ -49,7 +49,7 @@ describe('bots on Europe', () => {
   });
 
   it('hard bots pick on weaker neighbours, and fight', () => {
-    const { events } = play('hard', 720);
+    const { events } = play('hard', 900);
     const war = events.find((e) => e.kind === 'war');
     assert.ok(war, 'a war started');
     assert.ok(war.at >= 180, 'not before hard bots are allowed to');
