@@ -93,17 +93,18 @@ export type BlobRow = [number, number, number, number, number, number, number, n
 
 /** One region: [owner, fort, city level, flags (1 barracks, 2 factory, 4 supplied), capture
  * by or -1, capture progress 0..1, construction kind index or -1, construction progress 0..1,
- * construction target (a road's other end) or -1, farms, mines, oil wells, markets, depots]. */
-export type RegionRow = [number, number, number, number, number, number, number, number, number, number, number, number, number, number];
+ * construction target (a road's other end) or -1, farms, mines, oil wells, markets, depots,
+ * labs]. */
+export type RegionRow = [number, number, number, number, number, number, number, number, number, number, number, number, number, number, number];
 
 export interface PlayerRow {
   alive: boolean;
-  /** money, manpower, steel, oil */
-  res: [number, number, number, number];
-  income: [number, number, number, number];
+  /** money, manpower, steel, oil, research points */
+  res: [number, number, number, number, number];
+  income: [number, number, number, number, number];
   upkeep: number;
-  /** Most it can stockpile: money, manpower, steel, oil. */
-  cap: [number, number, number, number];
+  /** Most it can stockpile: money, manpower, steel, oil, research points. */
+  cap: [number, number, number, number, number];
   /** Techs researched, and the one under way with its progress 0..1. */
   techs: TechId[];
   research: [TechId, number] | null;

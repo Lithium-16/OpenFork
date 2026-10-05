@@ -182,12 +182,12 @@ export class Game {
     const st = this.sim.state;
     const players: PlayerRow[] = st.players.map((p) => ({
       alive: p.alive,
-      res: [round(p.resources.money, 1), round(p.resources.manpower, 1), round(p.resources.steel, 1), round(p.resources.oil, 1)],
-      income: [round(p.income.money, 2), round(p.income.manpower, 2), round(p.income.steel, 2), round(p.income.oil, 2)],
+      res: [round(p.resources.money, 1), round(p.resources.manpower, 1), round(p.resources.steel, 1), round(p.resources.oil, 1), round(p.resources.research, 1)],
+      income: [round(p.income.money, 2), round(p.income.manpower, 2), round(p.income.steel, 2), round(p.income.oil, 2), round(p.income.research, 2)],
       upkeep: round(p.upkeep, 2),
-      cap: [Math.round(p.cap.money), Math.round(p.cap.manpower), Math.round(p.cap.steel), Math.round(p.cap.oil)],
+      cap: [Math.round(p.cap.money), Math.round(p.cap.manpower), Math.round(p.cap.steel), Math.round(p.cap.oil), Math.round(p.cap.research)],
       techs: [...p.techs],
-      research: p.research ? [p.research.tech, round(p.research.progress / p.research.seconds, 2)] : null,
+      research: p.research ? [p.research.tech, round(p.research.paid / p.research.cost, 3)] : null,
       broke: p.broke,
       bot: p.control === 'bot',
     }));
@@ -206,6 +206,7 @@ export class Game {
       r.econ.well,
       r.econ.market,
       r.depots,
+      r.econ.lab,
     ]);
     const blobs: BlobRow[] = [];
     for (const b of st.blobs.values()) {
