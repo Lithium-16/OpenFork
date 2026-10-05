@@ -1520,7 +1520,10 @@ export class MapView {
       const dig = Math.min(...it.rows.map((b) => b[9]));
       if (dig <= 0 || dig >= 1) return;
       const crowd = (parked.get(`${it.owner}:${it.rows[0][6]}`) ?? 0) > 1;
-      entrenchRing(ctx, placed[i].x, placed[i].y, Math.round((FRAME_W * px) / 2 + 2 * px), dig, px, crowd ? 0.65 : 1);
+      // The frame's top-left pixel, exactly as tokenSprite places it.
+      const fx = placed[i].x - TOKEN_AX * px + Math.round(TOKEN_AX * px - (FRAME_W * px) / 2);
+      const fy = placed[i].y - TOKEN_AY * px + Math.round(TOKEN_AY * px - (FRAME_H * px) / 2);
+      entrenchRing(ctx, fx, fy, dig, px, crowd ? 0.65 : 1);
     });
   }
 
@@ -1785,23 +1788,33 @@ export class MapView {
   }
 }
 
-/** A one-pixel circle of radius r round (cx, cy): a dark track, filled clockwise from the
- * top to `progress` in earth gold, at the given opacity. */
-function entrenchRing(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, progress: number, px: number, alpha: number): void {
-  const steps = Math.max(48, Math.ceil((2 * Math.PI * r) / px) * 2);
+/** The unit's body inside a token, in art pixels from the frame's top-left: the 17-wide box
+ * (rows 3-14, under the echelon marks) and its strength bar (rows 15-17). The digging-in
+ * circle is centred on it. */
+const BODY_CX = FRAME_W / 2;
+const BODY_CY = (3 + 18) / 2;
+const RING_R = FRAME_W / 2 + 2;
+
+/** A one-pixel circle round a token's body (frame top-left at fx, fy): a dark track, filled
+ * clockwise from the top to `progress` in earth gold, at the given opacity. Pixels are laid
+ * on the token's own grid, mirrored about the centre, so the circle sits exactly round it. */
+function entrenchRing(ctx: CanvasRenderingContext2D, fx: number, fy: number, progress: number, px: number, alpha: number): void {
+  // The centre is the middle of a pixel (cell 8 of the 17-wide box, row 10 of rows 3-17);
+  // a pixel d away is that one plus d rounded, rounded the same way left and right.
+  const cell = (c: number, d: number) => Math.floor(c) + Math.sign(d) * Math.round(Math.abs(d));
+  const steps = Math.ceil(2 * Math.PI * RING_R) * 4;
+  const seen = new Set<string>();
   ctx.save();
   ctx.globalAlpha = alpha;
-  let last = '';
   for (let i = 0; i < steps; i++) {
     const a = (i / steps) * 2 * Math.PI;
-    const x = Math.round((cx + r * Math.sin(a)) / px) * px;
-    const y = Math.round((cy - r * Math.cos(a)) / px) * px;
-    // One square per pixel of the circle (steps overlap; alpha would stack).
-    const key = `${x},${y}`;
-    if (key === last) continue;
-    last = key;
+    const u = cell(BODY_CX, RING_R * Math.sin(a));
+    const v = cell(BODY_CY, -RING_R * Math.cos(a));
+    const key = `${u},${v}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
     ctx.fillStyle = i / steps < progress ? '#e8c063' : '#0b0f13';
-    ctx.fillRect(x, y, px, px);
+    ctx.fillRect(fx + u * px, fy + v * px, px, px);
   }
   ctx.restore();
 }
