@@ -120,10 +120,8 @@ export class GameScreen {
   /** The build bar button under the pointer. */
   private barHover: BuildingKind | null = null;
   /** Where the building being placed can go: worked out once per snapshot. */
-  private valid: { snap: Snapshot; kind: BuildingKind; demolish: boolean; set: Set<number> } | null = null;
+  private valid: { snap: Snapshot; kind: BuildingKind; set: Set<number> } | null = null;
   private slotCache: { snap: Snapshot; map: Map<number, [number, number]> } | null = null;
-  /** Demolish mode: picking a building and clicking a region knocks one down instead. */
-  private demolishing = false;
   private miniSnap: Snapshot | null = null;
   private miniCam = '';
   private miniAt = 0;
@@ -234,8 +232,8 @@ export class GameScreen {
         toast('Effects reduced to keep the game smooth (FX in the top bar)', 'info');
       }
       if (this.snap) {
-        this.view.placement = this.placing ? { valid: this.validFor(this.placing), hover: this.hover, demolish: this.demolishing } : null;
-        this.view.slots = this.placing || this.demolishing || this.view.yields ? this.slotMap() : null;
+        this.view.placement = this.placing ? { valid: this.validFor(this.placing), hover: this.hover } : null;
+        this.view.slots = this.placing || this.view.yields ? this.slotMap() : null;
         this.view.draw(this.snap, this.players, this.you, this.selected, this.region, this.box);
         // The minimap: on news or a camera move, at most 5 times a second.
         const cam = `${this.view.cam.x}|${this.view.cam.y}|${this.view.cam.scale}`;
@@ -485,11 +483,6 @@ export class GameScreen {
       this.renderBuildbar();
     });
     on($('#buildbar'), 'pointerdown', (e: PointerEvent) => {
-      if ((e.target as HTMLElement).closest('[data-tool=demolish]')) {
-        e.preventDefault();
-        this.setDemolishing(!this.demolishing);
-        return;
-      }
       const b = (e.target as HTMLElement).closest('[data-kind]') as HTMLElement | null;
       if (!b) return;
       e.preventDefault();
@@ -795,8 +788,6 @@ export class GameScreen {
       this.toggleMenu(false);
     } else if (k === 'escape' && this.placing) {
       this.setPlacing(null);
-    } else if (k === 'escape' && this.demolishing) {
-      this.setDemolishing(false);
     } else if (k === 'escape' && (this.selected.size || this.region >= 0 || this.view.expanded !== null)) {
       this.selected.clear();
       this.region = -1;
@@ -824,8 +815,6 @@ export class GameScreen {
     } else if (k === ' ') {
       e.preventDefault();
       this.centreOnCapital();
-    } else if (k === '0') {
-      this.setDemolishing(!this.demolishing);
     } else if (k >= '1' && k <= '9' && k.length === 1) {
       this.setPlacing(HOTKEYS[Number(k) - 1]);
     } else if (k === '-' || k === '=' || k === 'p') {
@@ -861,11 +850,6 @@ export class GameScreen {
 
   /** Enters placement mode for a building, or leaves it (same building again, or null). */
   private setPlacing(kind: BuildingKind | null): void {
-    if (kind && this.demolishing && (kind === 'city' || kind === 'road')) {
-      toast(`a ${BUILD_LABEL[kind].toLowerCase()} can't be demolished`);
-      this.sfx.refuse();
-      return;
-    }
     this.placing = kind === this.placing ? null : kind;
     if (this.placing && this.you === null) this.placing = null;
     this.roadPath = null;
@@ -874,46 +858,11 @@ export class GameScreen {
     this.renderBuildbar();
   }
 
-  /** Demolish mode on or off; the building picked stays picked. */
-  private setDemolishing(on: boolean): void {
-    this.demolishing = on && this.you !== null;
-    if (this.demolishing && (this.placing === 'road' || this.placing === 'city')) this.setPlacing(null);
-    $('#buildbar').classList.toggle('demolish', this.demolishing);
-    this.buildbarKey = '';
-    this.renderBuildbar();
-  }
-
-  /** Why a building can't be knocked down in a region, or null if it can. */
-  private whyNotDemolish(kind: BuildingKind, region: number): string | null {
-    const rr = this.snap?.regions[region];
-    if (!rr || rr[0] !== this.you) return 'pick one of your regions';
-    const label = BUILD_LABEL[kind].toLowerCase();
-    if (ECON_KINDS.includes(kind as EconKind)) return rr[ECON_FIELD[kind as EconKind]] > 0 ? null : `no ${label} here`;
-    if (kind === 'fort') return rr[1] > 0 ? null : 'no fort here';
-    if (kind === 'barracks') return rr[3] & 1 ? null : 'no barracks here';
-    if (kind === 'factory') return rr[3] & 2 ? null : 'no factory here';
-    if (kind === 'depot') return rr[13] > 0 ? null : 'no depot here';
-    return `a ${label} can't be demolished`;
-  }
-
-  /** A click in placement mode: build there, or knock one down in demolish mode (Shift keeps
-   * the tool). */
+  /** A click in placement mode: build there (Shift keeps the tool). */
   private place(x: number, y: number, shift: boolean): void {
     const kind = this.placing;
     if (!kind) return;
     const region = this.view.regionAt(x, y);
-    if (this.demolishing) {
-      const why = this.whyNotDemolish(kind, region);
-      if (why) {
-        toast(why);
-        this.sfx.refuse();
-        return;
-      }
-      this.send({ o: 'demolish', region, kind });
-      this.sfx.place();
-      if (!shift) this.setPlacing(null);
-      return;
-    }
     if (kind === 'road') return;
     const why = this.whyNot(kind, region);
     if (why) {
@@ -1069,8 +1018,7 @@ export class GameScreen {
 
   private validFor(kind: BuildingKind): Set<number> {
     const snap = this.snap as Snapshot;
-    const demolish = this.demolishing;
-    if (this.valid?.snap !== snap || this.valid.kind !== kind || this.valid.demolish !== demolish) this.valid = { snap, kind, demolish, set: this.validRegions(kind) };
+    if (this.valid?.snap !== snap || this.valid.kind !== kind) this.valid = { snap, kind, set: this.validRegions(kind) };
     return this.valid.set;
   }
 
@@ -1079,9 +1027,7 @@ export class GameScreen {
     const regions = this.snap?.regions ?? [];
     for (let i = 0; i < regions.length; i++) {
       if (regions[i][0] !== this.you) continue;
-      const ok = this.demolishing
-        ? !this.whyNotDemolish(kind, i)
-        : kind === 'road' ? this.map.regions[i].neighbors.some((n) => !this.whyNot('road', i, n.id)) : !this.whyNot(kind, i);
+      const ok = kind === 'road' ? this.map.regions[i].neighbors.some((n) => !this.whyNot('road', i, n.id)) : !this.whyNot(kind, i);
       if (ok) out.add(i);
     }
     return out;
@@ -1089,7 +1035,6 @@ export class GameScreen {
 
   /** What a building is called on the bar, for the region under the cursor. */
   private barName(kind: BuildingKind, region: number): string {
-    if (this.demolishing) return BUILD_LABEL[kind];
     if (kind === 'city') {
       if (region < 0) return 'City';
       const level = this.nextLevel(kind, region);
@@ -1107,61 +1052,30 @@ export class GameScreen {
     if (!snap || this.you === null || !snap.players[this.you]?.alive) return;
     const res = this.resources();
     const mine = this.hover >= 0 && snap.regions[this.hover][0] === this.you ? this.hover : -1;
-    const wreck = this.demolishing;
     const cell = (kind: BuildingKind) => {
       const level = mine >= 0 ? this.nextLevel(kind, mine) : kind === 'city' ? 2 : 1;
       const maxed = (kind === 'fort' && level > MAX_FORT) || (kind === 'city' && level > MAX_CITY);
       const allowed = mine < 0 || canBuildOn(kind, this.map.regions[mine], snap.regions[mine][2]);
       const { cost, seconds } = buildCost(kind, level);
       const name = this.barName(kind, mine);
-      // Demolishing: whether there's one to knock down (in the region under the cursor).
-      const fixed = kind === 'city' || kind === 'road';
-      const note = wreck
-        ? fixed
-          ? "can't demolish"
-          : mine >= 0
-            ? this.whyNotDemolish(kind, mine)
-              ? 'none here'
-              : 'knock one down'
-            : 'no refund'
-        : maxed
-          ? 'MAX'
-          : !allowed
-            ? `needs ${BUILD_NEEDS[kind]}`
-            : '';
-      const poor = !wreck && !maxed && allowed && !afford(res, cost);
+      const note = maxed ? 'MAX' : !allowed ? `needs ${BUILD_NEEDS[kind]}` : '';
+      const poor = !maxed && allowed && !afford(res, cost);
       // What one more of it yields: exact for the region under the cursor, else the plain rate.
-      const gain = !wreck && ECON_KINDS.includes(kind as EconKind) ? econYield(kind as EconKind, mine >= 0 ? this.map.regions[mine] : PLAIN_REGION, mine >= 0 ? snap.regions[mine][2] : 0) : null;
-      return { kind, n: HOTKEY_KEYS[HOTKEYS.indexOf(kind)] ?? '', name, note, cost, seconds, gain, poor, off: wreck && fixed };
+      const gain = ECON_KINDS.includes(kind as EconKind) ? econYield(kind as EconKind, mine >= 0 ? this.map.regions[mine] : PLAIN_REGION, mine >= 0 ? snap.regions[mine][2] : 0) : null;
+      return { kind, n: HOTKEY_KEYS[HOTKEYS.indexOf(kind)] ?? '', name, note, cost, seconds, gain, poor };
     };
     const groups = BAR.map((g) => ({ group: g.group, cells: g.kinds.map(cell) }));
     const slots = mine >= 0 ? `${this.map.regions[mine].name}: slots ${this.slotsUsed(mine)}/${slotsOf(this.map.regions[mine], snap.regions[mine][2])}` : '';
-    const hint = wreck
-      ? this.placing
-        ? 'click a red region · shift: more · esc'
-        : 'pick a building · 0 / esc: stop'
-      : this.placing === 'road'
-        ? 'drag across your regions · shift: more · esc'
-        : this.placing
-          ? 'click a region · shift: more · esc'
-          : '1-9 · 0: demolish';
+    const hint =
+      this.placing === 'road' ? 'drag across your regions · shift: more · esc' : this.placing ? 'click a region · shift: more · esc' : '1-9 · -, =, P';
     // Redrawn only when something on it changed (what you can afford included).
     const can = RESOURCES.map((k) => groups.map((g) => g.cells.map((c) => res[k] >= c.cost[k])));
     const about = this.barHover ?? this.placing;
-    const key = `${wreck}|${this.placing}|${about}|${slots}|${JSON.stringify(groups)}|${JSON.stringify(can)}`;
+    const key = `${this.placing}|${about}|${slots}|${JSON.stringify(groups)}|${JSON.stringify(can)}`;
     if (key === this.buildbarKey) return;
     this.buildbarKey = key;
-    const head = wreck ? 'Demolish' : 'Build';
-    const aboutText = wreck
-      ? 'Demolish: pick a building, then click your regions that have one (red). Frees the slot at once; nothing is refunded.'
-      : about
-        ? BUILD_HELP[about]
-        : 'Point at a building to see what it does.';
-    const demolish = el('button', { class: `slot tool${wreck ? ' active' : ''}`, 'data-tool': 'demolish' }, [
-      el('span', { class: 'glyph' }, ['✕']),
-      el('span', { class: 'name' }, [el('b', {}, ['0']), ' Demolish']),
-      el('span', { class: 'price' }, [wreck ? 'on: click to stop' : 'frees a slot']),
-    ]);
+    const head = 'Build';
+    const aboutText = about ? BUILD_HELP[about] : 'Point at a building to see what it does. To knock one down, click the region and use Demolish.';
     bar.replaceChildren(
       classbar(slots ? `${head} // ${slots}` : head, hint),
       el('div', { class: 'about' }, [aboutText]),
@@ -1173,17 +1087,16 @@ export class GameScreen {
               'div',
               { class: 'slots' },
               g.cells.map((c) =>
-                el('button', { class: `slot${this.placing === c.kind ? ' active' : ''}${c.poor ? ' poor' : ''}${c.off ? ' off' : ''}`, 'data-kind': c.kind }, [
+                el('button', { class: `slot${this.placing === c.kind ? ' active' : ''}${c.poor ? ' poor' : ''}`, 'data-kind': c.kind }, [
                   el('img', { src: buildingIcon(c.kind), alt: '' }),
                   el('span', { class: 'name' }, [el('b', {}, [c.n]), ` ${c.name}`]),
                   c.note ? el('span', { class: 'price' }, [c.note]) : costChips(c.cost, res),
-                  wreck ? '' : el('span', { class: 'gives' }, [...(c.gain ? [yieldChips(c.gain), ' · '] : []), `${c.seconds}s`]),
+                  el('span', { class: 'gives' }, [...(c.gain ? [yieldChips(c.gain), ' · '] : []), `${c.seconds}s`]),
                 ]),
               ),
             ),
           ]),
         ),
-        el('div', { class: 'group' }, [el('div', { class: 'gname' }, ['Remove']), el('div', { class: 'slots' }, [demolish])]),
       ]),
     );
   }

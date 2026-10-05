@@ -102,8 +102,8 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
   building but cities and roads takes one (a fort takes one for all its levels). Choosing
   what a region is for is the trade-off; demolishing frees a slot at once, with no refund.
   Your regions show their slots as boxes (filled = used, hollow green = free) while you place
-  or demolish, and with the yield overlay. **Demolish mode** (0 or the build bar): pick a
-  building and click your regions that have one (tinted red).
+  and with the yield overlay. To demolish, click the region and use Demolish next to the
+  building in its panel.
 - **Economic buildings** go only within 2 regions of one of your cities:
   - Farm (+0.4 manpower/s, +0.6 on farmland): farmland or plains.
   - Mine (+0.6 steel/s on industry, +0.3 on hills or mountains).
