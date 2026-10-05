@@ -950,6 +950,38 @@ button.primary:hover:not(:disabled) {
   color: var(--text);
 }
 
+/* The demolish tool, and the bar while it's on: red instead of cyan. */
+.buildbar .slot .glyph {
+  grid-row: span 3;
+  width: 18px;
+  text-align: center;
+  font-size: 14px;
+  color: var(--bad);
+}
+
+.buildbar .slot.off {
+  opacity: 0.45;
+}
+
+.buildbar.demolish .classbar,
+.buildbar .slot.tool.active,
+.buildbar.demolish .slot.active {
+  background: var(--bad);
+  color: var(--ink);
+  box-shadow:
+    0 -2px 0 0 var(--bad),
+    0 2px 0 0 var(--bad),
+    -2px 0 0 0 var(--bad),
+    2px 0 0 0 var(--bad);
+}
+
+.buildbar .slot.tool.active .glyph,
+.buildbar .slot.tool.active .price,
+.buildbar.demolish .slot.active .price,
+.buildbar.demolish .slot.active .name b {
+  color: var(--ink);
+}
+
 #map.placing {
   cursor: crosshair;
 }

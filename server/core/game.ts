@@ -121,6 +121,8 @@ export class Game {
         return s.split(id, order.blob, order.amount);
       case 'merge':
         return s.merge(id, order.blobs);
+      case 'disband':
+        return s.disband(id, order.blobs);
       case 'build':
         return s.build(id, order.region, order.kind, order.target ?? -1);
       case 'demolish':

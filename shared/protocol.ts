@@ -15,6 +15,7 @@ export type Order =
   | { o: 'stop'; blobs: number[] }
   | { o: 'split'; blob: number; amount?: number }
   | { o: 'merge'; blobs: number[] }
+  | { o: 'disband'; blobs: number[] }
   /** `target`: a road's other region. */
   | { o: 'build'; region: number; kind: BuildingKind; target?: number }
   /** Knock a building down (no refund). */

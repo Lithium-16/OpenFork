@@ -71,6 +71,9 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
 - **Slots:** a region has 1 (2 if large), plus its city level. Every
   building but cities and roads takes one (a fort takes one for all its levels). Choosing
   what a region is for is the trade-off; demolishing frees a slot at once, with no refund.
+  Your regions show their slots as boxes (filled = used, hollow green = free) while you place
+  or demolish, and with the yield overlay. **Demolish mode** (0 or the build bar): pick a
+  building and click your regions that have one (tinted red).
 - **Economic buildings** go only within 2 regions of one of your cities:
   - Farm (+0.4 manpower/s, +0.6 on farmland): farmland or plains.
   - Mine (+0.6 steel/s on industry, +0.3 on hills or mountains).
@@ -109,7 +112,10 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
 - **Merging and splitting:**
   - Only same-type blobs merge, in any amounts (a 5 and a 10 make a 15). The merged blob's
     training is the size-weighted average minus a penalty, and it stops at 100 strength
-    (the rest stays behind).
+    (the rest stays behind). Units in a fight can't merge, nor can a unit below 25% of its
+    full strength (no patching wrecks together).
+  - **Disband** (Del): the units go, and half the manpower their remaining strength cost
+    comes back. Not in a fight.
   - Splitting is free and takes any amount: half (X), one batch, or a number typed in the
     unit panel. Both parts keep their training.
   - Bots keep units around two batches, and merge bigger only when a region is full.
@@ -164,7 +170,7 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
 - **Defender bonus = fort + entrenchment + river crossing**, added together, for the region
   owner's blobs standing in it. The river bonus counts the attackers coming over a river
   edge. **Entrenchment** builds up while a blob holds still and is lost when it moves or
-  attacks.
+  attacks; a ring round the units fills as they dig in and goes once they're fully dug in.
 - **Capturing waits** while a region is fought over, inside or from next door.
 - Anyone can reinforce either side mid-battle. With 3 or more sides, **each side spreads its
   damage over all hostile sides in proportion to their strength**.

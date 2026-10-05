@@ -5,9 +5,11 @@ import {
   CITY_YIELD,
   CROSS_SECONDS,
   CUT_OFF_SECONDS,
+  DISBAND_REFUND,
   DRILL_CAP,
   econYield,
   ENTRENCH_SECONDS,
+  MERGE_MIN_STRENGTH,
   MERGE_PENALTY,
   RETREAT_STRENGTH_LOSS,
   START_INFANTRY,
@@ -462,6 +464,47 @@ describe('training, digging in, merging', () => {
     assert.equal(big.size, UNITS.infantry.maxSize);
     assert.equal(c.size, 5);
     assert.match(s.merge(0, [big.id, c.id]) ?? '', /already full/);
+  });
+
+  it('units in a fight, or below a quarter of their strength, do not merge', () => {
+    const s = duel();
+    clearBlobs(s);
+    s.declareWar(1, 0);
+    s.state.regions[2].owner = 0;
+    s.state.regions[3].owner = 1;
+    const a = place(s, 0, 'infantry', 2);
+    const b = place(s, 0, 'infantry', 2);
+    const enemy = place(s, 1, 'infantry', 2);
+    s.tick(0.1);
+    assert.ok(s.inFight(a));
+    assert.match(s.merge(0, [a.id, b.id]) ?? '', /in a fight/);
+    s.state.blobs.delete(enemy.id);
+    s.tick(0.1);
+    assert.ok(!s.inFight(a));
+    b.strength = b.size * (MERGE_MIN_STRENGTH - 0.01);
+    assert.match(s.merge(0, [a.id, b.id]) ?? '', /below 25%/);
+    b.strength = b.size * MERGE_MIN_STRENGTH;
+    assert.equal(s.merge(0, [a.id, b.id]), null);
+  });
+
+  it('disbanding gives back part of the manpower, never in a fight', () => {
+    const s = duel();
+    clearBlobs(s);
+    const p = s.state.players[0];
+    const a = place(s, 0, 'infantry', 0);
+    a.strength = a.size / 2;
+    const before = p.resources.manpower;
+    assert.equal(s.disband(0, [a.id]), null);
+    assert.ok(!s.state.blobs.has(a.id));
+    const refund = (a.strength * UNITS.infantry.cost.manpower * DISBAND_REFUND) / UNITS.infantry.batch;
+    assert.ok(Math.abs(p.resources.manpower - before - refund) < 1e-9);
+    s.declareWar(1, 0);
+    s.state.regions[2].owner = 0;
+    const b = place(s, 0, 'infantry', 2);
+    place(s, 1, 'infantry', 2);
+    s.tick(0.1);
+    assert.match(s.disband(0, [b.id]) ?? '', /in a fight/);
+    assert.match(s.disband(1, [b.id]) ?? '', /./, 'only your own units');
   });
 
   it('only same-type blobs merge; split halves keep their training', () => {
