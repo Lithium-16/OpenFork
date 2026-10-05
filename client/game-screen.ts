@@ -36,6 +36,7 @@ import {
   type UnitType,
   unitStats,
   unitsOf,
+  UNIT_TECH,
   whyNotResearch,
 } from '../shared/rules.ts';
 import { FrameMeter } from './fx.ts';
@@ -69,7 +70,7 @@ const HOTKEYS: BuildingKind[] = BAR.flatMap((g) => g.kinds);
 const HOTKEY_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '-'];
 /** Region row fields of the economic buildings. */
 const ECON_FIELD: Record<EconKind, number> = { farm: 9, mine: 10, well: 11, market: 12 };
-const ROMAN_TIER = ['', 'I', 'II', 'III'];
+const ROMAN_TIER = ['', 'I', 'II', 'III', 'IV'];
 const tech = (id: TechId): Tech => TECHS.find((t) => t.id === id) as Tech;
 const UNIT_NAME: Record<UnitType, string> = { infantry: 'Infantry', tank: 'Tanks', artillery: 'Artillery' };
 const UNIT_SHORT: Record<UnitType, string> = { infantry: 'INF', tank: 'ARM', artillery: 'ART' };
@@ -323,7 +324,8 @@ export class GameScreen {
     const TOP = 30;
     const pos = (t: Tech) => ({ x: TECH_BRANCHES.indexOf(t.branch) * (W + GX), y: TOP + (t.tier - 1) * (H + GY) });
     const width = TECH_BRANCHES.length * (W + GX) - GX;
-    const height = TOP + 3 * (H + GY) - GY;
+    const rows = Math.max(...TECHS.map((t) => t.tier));
+    const height = TOP + rows * (H + GY) - GY;
 
     // Lines: straight down within a branch; across from another branch they leave the
     // parent's bottom just left of centre, run along their own lane in the gap above the
@@ -1627,8 +1629,13 @@ export class GameScreen {
     const adds: HTMLElement[] = [];
     for (const type of unitsOf(line.building)) {
       const stats = unitStats(type, this.myTechs());
-      const add = el('button', {}, [`${UNIT_KEY[type].toUpperCase()} + ${UNIT_NAME[type]}`]) as HTMLButtonElement;
-      add.disabled = line.queue.length >= 5;
+      // Locked behind research: say which tech, and the button stays off.
+      const needs = UNIT_TECH[type];
+      const locked = needs !== undefined && !this.myTechs().includes(needs);
+      const add = el('button', {}, [
+        locked ? `${UNIT_NAME[type]}: research ${tech(needs as TechId).name} (T)` : `${UNIT_KEY[type].toUpperCase()} + ${UNIT_NAME[type]}`,
+      ]) as HTMLButtonElement;
+      add.disabled = locked || line.queue.length >= 5;
       add.onclick = () => this.send({ o: 'produce', region: line.region, building: line.building, unit: type });
       adds.push(add);
       // What one order costs, in plain sight (short resources in red).
