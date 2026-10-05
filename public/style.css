@@ -1010,95 +1010,221 @@ button.primary:hover:not(:disabled) {
   color: var(--ink);
 }
 
-/* Research: the tech tree, over the middle of the map. */
-.research {
-  top: 64px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: min(900px, calc(100% - 20px));
-  max-height: calc(100% - 300px);
-  overflow: auto;
-  padding: 0 0 10px;
-  /* Over the side panels while it's open. */
-  z-index: 5;
+/* Research: its own screen over the game, the tech tree as nodes joined by lines. */
+.techtree {
+  position: absolute;
+  inset: 0;
+  z-index: 15;
+  display: grid;
+  place-items: center;
+  background: rgba(8, 11, 14, 0.94);
 }
 
-.research .rhead {
+.techtree .tscreen {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 14px;
+  max-width: calc(100% - 32px);
+  max-height: calc(100% - 32px);
+}
+
+.techtree .thead {
   display: flex;
-  justify-content: space-between;
+  flex-wrap: wrap;
   align-items: center;
-  padding: 0 12px 6px;
+  gap: 10px 24px;
+}
+
+.techtree h2 {
+  margin: 0;
+  font-size: 22px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.techtree .overall,
+.techtree .current {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
   color: var(--muted);
+}
+
+.techtree .overall .bar,
+.techtree .current .bar {
+  width: 120px;
+  margin: 0;
+}
+
+.techtree .thead > button {
+  margin-left: auto;
+}
+
+.techtree .tscroll {
+  overflow: auto;
+  padding: 4px;
+}
+
+.techtree .tplane {
+  position: relative;
+  margin: 0 auto;
+}
+
+.techtree .wires,
+.techtree .wires svg {
+  position: absolute;
+  inset: 0;
+}
+
+.techtree path {
+  fill: none;
+  stroke-width: 3;
+  stroke-linejoin: round;
+}
+
+.techtree path.off {
+  stroke: #33414c;
+  stroke-dasharray: 6 5;
+}
+
+.techtree path.ready {
+  stroke: #5d7a8c;
+}
+
+.techtree path.live {
+  stroke: var(--accent);
+  stroke-dasharray: 10 6;
+  animation: wire 0.8s linear infinite;
+}
+
+.techtree path.done {
+  stroke: var(--good);
+}
+
+@keyframes wire {
+  to {
+    stroke-dashoffset: -16;
+  }
+}
+
+.techtree .bhead {
+  position: absolute;
+  top: 0;
+  text-align: center;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.techtree .node {
+  position: absolute;
+  box-sizing: border-box;
+  display: grid;
+  grid-template-rows: auto auto 1fr auto;
+  gap: 2px;
+  padding: 7px 10px 8px;
+  overflow: hidden;
+  background: var(--panel-solid);
+  box-shadow: 0 0 0 2px var(--line);
   font-size: 13px;
 }
 
-.research .tree {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 8px;
-  padding: 0 10px;
-}
-
-.research .gname {
+.techtree .node .tier {
+  position: absolute;
+  top: 6px;
+  right: 8px;
   font-size: 10px;
   color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  margin: 0 2px 4px;
 }
 
-.research .tech {
-  display: grid;
-  gap: 3px;
-  padding: 6px 8px;
-  margin-bottom: 6px;
-  background: var(--raised);
-  box-shadow: 0 0 0 2px var(--line);
-  font-size: 12px;
-}
-
-.research .tech .effect {
+.techtree .node .effect {
+  font-size: 11px;
   color: var(--muted);
-  font-size: 11px;
 }
 
-.research .tech .foot {
-  font-size: 11px;
+.techtree .node .foot {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 4px;
+  font-size: 11px;
+  position: relative;
 }
 
-.research .tech.open {
+.techtree .node .fill {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 4px;
+  background: var(--accent);
+}
+
+.techtree .node.open {
   cursor: pointer;
+  box-shadow: 0 0 0 2px #5d7a8c;
 }
 
-.research .tech.open:hover {
+.techtree .node.open:hover {
+  box-shadow: 0 0 0 2px var(--accent);
+  background: var(--raised);
+}
+
+.techtree .node.active {
   box-shadow: 0 0 0 2px var(--accent);
 }
 
-.research .tech.done {
+.techtree .node.active .foot {
+  color: var(--accent);
+}
+
+.techtree .node.done {
   box-shadow: 0 0 0 2px var(--good);
 }
 
-.research .tech.done .foot {
+.techtree .node.done .foot {
   color: var(--good);
 }
 
-.research .tech.active {
+.techtree .node.locked,
+.techtree .node.wait {
+  opacity: 0.5;
+}
+
+.techtree .tlegend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.techtree .tlegend .k::before {
+  content: '';
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 6px;
+  vertical-align: -1px;
+  box-shadow: 0 0 0 2px var(--line);
+}
+
+.techtree .tlegend .k.done::before {
+  box-shadow: 0 0 0 2px var(--good);
+}
+
+.techtree .tlegend .k.active::before {
   box-shadow: 0 0 0 2px var(--accent);
 }
 
-.research .tech.locked,
-.research .tech.wait {
-  opacity: 0.55;
+.techtree .tlegend .k.open::before {
+  box-shadow: 0 0 0 2px #5d7a8c;
 }
 
-@media (max-width: 720px) {
-  .research .tree {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
+.techtree .tlegend .k.locked::before {
+  opacity: 0.5;
 }
 
 #map.placing {

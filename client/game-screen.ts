@@ -27,6 +27,7 @@ import {
   STORE_PER_CITY_LEVEL,
   STORE_PER_DEPOT,
   storeOf,
+  type Tech,
   TECH_BRANCHES,
   type TechId,
   TECHS,
@@ -68,6 +69,8 @@ const HOTKEYS: BuildingKind[] = BAR.flatMap((g) => g.kinds);
 const HOTKEY_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '-'];
 /** Region row fields of the economic buildings. */
 const ECON_FIELD: Record<EconKind, number> = { farm: 9, mine: 10, well: 11, market: 12 };
+const ROMAN_TIER = ['', 'I', 'II', 'III'];
+const tech = (id: TechId): Tech => TECHS.find((t) => t.id === id) as Tech;
 const UNIT_NAME: Record<UnitType, string> = { infantry: 'Infantry', tank: 'Tanks', artillery: 'Artillery' };
 const UNIT_SHORT: Record<UnitType, string> = { infantry: 'INF', tank: 'ARM', artillery: 'ART' };
 /** The key that orders each unit at the selected region. */
@@ -294,7 +297,11 @@ export class GameScreen {
     this.renderTopbar();
   }
 
-  /** The tech tree: a column per branch, tiers top to bottom; click one to research it. */
+  /**
+   * The research screen: the tech tree as nodes in a column per branch, tier by tier, joined
+   * by lines from each tech to the ones it unlocks (green once researched). The tech under
+   * way fills up as it goes; the header shows how far along the whole tree is.
+   */
   private renderResearch(): void {
     const box = $('#research');
     const snap = this.snap;
@@ -304,38 +311,91 @@ export class GameScreen {
     const key = JSON.stringify([me.techs, me.research, RESOURCES.map((k) => Math.floor(res[k] / 10))]);
     if (key === this.researchKey) return;
     this.researchKey = key;
+
     const busy = me.research;
-    const head = busy ? `Researching ${TECHS.find((t) => t.id === busy[0])?.name} · ${Math.round(busy[1] * 100)}%` : 'Pick a tech to research';
-    const close = el('button', { class: 'x', 'data-act': 'close' }, ['Close (T)']);
-    const columns = TECH_BRANCHES.map((branch) =>
-      el('div', { class: 'branch' }, [
-        el('div', { class: 'gname' }, [branch]),
-        ...TECHS.filter((t) => t.branch === branch).map((t) => {
-          const { cost, seconds } = techCost(t.tier);
-          const done = me.techs.includes(t.id);
-          const active = busy?.[0] === t.id;
-          const why = whyNotResearch(t.id, me.techs);
-          const locked = !done && !active && why !== null;
-          const state = done ? 'done' : active ? 'active' : locked ? 'locked' : busy ? 'wait' : 'open';
-          const foot: Array<Node | string> = done
-            ? ['Researched']
-            : active
-              ? [cellBar(busy[1]), el('button', { class: 'x', 'data-act': 'unresearch' }, ['Cancel (refund)'])]
-              : locked
-                ? [why ?? '']
-                : [costChips(cost, res), ` · ${seconds}s`];
-          return el('div', { class: `tech ${state}`, ...(state === 'open' ? { 'data-tech': t.id } : {}) }, [
-            el('b', {}, [t.name]),
-            el('span', { class: 'effect' }, [t.effect]),
-            el('span', { class: 'foot' }, foot),
-          ]);
-        }),
-      ]),
-    );
+    const state = (id: TechId) =>
+      me.techs.includes(id) ? 'done' : busy?.[0] === id ? 'active' : whyNotResearch(id, me.techs) ? 'locked' : busy ? 'wait' : 'open';
+    // Layout: a column per branch, a row per tier, in CSS pixels.
+    const W = 176;
+    const H = 104;
+    const GX = 36;
+    const GY = 76;
+    const TOP = 30;
+    const pos = (t: Tech) => ({ x: TECH_BRANCHES.indexOf(t.branch) * (W + GX), y: TOP + (t.tier - 1) * (H + GY) });
+    const width = TECH_BRANCHES.length * (W + GX) - GX;
+    const height = TOP + 3 * (H + GY) - GY;
+
+    // Lines: straight down within a branch; across from another branch they leave the
+    // parent's bottom just left of centre, run along their own lane in the gap above the
+    // child's row, and come in just right of the child's centre.
+    const cross = TECHS.flatMap((t) => t.needs.filter((n) => tech(n).branch !== t.branch).map((n) => ({ from: tech(n), to: t })));
+    const paths: string[] = [];
+    const edge = (from: Tech, to: Tech) => {
+      const a = pos(from);
+      const b = pos(to);
+      const cls = me.techs.includes(from.id) ? (state(to.id) === 'active' ? 'live' : me.techs.includes(to.id) ? 'done' : 'ready') : 'off';
+      let d: string;
+      if (from.branch === to.branch) d = `M${a.x + W / 2},${a.y + H} V${b.y}`;
+      else {
+        const lane = cross.findIndex((c) => c.from === from && c.to === to);
+        const ly = b.y - GY + (GY * (lane + 1)) / (cross.length + 1);
+        const sx = a.x + W / 2 + (b.x < a.x ? -18 : 18);
+        const ex = b.x + W / 2 + (a.x > b.x ? 18 : -18);
+        d = `M${sx},${a.y + H} V${ly} H${ex} V${b.y}`;
+      }
+      paths.push(`<path class="${cls}" d="${d}"/>`);
+    };
+    for (const t of TECHS) for (const n of t.needs) edge(tech(n), t);
+    const svg = el('div', { class: 'wires' });
+    svg.innerHTML = `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">${paths.join('')}</svg>`;
+
+    const nodes = TECHS.map((t) => {
+      const st = state(t.id);
+      const { cost, seconds } = techCost(t.tier);
+      const p = pos(t);
+      const foot: Array<Node | string> =
+        st === 'done'
+          ? ['✓ Researched']
+          : st === 'active' && busy
+            ? [`${Math.round(busy[1] * 100)}% · ${Math.ceil(seconds * (1 - busy[1]))} s left`]
+            : st === 'locked'
+              ? [whyNotResearch(t.id, me.techs) ?? '']
+              : [costChips(cost, res), ` · ${seconds}s`];
+      return el('div', { class: `node ${st}`, style: `left:${p.x}px;top:${p.y}px;width:${W}px;height:${H}px`, ...(st === 'open' ? { 'data-tech': t.id } : {}) }, [
+        el('span', { class: 'tier' }, [ROMAN_TIER[t.tier]]),
+        el('b', {}, [t.name]),
+        el('span', { class: 'effect' }, [t.effect]),
+        el('span', { class: 'foot' }, foot),
+        st === 'active' && busy ? el('i', { class: 'fill', style: `width:${Math.round(busy[1] * 100)}%` }) : '',
+      ]);
+    });
+    const heads = TECH_BRANCHES.map((b, i) => el('div', { class: 'bhead', style: `left:${i * (W + GX)}px;width:${W}px` }, [b]));
+
+    const done = me.techs.length;
+    const current = busy
+      ? [
+          `Researching ${tech(busy[0]).name}`,
+          cellBar(busy[1]),
+          `${Math.round(busy[1] * 100)}%`,
+          el('button', { class: 'x', 'data-act': 'unresearch' }, ['Cancel (refund)']),
+        ]
+      : ['Nothing under way: pick a lit tech'];
     box.replaceChildren(
-      classbar('Research', 'one at a time'),
-      el('div', { class: 'rhead' }, [head, close]),
-      el('div', { class: 'tree' }, columns),
+      el('div', { class: 'tscreen' }, [
+        el('div', { class: 'thead' }, [
+          el('h2', {}, ['Research']),
+          el('div', { class: 'overall' }, [`${done} / ${TECHS.length} researched`, cellBar(done / TECHS.length)]),
+          el('div', { class: 'current' }, current),
+          el('button', { 'data-act': 'close' }, ['Close (T / Esc)']),
+        ]),
+        el('div', { class: 'tscroll' }, [el('div', { class: 'tplane', style: `width:${width}px;height:${height}px` }, [svg, ...heads, ...nodes])]),
+        el('div', { class: 'tlegend' }, [
+          el('span', { class: 'k done' }, ['researched']),
+          el('span', { class: 'k active' }, ['under way']),
+          el('span', { class: 'k open' }, ['can research']),
+          el('span', { class: 'k locked' }, ['needs the lines into it first']),
+        ]),
+      ]),
     );
   }
 

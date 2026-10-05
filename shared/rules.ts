@@ -438,29 +438,32 @@ export type Techs = readonly TechId[];
 export interface Tech {
   id: TechId;
   branch: string;
-  /** 1-3: each needs the one before it in its branch. */
+  /** 1-3: its row in the tree. */
   tier: number;
   name: string;
   effect: string;
+  /** Techs it needs first (its own branch's tier before, and sometimes another branch's). */
+  needs: TechId[];
 }
 
-/** The tech tree: five branches of three, researched one at a time. */
+/** The tech tree: five branches of three, researched one at a time. Most top-tier techs
+ * also need a middle-tier tech from another branch, so the branches join up. */
 export const TECHS: readonly Tech[] = [
-  { id: 'rifles', branch: 'Infantry', tier: 1, name: 'Rifles', effect: 'Infantry +20% attack' },
-  { id: 'trenches', branch: 'Infantry', tier: 2, name: 'Trenches', effect: 'Dig in twice as fast; dug in +50% stronger' },
-  { id: 'conscription', branch: 'Infantry', tier: 3, name: 'Conscription', effect: 'Infantry −30% manpower' },
-  { id: 'engines', branch: 'Armour', tier: 1, name: 'Engines', effect: 'Tanks +20% speed' },
-  { id: 'armour', branch: 'Armour', tier: 2, name: 'Armour plate', effect: 'Tanks +30% defence' },
-  { id: 'fuel', branch: 'Armour', tier: 3, name: 'Synthetic fuel', effect: 'Tanks −50% oil' },
-  { id: 'shells', branch: 'Artillery', tier: 1, name: 'Heavy shells', effect: 'Artillery +30% shelling' },
-  { id: 'rangefinders', branch: 'Artillery', tier: 2, name: 'Rangefinders', effect: 'Forts no help against shells' },
-  { id: 'longGuns', branch: 'Artillery', tier: 3, name: 'Long guns', effect: 'Artillery range 3' },
-  { id: 'farming', branch: 'Economy', tier: 1, name: 'Farming', effect: 'Farms +30%' },
-  { id: 'industry', branch: 'Economy', tier: 2, name: 'Industry', effect: 'Mines and oil wells +30%' },
-  { id: 'banking', branch: 'Economy', tier: 3, name: 'Banking', effect: 'Markets and city tax +25%' },
-  { id: 'warehouses', branch: 'Logistics', tier: 1, name: 'Warehouses', effect: 'Storage +50%' },
-  { id: 'railways', branch: 'Logistics', tier: 2, name: 'Railways', effect: 'Supply reaches 1 region further' },
-  { id: 'kitchens', branch: 'Logistics', tier: 3, name: 'Field kitchens', effect: 'Regions feed +30% troops' },
+  { id: 'rifles', branch: 'Infantry', tier: 1, name: 'Rifles', effect: 'Infantry +20% attack', needs: [] },
+  { id: 'trenches', branch: 'Infantry', tier: 2, name: 'Trenches', effect: 'Dig in twice as fast; dug in +50% stronger', needs: ['rifles'] },
+  { id: 'conscription', branch: 'Infantry', tier: 3, name: 'Conscription', effect: 'Infantry −30% manpower', needs: ['trenches', 'industry'] },
+  { id: 'engines', branch: 'Armour', tier: 1, name: 'Engines', effect: 'Tanks +20% speed', needs: [] },
+  { id: 'armour', branch: 'Armour', tier: 2, name: 'Armour plate', effect: 'Tanks +30% defence', needs: ['engines'] },
+  { id: 'fuel', branch: 'Armour', tier: 3, name: 'Synthetic fuel', effect: 'Tanks −50% oil', needs: ['armour', 'industry'] },
+  { id: 'shells', branch: 'Artillery', tier: 1, name: 'Heavy shells', effect: 'Artillery +30% shelling', needs: [] },
+  { id: 'rangefinders', branch: 'Artillery', tier: 2, name: 'Rangefinders', effect: 'Forts no help against shells', needs: ['shells'] },
+  { id: 'longGuns', branch: 'Artillery', tier: 3, name: 'Long guns', effect: 'Artillery range 3', needs: ['rangefinders', 'railways'] },
+  { id: 'farming', branch: 'Economy', tier: 1, name: 'Farming', effect: 'Farms +30%', needs: [] },
+  { id: 'industry', branch: 'Economy', tier: 2, name: 'Industry', effect: 'Mines and oil wells +30%', needs: ['farming'] },
+  { id: 'banking', branch: 'Economy', tier: 3, name: 'Banking', effect: 'Markets and city tax +25%', needs: ['industry', 'railways'] },
+  { id: 'warehouses', branch: 'Logistics', tier: 1, name: 'Warehouses', effect: 'Storage +50%', needs: [] },
+  { id: 'railways', branch: 'Logistics', tier: 2, name: 'Railways', effect: 'Supply reaches 1 region further', needs: ['warehouses'] },
+  { id: 'kitchens', branch: 'Logistics', tier: 3, name: 'Field kitchens', effect: 'Regions feed +30% troops', needs: ['railways'] },
 ];
 export const TECH_BRANCHES = ['Infantry', 'Armour', 'Artillery', 'Economy', 'Logistics'];
 
@@ -476,8 +479,8 @@ export function whyNotResearch(id: TechId, techs: Techs): string | null {
   const t = TECHS.find((x) => x.id === id);
   if (!t) return 'no such tech';
   if (techs.includes(id)) return 'already researched';
-  const before = TECHS.find((x) => x.branch === t.branch && x.tier === t.tier - 1);
-  if (before && !techs.includes(before.id)) return `needs ${before.name} first`;
+  const missing = t.needs.filter((n) => !techs.includes(n)).map((n) => TECHS.find((x) => x.id === n)?.name ?? n);
+  if (missing.length) return `needs ${missing.join(' and ')} first`;
   return null;
 }
 
