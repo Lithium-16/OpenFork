@@ -154,16 +154,22 @@ export const ICONS = {
       '.OO...OO.',
     ],
   ),
-  city: art([
-    '.....OOO.',
-    '.OOO.OGO.',
-    '.OGO.OGO.',
-    'OOGOOOGOO',
-    'OGGOGOGGO',
-    'OGYOGOYGO',
-    'OGGOGOGGO',
-    'OOOOOOOOO',
-  ]),
+  city: art(
+    [
+      '......O......',
+      '......Y......',
+      '.....OLO.....',
+      '....OLGGO....',
+      '..O.OLYGO.O..',
+      '.OROOLGGOORO.',
+      'ORRROLYGORRRO',
+      'OLYLOLGGOLYLO',
+      'OLLLOLYGOLLLO',
+      'OLYLOLGGOLYLO',
+      'OOOOOOOOOOOOO',
+    ],
+    { R: '#b5653a', L: '#c9d2d9' },
+  ),
   farm: art(
     ['OOOOOOOOO', 'OYYYYYYYO', 'OTTTTTTTO', 'OYYYYYYYO', 'OTTTTTTTO', 'OYYYYYYYO', 'OOOOOOOOO'],
     { Y: '#d6b64a', T: '#7f9c43' },
@@ -361,6 +367,39 @@ export function hudIcon(name: keyof typeof HUD, scale = 2): string {
     urls.set(key, url);
   }
   return url;
+}
+
+// -- roman numerals ---------------------------------------------------------------------------
+
+const ROMAN_GLYPHS: Record<string, string[]> = {
+  I: ['#', '#', '#', '#'],
+  V: ['#.#', '#.#', '#.#', '.#.'],
+};
+const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V'];
+
+/** A level (1-5) as a roman numeral sprite: white on a dark outline. */
+export function romanSprite(level: number): Sprite {
+  return cached(`roman:${level}`, () => {
+    const text = ROMAN[level] ?? String(level);
+    const glyphs = [...text].map((ch) => ROMAN_GLYPHS[ch] ?? ROMAN_GLYPHS.I);
+    const w = glyphs.reduce((sum, g) => sum + g[0].length, 0) + glyphs.length - 1;
+    const h = glyphs[0].length;
+    const ink: boolean[][] = Array.from({ length: h }, () => Array(w).fill(false));
+    let x = 0;
+    for (const g of glyphs) {
+      g.forEach((row, y) => [...row].forEach((ch, dx) => (ink[y][x + dx] ||= ch === '#')));
+      x += g[0].length + 1;
+    }
+    // One pixel of outline all round.
+    const rows = Array.from({ length: h + 2 }, (_, y) =>
+      Array.from({ length: w + 2 }, (_, x) => {
+        if (ink[y - 1]?.[x - 1]) return 'W';
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (ink[y - 1 + dy]?.[x - 1 + dx]) return 'O';
+        return '.';
+      }).join(''),
+    );
+    return art(rows);
+  });
 }
 
 // -- digits -------------------------------------------------------------------------------------
