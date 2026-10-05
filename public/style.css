@@ -771,13 +771,13 @@ button.primary:hover:not(:disabled) {
   align-items: center;
   text-align: left;
   padding: 3px 6px 3px 4px;
-  width: 104px;
+  min-width: 104px;
   font-size: 11px;
   letter-spacing: 0.02em;
 }
 
 .buildbar .slot img {
-  grid-row: span 2;
+  grid-row: span 3;
   width: 18px;
   image-rendering: pixelated;
 }
@@ -828,6 +828,73 @@ button.primary:hover:not(:disabled) {
   color: var(--accent-ink);
 }
 
+/* Costs and yields as resource icons with amounts. */
+.cost {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px 7px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.cost .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  white-space: nowrap;
+}
+
+.cost .chip img {
+  width: 12px;
+  height: 12px;
+  image-rendering: pixelated;
+}
+
+.buildbar .slot .cost .chip img {
+  grid-row: auto;
+  width: 12px;
+}
+
+.cost .chip.short {
+  color: var(--bad);
+}
+
+.cost.gain {
+  color: var(--good);
+  font-size: 11px;
+}
+
+.buildbar .slot .gives {
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: none;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+.buildbar .slot.active .cost,
+.buildbar .slot.active .gives,
+.buildbar .slot.active .cost.gain,
+.buildbar .slot.active .cost .chip.short {
+  color: var(--accent-ink);
+}
+
+.panel .costline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin: 4px 12px 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.panel .costline .cost {
+  color: var(--text);
+}
+
 #map.placing {
   cursor: crosshair;
 }
@@ -872,7 +939,8 @@ button.primary:hover:not(:disabled) {
   .buildbar .slot {
     width: auto;
   }
-  .buildbar .slot .price {
+  .buildbar .slot .price,
+  .buildbar .slot .gives {
     display: none;
   }
 }

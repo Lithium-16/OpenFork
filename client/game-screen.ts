@@ -11,10 +11,12 @@ import {
   captureSeconds,
   ECON_KINDS,
   type EconKind,
+  econYield,
   FOUND_CITY_MIN_HOPS,
   HINTERLAND_HOPS,
   MAX_CITY,
   MAX_FORT,
+  regionYield,
   RESOURCES,
   type Resources,
   slotsOf,
@@ -52,6 +54,22 @@ const HOTKEYS: BuildingKind[] = BAR.flatMap((g) => g.kinds);
 /** Region row fields of the economic buildings. */
 const ECON_FIELD: Record<EconKind, number> = { farm: 9, mine: 10, well: 11, market: 12 };
 const RES_SHORT: Record<keyof Resources, string> = { money: '$', manpower: 'MP ', steel: 'ST ', oil: 'OIL ' };
+/** A region with no traits or city, for the plain yield of a building. */
+const PLAIN_REGION = { traits: [], terrain: 'plains', size: 'medium' } as unknown as Region;
+const gives = (kind: EconKind, traits: Region['traits'] = [], city = 0) =>
+  Object.values(econYield(kind, { ...PLAIN_REGION, traits }, city))[0] ?? 0;
+/** What each building does, for the build bar's tooltips. */
+const BUILD_HELP: Record<BuildingKind, string> = {
+  farm: `Farm: +${gives('farm')} manpower/s (+${gives('farm', ['farmland'])} on farmland). Farmland or plains, within ${HINTERLAND_HOPS} regions of your city.`,
+  mine: `Mine: +${gives('mine')} steel/s (+${gives('mine', ['industry'])} on industry). Industry, hills or mountains, within ${HINTERLAND_HOPS} regions of your city.`,
+  well: `Oil well: +${gives('well')} oil/s. Oil fields only, within ${HINTERLAND_HOPS} regions of your city.`,
+  market: `Market: +${gives('market')} money/s (+${gives('market', [], 1)} in a city). Anywhere within ${HINTERLAND_HOPS} regions of your city.`,
+  city: `City: found one (a supply hub that pays tax) or expand one: more tax and manpower, a slot, +1 stack cap, supply reaches further.`,
+  fort: `Fort: defenders get a bonus, enemies move and capture slower here. Up to ${MAX_FORT} levels.`,
+  barracks: 'Barracks: trains infantry (Q). In a city.',
+  factory: 'Factory: builds tanks (E). In a city.',
+  road: 'Road: drag across your regions. Crossing is faster and supply reaches further.',
+};
 
 export class GameScreen {
   private readonly net: Net;
@@ -589,6 +607,8 @@ export class GameScreen {
       this.setMuted(!this.sfx.muted);
     } else if (k === 'v') {
       this.setOverlay(!this.view.overlay);
+    } else if (k === 'b') {
+      this.setYields(!this.view.yields);
     } else if (k === ' ') {
       e.preventDefault();
       this.centreOnCapital();
@@ -816,14 +836,18 @@ export class GameScreen {
       const allowed = mine < 0 || canBuildOn(kind, this.map.regions[mine], snap.regions[mine][2]);
       const { cost, seconds } = buildCost(kind, level);
       const name = this.barName(kind, mine);
-      const price = maxed ? 'MAX' : !allowed ? `needs ${BUILD_NEEDS[kind]}` : `${costText(cost)} · ${seconds}s`;
+      const note = maxed ? 'MAX' : !allowed ? `needs ${BUILD_NEEDS[kind]}` : '';
       const poor = !maxed && allowed && !afford(res, cost);
-      return { kind, n: HOTKEYS.indexOf(kind) + 1, name, price, poor };
+      // What one more of it yields: exact for the region under the cursor, else the plain rate.
+      const gain = ECON_KINDS.includes(kind as EconKind) ? econYield(kind as EconKind, mine >= 0 ? this.map.regions[mine] : PLAIN_REGION, mine >= 0 ? snap.regions[mine][2] : 0) : null;
+      return { kind, n: HOTKEYS.indexOf(kind) + 1, name, note, cost, seconds, gain, poor };
     };
     const groups = BAR.map((g) => ({ group: g.group, cells: g.kinds.map(cell) }));
     const slots = mine >= 0 ? `${this.map.regions[mine].name}: slots ${this.slotsUsed(mine)}/${slotsOf(this.map.regions[mine], snap.regions[mine][2])}` : '';
     const hint = this.placing === 'road' ? 'drag across your regions · shift: more · esc' : this.placing ? 'click a region · shift: more · esc' : '1-9';
-    const key = `${this.placing}|${slots}|${JSON.stringify(groups)}`;
+    // Redrawn only when something on it changed (what you can afford included).
+    const can = RESOURCES.map((k) => groups.map((g) => g.cells.map((c) => res[k] >= c.cost[k])));
+    const key = `${this.placing}|${slots}|${JSON.stringify(groups)}|${JSON.stringify(can)}`;
     if (key === this.buildbarKey) return;
     this.buildbarKey = key;
     bar.replaceChildren(
@@ -838,10 +862,11 @@ export class GameScreen {
               'div',
               { class: 'slots' },
               g.cells.map((c) =>
-                el('button', { class: `slot${this.placing === c.kind ? ' active' : ''}${c.poor ? ' poor' : ''}`, 'data-kind': c.kind }, [
+                el('button', { class: `slot${this.placing === c.kind ? ' active' : ''}${c.poor ? ' poor' : ''}`, 'data-kind': c.kind, title: BUILD_HELP[c.kind] }, [
                   el('img', { src: buildingIcon(c.kind), alt: '' }),
                   el('span', { class: 'name' }, [el('b', {}, [String(c.n)]), ` ${c.name}`]),
-                  el('span', { class: 'price' }, [c.price]),
+                  c.note ? el('span', { class: 'price' }, [c.note]) : costChips(c.cost, res),
+                  el('span', { class: 'gives' }, [...(c.gain ? [yieldChips(c.gain), ' · '] : []), `${c.seconds}s`]),
                 ]),
               ),
             ),
@@ -863,6 +888,11 @@ export class GameScreen {
   private setOverlay(on: boolean): void {
     this.view.overlay = on && this.you !== null;
     $('#legend').classList.toggle('hidden', !this.view.overlay);
+    this.renderTopbar();
+  }
+
+  private setYields(on: boolean): void {
+    this.view.yields = on && this.you !== null;
     this.renderTopbar();
   }
 
@@ -911,7 +941,9 @@ export class GameScreen {
     if (!p.alive) parts.push(el('span', { class: 'broke' }, ['ELIMINATED // OBSERVING']));
     const supply = el('button', { class: `toggle${this.view.overlay ? ' on' : ''}`, title: 'Supply overlay (V)' }, ['Supply']);
     supply.onclick = () => this.setOverlay(!this.view.overlay);
-    parts.push(supply);
+    const yields = el('button', { class: `toggle${this.view.yields ? ' on' : ''}`, title: 'Yield overlay: what each region makes (B)' }, ['Yield']);
+    yields.onclick = () => this.setYields(!this.view.yields);
+    parts.push(supply, yields);
     const sound = el('button', { class: `toggle${this.sfx.muted ? '' : ' on'}`, title: 'Sound on/off (M)' }, [this.sfx.muted ? 'Muted' : 'Sound']);
     sound.onclick = () => this.setMuted(!this.sfx.muted);
     const fx = el('button', { class: `toggle${this.view.fx.level === 'full' ? ' on' : ''}`, title: 'Effects: full / reduced' }, [this.view.fx.level === 'full' ? 'FX' : 'FX low']);
@@ -1191,6 +1223,7 @@ export class GameScreen {
     const info: Array<[string, string]> = [
       ['Owner', owner >= 0 ? (this.players[owner]?.name ?? '?') : 'Neutral'],
       ['City', rr[2] > 0 ? `level ${rr[2]} / ${MAX_CITY} · supplies ${supplyReach(rr[2])} regions out` : 'none'],
+      ['Produces', this.yieldLine(region, rr)],
       ['Slots', `${used} / ${slotsOf(region, rr[2])} built`],
       ['Fort', `${rr[1]} / ${MAX_FORT}`],
       ['Supply', owner >= 0 ? this.supplyLine(region.id) : '—'],
@@ -1247,14 +1280,23 @@ export class GameScreen {
     return out;
   }
 
+  /** What a region makes per second, or why it makes nothing. */
+  private yieldLine(region: Region, rr: Snapshot['regions'][number]): string {
+    const y = regionYield(region, rr[2], { farm: rr[9], mine: rr[10], well: rr[11], market: rr[12] });
+    const parts = RESOURCES.filter((k) => y[k] > 0).map((k) => `+${Math.round(y[k] * 100) / 100} ${k}/s`);
+    if (!parts.length) return 'nothing (build a farm, mine, oil well or market)';
+    const idle = rr[0] >= 0 && !(rr[3] & 4) ? ' (stopped: out of supply)' : '';
+    return parts.join(', ') + idle;
+  }
+
   private productionLine(line: ProductionView, res: Resources): HTMLElement[] {
     const type = line.building === 'barracks' ? 'infantry' : 'tank';
     const stats = UNITS[type];
-    const add = el('button', { title: `${costText(stats.cost)} · ${stats.buildTime}s · size ${stats.batch}` }, [
-      `${line.building === 'barracks' ? 'Q' : 'E'} + ${type === 'tank' ? 'Tanks' : 'Infantry'}`,
+    const label = type === 'tank' ? 'Tanks' : 'Infantry';
+    const add = el('button', { title: `Order ${stats.batch} ${label.toLowerCase()}: ${costText(stats.cost)}, ${stats.buildTime}s` }, [
+      `${line.building === 'barracks' ? 'Q' : 'E'} + ${label}`,
     ]) as HTMLButtonElement;
     add.disabled = line.queue.length >= 5;
-    if (!afford(res, stats.cost) && line.queue.length === 0) add.title += ' (not enough resources yet)';
     add.onclick = () => this.send({ o: 'produce', region: line.region, building: line.building });
     const repeat = el('button', { title: 'Keep producing' }, [line.repeat ? 'Repeat: on' : 'Repeat: off']);
     repeat.onclick = () => this.send({ o: 'repeat', region: line.region, building: line.building, on: !line.repeat });
@@ -1267,11 +1309,12 @@ export class GameScreen {
     return [
       el('div', { class: 'line' }, [`${line.building === 'barracks' ? 'Barracks' : 'Factory'}: ${status}`]),
       cellBar(Math.max(0, line.progress)),
+      // What one order costs, in plain sight (short resources in red).
+      el('div', { class: 'costline' }, [`${stats.batch} ${label.toLowerCase()}:`, costChips(stats.cost, res), `${stats.buildTime}s`]),
       el('div', { class: 'buttons' }, [add, repeat, cancel]),
     ];
   }
 }
-
 
 function clock(t: number): string {
   return `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
@@ -1289,6 +1332,30 @@ function buildingIcon(kind: BuildingKind): string {
     buildingIcons.set(kind, url);
   }
   return url;
+}
+
+/** A cost as resource icons and amounts; what you can't pay yet is marked short. */
+function costChips(cost: Partial<Resources>, have?: Resources): HTMLElement {
+  return el(
+    'span',
+    { class: 'cost' },
+    RESOURCES.filter((k) => (cost[k] ?? 0) > 0).map((k) =>
+      el('span', { class: `chip${have && have[k] < (cost[k] ?? 0) ? ' short' : ''}`, title: k }, [el('img', { src: hudIcon(k), alt: k }), fmt(cost[k] ?? 0)]),
+    ),
+  );
+}
+
+/** A yield per second as resource icons: +0.4 per kind. */
+function yieldChips(y: Partial<Resources>): HTMLElement {
+  return el(
+    'span',
+    { class: 'cost gain' },
+    RESOURCES.filter((k) => (y[k] ?? 0) > 0).map((k) => el('span', { class: 'chip', title: `${k} per second` }, [el('img', { src: hudIcon(k), alt: k }), `+${round1(y[k] ?? 0)}/s`])),
+  );
+}
+
+function round1(n: number): string {
+  return String(Math.round(n * 100) / 100);
 }
 
 function costText(cost: Resources): string {
