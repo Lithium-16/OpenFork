@@ -170,8 +170,8 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
 - **Defender bonus = fort + entrenchment + river crossing**, added together, for the region
   owner's blobs standing in it. The river bonus counts the attackers coming over a river
   edge. **Entrenchment** builds up while a blob holds still and is lost when it moves or
-  attacks; a circle round each token fills as it digs in (see-through when several share a
-  region) and goes once it's fully dug in.
+  attacks. A shield beside the token fills with earth as it digs in and stays full once it's
+  dug in (under attack, the same shield also shows the fort level and a river crossed).
 - **Capturing waits** while a region is fought over, inside or from next door.
 - Anyone can reinforce either side mid-battle. With 3 or more sides, **each side spreads its
   damage over all hostile sides in proportion to their strength**.
