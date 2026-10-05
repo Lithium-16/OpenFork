@@ -5,7 +5,7 @@ import type { BlobRow, GamePlayer, Snapshot } from '../shared/protocol.ts';
 import { UNIT_INDEX } from '../shared/protocol.ts';
 import { BUILDING_KINDS, type BuildingKind, regionYield, RESOURCES, ROAD_SUPPLY_HOP, supplyCapacity, supplyReach, UNITS } from '../shared/rules.ts';
 import { Fx } from './fx.ts';
-import { art, blit, blitCentred, digitsWidth, FRAME_H, FRAME_W, HUD, ICONS, INK, MAP_ART, pixelDigits, ROAD_COLOR, ROAD_SHADE, shade, type Sprite, unitFrame } from './sprites.ts';
+import { art, blit, blitCentred, digitsWidth, FRAME_H, FRAME_W, HUD, ICONS, INK, MAP_ART, pixelDigits, ROAD_COLOR, ROAD_SHADE, romanSprite, shade, type Sprite, unitFrame } from './sprites.ts';
 
 export interface Camera {
   x: number;
@@ -1121,28 +1121,28 @@ export class MapView {
       const y = Math.round(fy);
       if (x < -80 || y < -80 || x > this.canvas.clientWidth + 80 || y > this.canvas.clientHeight + 80) continue;
 
-      // Icons in a row above the units: capital or city (with its level), fort, barracks,
-      // factory.
+      // Icons in a row above the units: capital or city, and fort, each with its level as a
+      // roman numeral on its bottom-right corner; then barracks, factory.
       const icons: Array<{ s: Sprite; level?: number }> = [];
       const city = rr[2];
       if (capitals.has(region.id)) icons.push({ s: ICONS.capital, level: city });
       else if (city > 0) icons.push({ s: ICONS.city, level: city });
-      if (rr[1] > 0) for (let i = 0; i < rr[1]; i++) icons.push({ s: ICONS.fort });
+      if (rr[1] > 0) icons.push({ s: ICONS.fort, level: rr[1] });
       if (rr[3] & 1) icons.push({ s: ICONS.barracks });
       if (rr[3] & 2) icons.push({ s: ICONS.factory });
       const showIcons = icons.length > 0 && zoom >= 0.5;
       const iconBottom = y + tokenTop - 2;
       if (showIcons) {
-        const gap = ipx;
-        const ds = Math.max(2, ipx);
-        const width = (i: { s: Sprite; level?: number }) => i.s.width * ipx + (i.level ? ipx + digitsWidth(String(i.level), ds) : 0);
+        const gap = 2 * ipx;
+        // The numeral hangs 2 art pixels past the icon's right edge and 2 below it.
+        const width = (i: { s: Sprite; level?: number }) => i.s.width * ipx + (i.level ? 2 * ipx : 0);
         const total = icons.reduce((sum, i) => sum + width(i), 0) + gap * (icons.length - 1);
         let ix = Math.round(x - total / 2);
         for (const icon of icons) {
           blit(ctx, icon.s, ix, iconBottom - icon.s.height * ipx, ipx);
           if (icon.level) {
-            const text = String(icon.level);
-            outlinedDigits(ctx, text, ix + icon.s.width * ipx + ipx + digitsWidth(text, ds) / 2, iconBottom - (5 * ds) / 2 - 1, ds);
+            const n = romanSprite(icon.level);
+            blit(ctx, n, ix + (icon.s.width + 2 - n.width) * ipx, iconBottom - (n.height - 2) * ipx, ipx);
           }
           ix += width(icon) + gap;
         }
