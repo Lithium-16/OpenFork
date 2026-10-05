@@ -38,6 +38,8 @@ export interface Blob {
   supply: number;
   /** The neighbouring region it is attacking from its own (-1: none). Set each tick. */
   attacking: number;
+  /** Artillery: the region it shells this tick, or -1. */
+  bombarding: number;
 }
 
 export interface ProductionLine {

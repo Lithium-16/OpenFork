@@ -6,6 +6,7 @@ import {
   type BuildingKind,
   BROKE_LOSS,
   BROKE_TRAINING,
+  BOMBARD_FORT_SHARE,
   BUILD_NEEDS,
   BUILD_QUEUE,
   buildCost,
@@ -59,6 +60,7 @@ import {
   TRAINING_DAMAGE,
   TRAINING_PROTECTION,
   TRUCE_SECONDS,
+  unitsOf,
   type UnitType,
   UNITS,
   VETERANCY_RATE,
@@ -695,14 +697,16 @@ export class Sim {
     return null;
   }
 
-  produce(playerId: number, region: number, building: ProductionBuilding): string | null {
+  produce(playerId: number, region: number, building: ProductionBuilding, unit?: UnitType): string | null {
     const rs = this.state.regions[region];
     if (!this.player(playerId)?.alive) return 'you are not in the game';
     if (!rs || rs.owner !== playerId) return 'not your region';
     if (!rs[building]) return `no ${building} here`;
     const line = rs.production[building];
     if (line.queue.length >= MAX_QUEUE) return 'queue is full';
-    line.queue.push(building === 'barracks' ? 'infantry' : 'tank');
+    const type = unit ?? unitsOf(building)[0];
+    if (UNITS[type].producedAt !== building) return `a ${building} can't make ${type}`;
+    line.queue.push(type);
     return null;
   }
 
@@ -736,6 +740,7 @@ export class Sim {
     this.updateSupply();
     this.moveBlobs(dt);
     const fighting = this.battles(dt);
+    this.bombard(dt, fighting);
     this.fighting = fighting;
     this.captures(dt);
     this.economy(dt);
@@ -906,7 +911,8 @@ export class Sim {
     const attackersOf = new Map<number, Blob[]>();
     const started = new Set<number>();
     for (const b of this.state.blobs.values()) {
-      const t = b.progress === 0 && !b.hold && b.path.length > 0 && this.hostileIn(b.path[0], b.owner) ? b.path[0] : -1;
+      // Artillery never storms a region: it waits at the border and shells it (see bombard).
+      const t = b.progress === 0 && !b.hold && b.path.length > 0 && !UNITS[b.type].range && this.hostileIn(b.path[0], b.owner) ? b.path[0] : -1;
       if (t >= 0 && b.attacking !== t) started.add(t);
       b.attacking = t;
       if (t >= 0) attackersOf.set(t, [...(attackersOf.get(t) ?? []), b]);
@@ -972,6 +978,69 @@ export class Sim {
       b.training = Math.min(MAX_TRAINING, b.training + VETERANCY_RATE * dt);
     }
     return fighting;
+  }
+
+  /**
+   * Artillery standing still, in supply and not in a fight itself shells enemy units up to
+   * its range away: where its own side is fighting first, else the strongest enemy force.
+   * Shells ignore digging in and count forts half; whoever is hit counts as in a fight.
+   */
+  private bombard(dt: number, fighting: Set<number>): void {
+    const standing = this.standing();
+    const damage = new Map<Blob, number>();
+    for (const b of this.state.blobs.values()) {
+      b.bombarding = -1;
+      const stats = UNITS[b.type];
+      if (!stats.range || !stats.bombard || b.progress > 0 || b.supply <= 0 || fighting.has(b.id)) continue;
+      const target = this.bombardTarget(b, stats.range, standing);
+      if (target < 0) continue;
+      b.bombarding = target;
+      const enemies = (standing.get(target) ?? []).filter((x) => this.atWar(b.owner, x.owner));
+      const total = enemies.reduce((s, x) => s + x.strength, 0);
+      const power = DAMAGE_RATE * dt * b.strength * stats.bombard * (1 + (TRAINING_DAMAGE * b.training) / MAX_TRAINING) * (0.5 + 0.5 * b.supply);
+      const rs = this.state.regions[target];
+      for (const x of enemies) {
+        let taken = (power * x.strength) / total / UNITS[x.type].defense;
+        taken *= 1 - (TRAINING_PROTECTION * x.training) / MAX_TRAINING;
+        if (rs.owner === x.owner) taken /= 1 + FORT_BONUS * BOMBARD_FORT_SHARE * rs.fort;
+        damage.set(x, (damage.get(x) ?? 0) + taken);
+      }
+    }
+    for (const [x, d] of damage) {
+      x.strength -= d;
+      fighting.add(x.id);
+    }
+  }
+
+  /** Where a gun shells: an enemy-held spot within range, own fights first, then the
+   * strongest enemy force, then the nearest. -1 if there's nothing to hit. */
+  private bombardTarget(b: Blob, range: number, standing: Map<number, Blob[]>): number {
+    const dist = new Map([[b.region, 0]]);
+    const queue = [b.region];
+    for (let q = 0; q < queue.length; q++) {
+      const d = dist.get(queue[q]) as number;
+      if (d >= range) continue;
+      for (const e of this.world.neighbors(queue[q])) {
+        if (!dist.has(e.id)) {
+          dist.set(e.id, d + 1);
+          queue.push(e.id);
+        }
+      }
+    }
+    let best = -1;
+    let bestScore = -Infinity;
+    for (const [r, d] of dist) {
+      const here = standing.get(r) ?? [];
+      const enemy = here.filter((x) => this.atWar(b.owner, x.owner)).reduce((s, x) => s + x.strength, 0);
+      if (enemy <= 0) continue;
+      const ours = here.some((x) => x.owner === b.owner) || (this.attackers.get(r) ?? []).some((x) => x.owner === b.owner);
+      const score = (ours ? 1e6 : 0) + enemy - d;
+      if (score > bestScore) {
+        bestScore = score;
+        best = r;
+      }
+    }
+    return best;
   }
 
   /** Units attacking each region from next door, as of the last battle pass. */
@@ -1175,6 +1244,7 @@ export class Sim {
       supply: 1,
       hold: false,
       attacking: -1,
+      bombarding: -1,
     };
     this.state.blobs.set(b.id, b);
     this.touch();

@@ -184,7 +184,11 @@ export class Bot {
       if (this.style.defensive) break; // no new units
       const rs = regions[r];
       if (rs.barracks && rs.production.barracks.queue.length === 0) sim.produce(this.player, r, 'barracks');
-      if (this.style.tanks && rs.factory && rs.production.factory.queue.length === 0) sim.produce(this.player, r, 'factory');
+      if (this.style.tanks && rs.factory && rs.production.factory.queue.length === 0) {
+        // At war, about every other order is guns.
+        const guns = this.enemies(sim).length > 0 && this.random() < 0.45;
+        sim.produce(this.player, r, 'factory', guns ? 'artillery' : 'tank');
+      }
     }
 
     // Several things at once when rich; one at a time otherwise.
@@ -343,6 +347,9 @@ export class Bot {
     // Units stuck at the edge of a full region count as free again.
     const busy = (b: Blob) => (b.path.length > 0 && b.progress < 1) || (b.progress === 0 && sim.besieged(b.region, b.owner));
     let idle = blobs.filter((b) => sim.state.blobs.has(b.id) && !busy(b));
+    // Guns stay out of assaults and land grabs: they go one region behind the front.
+    const guns = idle.filter((b) => UNITS[b.type].range);
+    idle = idle.filter((b) => !UNITS[b.type].range);
     // Where our units are or are heading, so we don't send more than fit.
     this.heading = new Map();
     for (const b of blobs) {
@@ -398,6 +405,8 @@ export class Bot {
     }
     idle = idle.filter((b) => !sent.has(b));
 
+    if (guns.length) this.placeGuns(sim, guns);
+
     // Everyone else: grab neutral land, or else gather at the front.
     for (const b of idle) {
       if (sim.state.regions[b.region].owner === this.player && this.threat(sim, b.region) > 0 && b.region !== me.capital) {
@@ -411,6 +420,49 @@ export class Bot {
       targeted.add(target);
       sim.move(this.player, [b.id], target);
       this.heading.set(target, (this.heading.get(target) ?? 0) + 1);
+    }
+  }
+
+  /** Guns: to an own, supplied region two hops from the enemy (in range, out of reach), or
+   * one hop when there's no such spot; they stay put when there's no war. */
+  private placeGuns(sim: Sim, guns: Blob[]): void {
+    const regions = sim.state.regions;
+    // Hops from the nearest enemy-held region or enemy unit.
+    const fromEnemy = new Array<number>(regions.length).fill(-1);
+    const queue: number[] = [];
+    regions.forEach((rs, i) => {
+      if (sim.atWar(this.player, rs.owner) || sim.hostileIn(i, this.player)) {
+        fromEnemy[i] = 0;
+        queue.push(i);
+      }
+    });
+    if (!queue.length) return;
+    for (let q = 0; q < queue.length; q++) {
+      for (const e of sim.world.neighbors(queue[q])) {
+        if (fromEnemy[e.id] < 0) {
+          fromEnemy[e.id] = fromEnemy[queue[q]] + 1;
+          queue.push(e.id);
+        }
+      }
+    }
+    for (const b of guns) {
+      if (regions[b.region].owner === this.player && fromEnemy[b.region] === 2) continue; // in place
+      const dist = this.bfs(sim, b.region);
+      let best = -1;
+      let bestScore = Infinity;
+      regions.forEach((rs, i) => {
+        if (rs.owner !== this.player || !rs.supplied || dist[i] < 0) return;
+        if (fromEnemy[i] !== 1 && fromEnemy[i] !== 2) return;
+        if ((this.heading.get(i) ?? 0) >= sim.stackCap(i)) return;
+        const score = dist[i] + (fromEnemy[i] === 1 ? 6 : 0);
+        if (score < bestScore) {
+          bestScore = score;
+          best = i;
+        }
+      });
+      if (best < 0 || best === b.region) continue;
+      sim.move(this.player, [b.id], best);
+      this.heading.set(best, (this.heading.get(best) ?? 0) + 1);
     }
   }
 
