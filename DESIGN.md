@@ -60,8 +60,12 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
   (a slot, $120 + 20 steel, 45 s) for any region you hold in supply. **Taking a region with
   a city or depots takes its share of the owner's stock**: what it stores out of all their
   storage, up to the captor's own room.
-- **Research** (T): a tech tree of five branches, three tiers each, one tech at a time; each
-  needs the one before it. Tiers cost $250 / 500 / 900 and 30 / 80 / 150 steel and take
+- **Research** (T, its own screen): a tech tree of five branches, three tiers each, one tech
+  at a time. Each needs the one before it in its branch, and most top-tier techs also need a
+  middle-tier one from another branch: Conscription and Synthetic fuel need Industry, Long
+  guns and Banking need Railways. The screen draws the tree with its lines (green once
+  researched, moving along the line into the tech under way), the tech under way filling up,
+  and how much of the tree is done. Tiers cost $250 / 500 / 900 and 30 / 80 / 150 steel and take
   60 / 90 / 120 s, paid up front (refunded if cancelled).
   - Infantry: Rifles (+20% attack), Trenches (dig in twice as fast, dug in +50%),
     Conscription (−30% manpower).

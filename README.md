@@ -44,7 +44,7 @@ to your friends, pick countries, and start. Bots fill the empty seats.
 | 1–9, - or the build bar | placement mode: farm, mine, oil well, market, city (found or expand), fort, barracks, factory, road, depot (-). Click one of your regions (roads: drag across regions); Shift places more, Esc / right click stops; a busy region queues it. Your regions show their slots as boxes (hollow green = free) |
 | 0 | demolish mode: pick a building, click your regions that have one (red); no refund |
 | Q / E / R | queue infantry / tanks / artillery at the selected region's barracks / factory |
-| T / Tech button | research: the tech tree (one tech at a time; the button shows progress) |
+| T / Tech button | research screen: the tech tree with its lines and progress (one tech at a time; the button shows progress too) |
 | V | supply overlay: hubs, reach, cut-off regions, load per region |
 | B | yield overlay: what each of your regions makes per second (grey while it's stopped) |
 | Esc / Menu button | menu: surrender, or back to the main menu (a bot plays your country on); Esc first clears a selection or placement |
