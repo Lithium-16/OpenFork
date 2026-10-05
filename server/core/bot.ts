@@ -17,6 +17,10 @@ import {
   OPPORTUNISM,
   type Opportunism,
   RESOURCES,
+  type TechId,
+  TECHS,
+  techCost,
+  whyNotResearch,
   UNITS,
 } from '../../shared/rules.ts';
 import type { Sim } from './sim.ts';
@@ -53,6 +57,10 @@ const STYLES: Record<BotDifficulty, Style> = {
   normal: { think: 1.5, odds: 1.6, forts: 2, tanks: true, merges: true, reserve: 100, develop: 0.8, smart: true, roads: true, found: 2400, cityCap: 4 },
   hard: { think: 0.6, odds: 1.25, forts: 3, tanks: true, merges: true, reserve: 60, develop: 1, smart: true, roads: true, found: 2000, cityCap: MAX_CITY },
 };
+
+/** What bots research, in order: armies first for the ones that make tanks, else the economy. */
+const RESEARCH_MILITARY: TechId[] = ['rifles', 'farming', 'warehouses', 'trenches', 'shells', 'industry', 'engines', 'railways', 'armour', 'fuel', 'rangefinders', 'banking', 'conscription', 'longGuns', 'kitchens'];
+const RESEARCH_ECONOMY: TechId[] = ['farming', 'warehouses', 'rifles', 'industry', 'trenches', 'railways', 'banking', 'kitchens', 'conscription', 'shells', 'engines', 'armour', 'rangefinders', 'fuel', 'longGuns'];
 
 export class Bot {
   readonly player: number;
@@ -220,6 +228,15 @@ export class Bot {
     if (!this.style.defensive && barracks < 1 + Math.floor(mine.length / 12)) {
       const site = cities.filter((r) => can(r, 'barracks')).sort((a, b) => this.frontDistance(sim, a) - this.frontDistance(sim, b))[0];
       if (site !== undefined && sim.build(this.player, site, 'barracks') === null) return;
+    }
+
+    // Research: the next tech on our list we can afford with money to spare.
+    if (!me.research) {
+      const order = this.style.tanks ? RESEARCH_MILITARY : RESEARCH_ECONOMY;
+      const tech = order.find((t) => whyNotResearch(t, me.techs) === null);
+      const tier = TECHS.find((t) => t.id === tech)?.tier ?? 1;
+      const { cost } = techCost(tier);
+      if (tech && me.resources.money >= cost.money + this.style.reserve && me.resources.steel >= cost.steel) sim.research(this.player, tech);
     }
 
     // Stores nearly full: a depot (one at a time), as far from the front as we can find.

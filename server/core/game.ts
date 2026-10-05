@@ -143,6 +143,10 @@ export class Game {
         return s.refusePeace(id, order.player);
       case 'surrender':
         return s.surrender(id);
+      case 'research':
+        return s.research(id, order.tech);
+      case 'unresearch':
+        return s.unresearch(id);
     }
   }
 
@@ -182,6 +186,8 @@ export class Game {
       income: [round(p.income.money, 2), round(p.income.manpower, 2), round(p.income.steel, 2), round(p.income.oil, 2)],
       upkeep: round(p.upkeep, 2),
       cap: [Math.round(p.cap.money), Math.round(p.cap.manpower), Math.round(p.cap.steel), Math.round(p.cap.oil)],
+      techs: [...p.techs],
+      research: p.research ? [p.research.tech, round(p.research.progress / p.research.seconds, 2)] : null,
       broke: p.broke,
       bot: p.control === 'bot',
     }));

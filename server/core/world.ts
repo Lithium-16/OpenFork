@@ -1,7 +1,7 @@
 // The map as the simulation sees it: regions, neighbours and the per-region numbers from
 // the rules (stack caps, supply capacity, capture times).
 import type { GameMap, Neighbor, Region } from '../../shared/map.ts';
-import { captureSeconds, stackCap, supplyCapacity } from '../../shared/rules.ts';
+import { captureSeconds, stackCap, supplyCapacity, type Techs } from '../../shared/rules.ts';
 
 export class World {
   readonly map: GameMap;
@@ -30,8 +30,8 @@ export class World {
     return stackCap(this.regions[id], city, fort);
   }
 
-  supplyCapacity(id: number, city: number): number {
-    return supplyCapacity(this.regions[id], city);
+  supplyCapacity(id: number, city: number, techs: Techs = []): number {
+    return supplyCapacity(this.regions[id], city, techs);
   }
 
   captureSeconds(id: number, fort: number, training: number): number {

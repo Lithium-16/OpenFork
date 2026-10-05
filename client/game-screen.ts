@@ -27,9 +27,15 @@ import {
   STORE_PER_CITY_LEVEL,
   STORE_PER_DEPOT,
   storeOf,
+  TECH_BRANCHES,
+  type TechId,
+  TECHS,
+  techCost,
   UNITS,
   type UnitType,
+  unitStats,
   unitsOf,
+  whyNotResearch,
 } from '../shared/rules.ts';
 import { FrameMeter } from './fx.ts';
 import { colorOf, MapView } from './map-view.ts';
@@ -99,6 +105,8 @@ export class GameScreen {
   /** The region under the cursor. */
   private hover = -1;
   private buildbarKey = '';
+  private researchOpen = false;
+  private researchKey = '';
   /** The build bar button under the pointer. */
   private barHover: BuildingKind | null = null;
   /** Where the building being placed can go: worked out once per snapshot. */
@@ -265,6 +273,70 @@ export class GameScreen {
     this.renderOffers();
     this.renderPanel();
     this.renderBuildbar();
+    this.renderResearch();
+  }
+
+  /** Your techs (none when watching). */
+  private myTechs(): TechId[] {
+    return this.you === null ? [] : (this.snap?.players[this.you]?.techs ?? []);
+  }
+
+  /** Someone's techs, for numbers about their regions (none for neutral land). */
+  private techsOf(owner: number): TechId[] {
+    return owner >= 0 ? (this.snap?.players[owner]?.techs ?? []) : [];
+  }
+
+  private setResearchOpen(open: boolean): void {
+    this.researchOpen = open && this.you !== null;
+    this.researchKey = '';
+    $('#research').classList.toggle('hidden', !this.researchOpen);
+    this.renderResearch();
+    this.renderTopbar();
+  }
+
+  /** The tech tree: a column per branch, tiers top to bottom; click one to research it. */
+  private renderResearch(): void {
+    const box = $('#research');
+    const snap = this.snap;
+    if (!this.researchOpen || !snap || this.you === null) return;
+    const me = snap.players[this.you];
+    const res = this.resources();
+    const key = JSON.stringify([me.techs, me.research, RESOURCES.map((k) => Math.floor(res[k] / 10))]);
+    if (key === this.researchKey) return;
+    this.researchKey = key;
+    const busy = me.research;
+    const head = busy ? `Researching ${TECHS.find((t) => t.id === busy[0])?.name} · ${Math.round(busy[1] * 100)}%` : 'Pick a tech to research';
+    const close = el('button', { class: 'x', 'data-act': 'close' }, ['Close (T)']);
+    const columns = TECH_BRANCHES.map((branch) =>
+      el('div', { class: 'branch' }, [
+        el('div', { class: 'gname' }, [branch]),
+        ...TECHS.filter((t) => t.branch === branch).map((t) => {
+          const { cost, seconds } = techCost(t.tier);
+          const done = me.techs.includes(t.id);
+          const active = busy?.[0] === t.id;
+          const why = whyNotResearch(t.id, me.techs);
+          const locked = !done && !active && why !== null;
+          const state = done ? 'done' : active ? 'active' : locked ? 'locked' : busy ? 'wait' : 'open';
+          const foot: Array<Node | string> = done
+            ? ['Researched']
+            : active
+              ? [cellBar(busy[1]), el('button', { class: 'x', 'data-act': 'unresearch' }, ['Cancel (refund)'])]
+              : locked
+                ? [why ?? '']
+                : [costChips(cost, res), ` · ${seconds}s`];
+          return el('div', { class: `tech ${state}`, ...(state === 'open' ? { 'data-tech': t.id } : {}) }, [
+            el('b', {}, [t.name]),
+            el('span', { class: 'effect' }, [t.effect]),
+            el('span', { class: 'foot' }, foot),
+          ]);
+        }),
+      ]),
+    );
+    box.replaceChildren(
+      classbar('Research', 'one at a time'),
+      el('div', { class: 'rhead' }, [head, close]),
+      el('div', { class: 'tree' }, columns),
+    );
   }
 
   onOver(winner: number | null): void {
@@ -340,6 +412,17 @@ export class GameScreen {
       if (!b) return;
       e.preventDefault();
       this.setPlacing(b.dataset.kind as BuildingKind);
+    });
+    // The research panel: pick a tech, cancel the one under way, or close.
+    on($('#research'), 'pointerdown', (e: PointerEvent) => {
+      const t = e.target as HTMLElement;
+      const tech = (t.closest('[data-tech]') as HTMLElement | null)?.dataset.tech;
+      const act = (t.closest('[data-act]') as HTMLElement | null)?.dataset.act;
+      if (!tech && !act) return;
+      e.preventDefault();
+      if (tech) this.send({ o: 'research', tech: tech as TechId });
+      else if (act === 'unresearch') this.send({ o: 'unresearch' });
+      else if (act === 'close') this.setResearchOpen(false);
     });
     on($('#panel'), 'pointerdown', (e: PointerEvent) => {
       const b = (e.target as HTMLElement).closest('[data-act]') as HTMLElement | null;
@@ -636,6 +719,8 @@ export class GameScreen {
       this.selected.clear();
       this.region = -1;
       this.view.expanded = null;
+    } else if (k === 'escape' && this.researchOpen) {
+      this.setResearchOpen(false);
     } else if (k === 'escape') {
       this.toggleMenu(true);
     } else if (k === 'x' && sel.length) {
@@ -652,6 +737,8 @@ export class GameScreen {
       this.setOverlay(!this.view.overlay);
     } else if (k === 'b') {
       this.setYields(!this.view.yields);
+    } else if (k === 't') {
+      this.setResearchOpen(!this.researchOpen);
     } else if (k === ' ') {
       e.preventDefault();
       this.centreOnCapital();
@@ -1110,7 +1197,10 @@ export class GameScreen {
     supply.onclick = () => this.setOverlay(!this.view.overlay);
     const yields = el('button', { class: `toggle${this.view.yields ? ' on' : ''}` }, ['Yield', el('small', {}, ['B'])]);
     yields.onclick = () => this.setYields(!this.view.yields);
-    parts.push(supply, yields);
+    const busy = p.research;
+    const tech = el('button', { class: `toggle${this.researchOpen ? ' on' : ''}` }, [busy ? `Tech ${Math.round(busy[1] * 100)}%` : 'Tech', el('small', {}, ['T'])]);
+    tech.onclick = () => this.setResearchOpen(!this.researchOpen);
+    parts.push(supply, yields, tech);
     const sound = el('button', { class: `toggle${this.sfx.muted ? '' : ' on'}` }, [this.sfx.muted ? 'Muted' : 'Sound', el('small', {}, ['M'])]);
     sound.onclick = () => this.setMuted(!this.sfx.muted);
     const fx = el('button', { class: `toggle${this.view.fx.level === 'full' ? ' on' : ''}` }, [this.view.fx.level === 'full' ? 'FX' : 'FX low']);
@@ -1237,7 +1327,7 @@ export class GameScreen {
     const snap = this.snap as Snapshot;
     let load = 0;
     for (const b of snap.blobs) if (b[1] === this.you && b[6] === region && b[8] === 0) load += b[4] * UNITS[UNIT_INDEX[b[2]]].supplyNeed;
-    return { load, cap: supplyCapacity(this.map.regions[region], snap.regions[region][2]) };
+    return { load, cap: supplyCapacity(this.map.regions[region], snap.regions[region][2], this.techsOf(snap.regions[region][0])) };
   }
 
   /** The region panel's supply line: reach, and for your regions your load against capacity. */
@@ -1398,9 +1488,9 @@ export class GameScreen {
     const used = rr[9] + rr[10] + rr[11] + rr[12] + rr[13] + (rr[1] > 0 ? 1 : 0) + (rr[3] & 1 ? 1 : 0) + (rr[3] & 2 ? 1 : 0);
     const info: Array<[string, string]> = [
       ['Owner', owner >= 0 ? (this.players[owner]?.name ?? '?') : 'Neutral'],
-      ['City', rr[2] > 0 ? `level ${rr[2]} / ${MAX_CITY} · supplies ${supplyReach(rr[2])} regions out` : 'none'],
+      ['City', rr[2] > 0 ? `level ${rr[2]} / ${MAX_CITY} · supplies ${supplyReach(rr[2], this.techsOf(owner))} regions out` : 'none'],
       ['Produces', this.yieldLine(region, rr)],
-      ...(rr[2] > 0 || rr[13] > 0 ? [['Stores', storeText(storeOf(rr[2], rr[13]))] as [string, string]] : []),
+      ...(rr[2] > 0 || rr[13] > 0 ? [['Stores', storeText(storeOf(rr[2], rr[13], this.techsOf(owner)))] as [string, string]] : []),
       ['Slots', `${used} / ${slotsOf(region, rr[2])} built`],
       ['Fort', `${rr[1]} / ${MAX_FORT}`],
       ['Supply', owner >= 0 ? this.supplyLine(region.id) : '—'],
@@ -1460,7 +1550,7 @@ export class GameScreen {
 
   /** What a region makes per second, or why it makes nothing. */
   private yieldLine(region: Region, rr: Snapshot['regions'][number]): string {
-    const y = regionYield(region, rr[2], { farm: rr[9], mine: rr[10], well: rr[11], market: rr[12] });
+    const y = regionYield(region, rr[2], { farm: rr[9], mine: rr[10], well: rr[11], market: rr[12] }, this.techsOf(rr[0]));
     const parts = RESOURCES.filter((k) => y[k] > 0).map((k) => `+${Math.round(y[k] * 100) / 100} ${k}/s`);
     if (!parts.length) return 'nothing (build a farm, mine, oil well or market)';
     const idle = rr[0] >= 0 && !(rr[3] & 4) ? ' (stopped: out of supply)' : '';
@@ -1476,7 +1566,7 @@ export class GameScreen {
     out.push(el('div', { class: 'line' }, [`${line.building === 'barracks' ? 'Barracks' : 'Factory'}: ${status}`]), cellBar(Math.max(0, line.progress)));
     const adds: HTMLElement[] = [];
     for (const type of unitsOf(line.building)) {
-      const stats = UNITS[type];
+      const stats = unitStats(type, this.myTechs());
       const add = el('button', {}, [`${UNIT_KEY[type].toUpperCase()} + ${UNIT_NAME[type]}`]) as HTMLButtonElement;
       add.disabled = line.queue.length >= 5;
       add.onclick = () => this.send({ o: 'produce', region: line.region, building: line.building, unit: type });
