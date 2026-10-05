@@ -13,9 +13,14 @@ import {
   MERGE_PENALTY,
   RETREAT_STRENGTH_LOSS,
   START_INFANTRY,
+  STORE_PER_CITY_LEVEL,
+  STORE_PER_DEPOT,
   START_CAPITAL_LEVEL,
   supplyReach,
+  techCost,
+  type TechId,
   UNITS,
+  unitStats,
 } from '../shared/rules.ts';
 import { type Blob, NEUTRAL } from '../server/core/state.ts';
 import { chain, clearBlobs, makeMap, place, rich, run, sim } from './helpers.ts';
@@ -849,5 +854,169 @@ describe('capitals', () => {
     assert.ok(![...s.state.blobs.values()].some((x) => x.owner === 1));
     const events = s.drainEvents().map((e) => e.kind);
     assert.ok(events.includes('eliminated') && events.includes('won'));
+  });
+});
+
+describe('artillery', () => {
+  /** A at war with B on the duel chain; A owns 0-3, B owns 4-7. */
+  function war() {
+    const s = duel();
+    clearBlobs(s);
+    s.declareWar(1, 0);
+    s.state.regions.forEach((rs, i) => (rs.owner = i < 4 ? 0 : 1));
+    return s;
+  }
+
+  it('shells enemies up to two regions away, not three', () => {
+    const s = war();
+    const gun = place(s, 0, 'artillery', 2, 10);
+    const near = place(s, 1, 'infantry', 4, 10);
+    s.tick(0.1);
+    assert.equal(gun.bombarding, 4);
+    assert.ok(near.strength < 10);
+    s.state.blobs.delete(near.id);
+    const far = place(s, 1, 'infantry', 5, 10);
+    s.tick(0.1);
+    assert.equal(gun.bombarding, -1);
+    assert.equal(far.strength, 10);
+  });
+
+  it('waits at the border and shells instead of storming in', () => {
+    const s = war();
+    const gun = place(s, 0, 'artillery', 3, 10);
+    const enemy = place(s, 1, 'infantry', 4, 10);
+    assert.equal(s.move(0, [gun.id], 4), null);
+    run(s, 2);
+    assert.equal(gun.region, 3);
+    assert.equal(gun.attacking, -1);
+    assert.equal(gun.strength, 10, 'nobody shoots back at it from next door');
+    assert.ok(enemy.strength < 10);
+  });
+
+  it('breaks fast up close', () => {
+    const s = war();
+    s.state.regions[2].owner = 1;
+    const gun = place(s, 0, 'artillery', 1, 10);
+    const rifles = place(s, 0, 'infantry', 3, 10);
+    s.state.regions[3].owner = 1;
+    const a = place(s, 1, 'infantry', 1, 10);
+    const b = place(s, 1, 'infantry', 3, 10);
+    run(s, 5);
+    assert.ok(10 - gun.strength > 2 * (10 - rifles.strength), `gun lost ${10 - gun.strength}, rifles ${10 - rifles.strength}`);
+    assert.ok(a.strength > b.strength, 'and hits back weakly');
+  });
+
+  it('shells ignore digging in', () => {
+    const hit = (entrench: number) => {
+      const s = war();
+      place(s, 0, 'artillery', 2, 10);
+      const target = place(s, 1, 'infantry', 4, 10);
+      target.entrench = entrench;
+      s.tick(0.1);
+      return 10 - target.strength;
+    };
+    assert.ok(hit(0) > 0);
+    assert.ok(Math.abs(hit(1) - hit(0)) < 1e-9);
+  });
+
+  it('comes from the factory, not the barracks', () => {
+    const s = duel();
+    rich(s);
+    s.state.regions[0].factory = true;
+    s.state.regions[0].barracks = true;
+    assert.match(s.produce(0, 0, 'barracks', 'artillery') ?? '', /can't make/);
+    assert.equal(s.produce(0, 0, 'factory', 'artillery'), null);
+    assert.deepEqual(s.state.regions[0].production.factory.queue, ['artillery']);
+  });
+});
+
+describe('storage', () => {
+  it('stores fill up to what cities and depots hold; the rest is lost', () => {
+    const s = duel();
+    clearBlobs(s);
+    const p = s.state.players[0];
+    s.tick(0.1);
+    const city = s.state.regions[0].city;
+    assert.equal(p.cap.money, STORE_PER_CITY_LEVEL.money * city);
+    p.resources.money = p.cap.money - 0.01;
+    run(s, 5);
+    assert.equal(p.resources.money, p.cap.money);
+    s.state.regions[1].depots = 1;
+    s.tick(0.1);
+    assert.equal(p.cap.money, STORE_PER_CITY_LEVEL.money * city + STORE_PER_DEPOT.money);
+    run(s, 2);
+    assert.ok(p.resources.money > STORE_PER_CITY_LEVEL.money * city, 'room again');
+  });
+
+  it('depots take a slot, can be built anywhere you hold and knocked down', () => {
+    const s = duel();
+    rich(s);
+    assert.equal(s.build(0, 1, 'depot'), null);
+    run(s, buildCost('depot').seconds + 1);
+    assert.equal(s.state.regions[1].depots, 1);
+    assert.equal(s.slotsUsed(s.state.regions[1]), 1);
+    assert.equal(s.demolish(0, 1, 'depot'), null);
+    assert.equal(s.state.regions[1].depots, 0);
+  });
+
+  it('taking a depot takes its share of the stock', () => {
+    const s = duel();
+    clearBlobs(s);
+    s.declareWar(1, 0);
+    s.state.regions[1].owner = 0;
+    s.state.regions[1].depots = 1;
+    s.tick(0.1);
+    const a = s.state.players[0];
+    const b = s.state.players[1];
+    a.resources.steel = 400;
+    b.resources.steel = 0;
+    const share = STORE_PER_DEPOT.steel / a.cap.steel;
+    place(s, 1, 'infantry', 1);
+    s.drainEvents();
+    run(s, 30);
+    assert.equal(s.state.regions[1].owner, 1);
+    assert.ok(Math.abs(a.resources.steel - 400 * (1 - share)) < 1, `left ${a.resources.steel}`);
+    assert.ok(Math.abs(b.resources.steel - 400 * share) < 1, `took ${b.resources.steel}`);
+    assert.ok(s.drainEvents().some((e) => e.kind === 'looted'));
+  });
+});
+
+describe('research', () => {
+  it('one tech at a time, each after the one before it, paid up front', () => {
+    const s = duel();
+    rich(s);
+    const p = s.state.players[0];
+    assert.match(s.research(0, 'trenches') ?? '', /needs Rifles/);
+    const money = p.resources.money;
+    assert.equal(s.research(0, 'rifles'), null);
+    assert.equal(p.resources.money, money - techCost(1).cost.money);
+    assert.match(s.research(0, 'farming') ?? '', /already researching/);
+    run(s, techCost(1).seconds + 0.5);
+    assert.deepEqual(p.techs, ['rifles']);
+    assert.equal(s.research(0, 'trenches'), null);
+    assert.equal(s.unresearch(0), null);
+    assert.equal(p.research, null);
+  });
+
+  it('techs change the numbers: rifles hit harder, warehouses store more, long guns reach further', () => {
+    const fight = (techs: TechId[]) => {
+      const s = duel();
+      clearBlobs(s);
+      s.declareWar(1, 0);
+      s.state.regions.forEach((rs, i) => (rs.owner = i < 4 ? 0 : 1));
+      s.state.players[0].techs = techs;
+      place(s, 0, 'infantry', 3, 10);
+      const enemy = place(s, 1, 'infantry', 3, 10);
+      s.tick(0.1);
+      return 10 - enemy.strength;
+    };
+    assert.ok(fight(['rifles']) > fight([]) * 1.19);
+    const s = duel();
+    s.tick(0.1);
+    const cap = s.state.players[0].cap.money;
+    s.state.players[0].techs = ['warehouses'];
+    s.tick(0.1);
+    assert.equal(s.state.players[0].cap.money, cap * 1.5);
+    assert.equal(unitStats('artillery', ['shells', 'rangefinders', 'longGuns']).range, 3);
   });
 });

@@ -93,9 +93,9 @@ function echelon(size: number, max: number): string[] {
 
 /**
  * A NATO unit symbol: a rectangle in the owner's colour with a dark outline, a lighter top
- * edge, and the branch mark inside: infantry ✕, armour an oval.
+ * edge, and the branch mark inside: infantry ✕, armour an oval, artillery a filled dot.
  */
-export function unitFrame(type: 'infantry' | 'tank', size: number, max: number, color: string): Sprite {
+export function unitFrame(type: 'infantry' | 'tank' | 'artillery', size: number, max: number, color: string): Sprite {
   const marks = echelon(size, max);
   const key = `unit:${type}:${marks[1]}:${color}`;
   return cached(key, () => {
@@ -123,6 +123,14 @@ export function unitFrame(type: 'infantry' | 'tank', size: number, max: number, 
         grid[y][ix0 + i] = 'S';
         grid[iy0 + ih - 1 - (y - iy0)][ix0 + i] = 'S';
       }
+    } else if (type === 'artillery') {
+      // A filled dot, 5×5, centred.
+      const dot = ['.SSS.', 'SSSSS', 'SSSSS', 'SSSSS', '.SSS.'];
+      const ox = Math.floor((W - 5) / 2);
+      const oy = Math.floor((H - 5) / 2);
+      dot.forEach((row, y) => {
+        for (let x = 0; x < row.length; x++) if (row[x] === 'S') grid[oy + y][ox + x] = 'S';
+      });
     } else {
       // An oval (track outline), 9×5, centred.
       const oval = ['..SSSSS..', '.S.....S.', 'S.......S', '.S.....S.', '..SSSSS..'];
@@ -186,6 +194,20 @@ export const ICONS = {
   road: art(
     ['...OyO...', '...OyO...', '..OyWyO..', '..OyyyO..', '.OyyWyyO.', '.OyyyyyO.', 'OyyyWyyyO', 'OOOOOOOOO'],
     { y: '#b59a6a' },
+  ),
+  depot: art(
+    [
+      '...OOO...',
+      '..OrrrO..',
+      '.OrrrrrO.',
+      'OrrrrrrrO',
+      'OOOOOOOOO',
+      'OGGOOOGGO',
+      'OGGOyOGGO',
+      'OGGOyOGGO',
+      'OOOOOOOOO',
+    ],
+    { r: '#b5653a', y: '#c19a5b' },
   ),
   fort: art([
     'OOO.OOO.OOO',
