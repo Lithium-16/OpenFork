@@ -714,9 +714,10 @@ button.primary:hover:not(:disabled) {
   color: var(--accent-ink);
 }
 
+/* Below the top bar, so the two never meet; folds down to its strip. */
 .help {
   left: 10px;
-  top: 10px;
+  top: 56px;
   padding: 0 0 6px;
   font-size: 12px;
   color: var(--muted);
@@ -725,6 +726,23 @@ button.primary:hover:not(:disabled) {
 
 .help div:not(.classbar) {
   padding: 0 10px;
+}
+
+.help .fold {
+  cursor: pointer;
+  user-select: none;
+}
+
+.help.folded {
+  padding: 0;
+}
+
+.help.folded .fold {
+  margin: 0;
+}
+
+.help.folded div:not(.classbar) {
+  display: none;
 }
 
 .help b {
