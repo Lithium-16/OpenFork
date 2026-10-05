@@ -5,6 +5,7 @@ import type {
   ProductionBuilding,
   Resources,
   StartingResources,
+  TechId,
   UnitType,
 } from './rules.ts';
 import { BUILDING_KINDS } from './rules.ts';
@@ -33,7 +34,9 @@ export type Order =
   /** Turn down a country's offer of peace. */
   | { o: 'refuse'; player: number }
   /** Give up: your land goes neutral and your units disband, as if your capital fell. */
-  | { o: 'surrender' };
+  | { o: 'surrender' }
+  | { o: 'research'; tech: TechId }
+  | { o: 'unresearch' };
 
 export interface LobbySettings {
   map: string;
@@ -101,6 +104,9 @@ export interface PlayerRow {
   upkeep: number;
   /** Most it can stockpile: money, manpower, steel, oil. */
   cap: [number, number, number, number];
+  /** Techs researched, and the one under way with its progress 0..1. */
+  techs: TechId[];
+  research: [TechId, number] | null;
   broke: boolean;
   bot: boolean;
 }
@@ -123,6 +129,7 @@ export type GameEvent =
   | { kind: 'battle'; region: number; sides: number[] }
   | { kind: 'captured'; region: number; by: number; from: number }
   | { kind: 'looted'; region: number; by: number; from: number; got: Resources }
+  | { kind: 'researched'; player: number; tech: TechId }
   | { kind: 'built'; region: number; owner: number; building: BuildingKind; level: number }
   | { kind: 'produced'; region: number; owner: number; type: UnitType }
   | { kind: 'eliminated'; player: number; by: number; surrendered?: boolean }

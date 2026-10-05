@@ -17,7 +17,10 @@ import {
   STORE_PER_DEPOT,
   START_CAPITAL_LEVEL,
   supplyReach,
+  techCost,
+  type TechId,
   UNITS,
+  unitStats,
 } from '../shared/rules.ts';
 import { type Blob, NEUTRAL } from '../server/core/state.ts';
 import { chain, clearBlobs, makeMap, place, rich, run, sim } from './helpers.ts';
@@ -975,5 +978,45 @@ describe('storage', () => {
     assert.ok(Math.abs(a.resources.steel - 400 * (1 - share)) < 1, `left ${a.resources.steel}`);
     assert.ok(Math.abs(b.resources.steel - 400 * share) < 1, `took ${b.resources.steel}`);
     assert.ok(s.drainEvents().some((e) => e.kind === 'looted'));
+  });
+});
+
+describe('research', () => {
+  it('one tech at a time, each after the one before it, paid up front', () => {
+    const s = duel();
+    rich(s);
+    const p = s.state.players[0];
+    assert.match(s.research(0, 'trenches') ?? '', /needs Rifles/);
+    const money = p.resources.money;
+    assert.equal(s.research(0, 'rifles'), null);
+    assert.equal(p.resources.money, money - techCost(1).cost.money);
+    assert.match(s.research(0, 'farming') ?? '', /already researching/);
+    run(s, techCost(1).seconds + 0.5);
+    assert.deepEqual(p.techs, ['rifles']);
+    assert.equal(s.research(0, 'trenches'), null);
+    assert.equal(s.unresearch(0), null);
+    assert.equal(p.research, null);
+  });
+
+  it('techs change the numbers: rifles hit harder, warehouses store more, long guns reach further', () => {
+    const fight = (techs: TechId[]) => {
+      const s = duel();
+      clearBlobs(s);
+      s.declareWar(1, 0);
+      s.state.regions.forEach((rs, i) => (rs.owner = i < 4 ? 0 : 1));
+      s.state.players[0].techs = techs;
+      place(s, 0, 'infantry', 3, 10);
+      const enemy = place(s, 1, 'infantry', 3, 10);
+      s.tick(0.1);
+      return 10 - enemy.strength;
+    };
+    assert.ok(fight(['rifles']) > fight([]) * 1.19);
+    const s = duel();
+    s.tick(0.1);
+    const cap = s.state.players[0].cap.money;
+    s.state.players[0].techs = ['warehouses'];
+    s.tick(0.1);
+    assert.equal(s.state.players[0].cap.money, cap * 1.5);
+    assert.equal(unitStats('artillery', ['shells', 'rangefinders', 'longGuns']).range, 3);
   });
 });

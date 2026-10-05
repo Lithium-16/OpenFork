@@ -5,6 +5,7 @@ import type {
   EconKind,
   ProductionBuilding,
   Resources,
+  TechId,
   UnitType,
 } from '../../shared/rules.ts';
 
@@ -99,6 +100,9 @@ export interface Player {
   income: Resources;
   /** Most it can stockpile (cities and depots; set each tick). */
   cap: Resources;
+  /** Techs researched, and the one under way (paid for). */
+  techs: TechId[];
+  research: { tech: TechId; progress: number; seconds: number; cost: Resources } | null;
   upkeep: number;
 }
 
@@ -110,6 +114,7 @@ export type SimEvent =
   | { kind: 'battle'; region: number; sides: number[] }
   | { kind: 'captured'; region: number; by: number; from: number }
   | { kind: 'looted'; region: number; by: number; from: number; got: Resources }
+  | { kind: 'researched'; player: number; tech: TechId }
   | { kind: 'built'; region: number; owner: number; building: BuildingKind; level: number }
   | { kind: 'produced'; region: number; owner: number; type: UnitType }
   | { kind: 'eliminated'; player: number; by: number; surrendered?: boolean }

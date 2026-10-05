@@ -490,7 +490,7 @@ export class MapView {
     regions.forEach((r, i) => {
       if (r[0] !== you || r[2] <= 0) return;
       hubs.push(i);
-      const reach = supplyReach(r[2]) * 2;
+      const reach = supplyReach(r[2], snap.players[you]?.techs) * 2;
       if (reach > (left.get(i) ?? -1)) {
         left.set(i, reach);
         (buckets[reach] ??= []).push(i);
@@ -532,7 +532,7 @@ export class MapView {
     snap.regions.forEach((r, i) => {
       // 0: not yours, 1: in supply, 2: at the edge of reach, 3: cut off, 4: overloaded.
       const left = this.supply?.left.get(i);
-      const over = (this.supply?.need.get(i) ?? 0) > supplyCapacity(this.map.regions[i], r[2]) + 1e-9;
+      const over = (this.supply?.need.get(i) ?? 0) > supplyCapacity(this.map.regions[i], r[2], snap.players[r[0]]?.techs) + 1e-9;
       const state = r[0] !== you ? 0 : left === undefined ? 3 : over ? 4 : left < 2 ? 2 : 1;
       if (state === this.shownSupply[i]) return;
       this.shownSupply[i] = state;
@@ -1169,7 +1169,7 @@ export class MapView {
       // Supply overlay: a crate on hubs, and how loaded each of your regions is.
       if (this.overlay && you !== null && rr[0] === you && this.supply) {
         if (this.supply.hubs.includes(region.id)) blitCentred(ctx, ICONS.crate, x - 12 * ipx, y + tokenTop - 6 * ipx, ipx);
-        const load = (this.supply.need.get(region.id) ?? 0) / supplyCapacity(region, rr[2]);
+        const load = (this.supply.need.get(region.id) ?? 0) / supplyCapacity(region, rr[2], snap.players[you]?.techs);
         if (load > 0) cells(ctx, x, y + below + 8 * px, Math.min(1, load), load > 1 ? '#ff5a5a' : load > 0.75 ? '#ffb347' : '#7bd389', px);
       }
 
@@ -1179,7 +1179,7 @@ export class MapView {
       const slots = this.slots?.get(region.id);
       if (you !== null && rr[0] === you && zoom >= 0.5 && (this.yields || slots)) {
         const econ = { farm: rr[9], mine: rr[10], well: rr[11], market: rr[12] };
-        const y0 = regionYield(region, rr[2], econ);
+        const y0 = regionYield(region, rr[2], econ, snap.players[you]?.techs);
         const parts = this.yields ? RESOURCES.filter((k) => y0[k] > 0).map((k) => ({ k, text: `+${Math.round(y0[k] * 10) / 10}` })) : [];
         const is = Math.max(2, ipx);
         const ds = Math.max(2, ipx);

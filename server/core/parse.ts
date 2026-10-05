@@ -1,6 +1,6 @@
 // Checks untrusted client messages. Anything malformed comes back as null.
 import type { ClientMessage, LobbySettings, Order } from '../../shared/protocol.ts';
-import { BOT_SETTINGS, type BotSetting, BUILDING_KINDS, type BuildingKind, MAX_PLAYERS, MIN_PLAYERS, UNIT_TYPES, type UnitType } from '../../shared/rules.ts';
+import { BOT_SETTINGS, type BotSetting, BUILDING_KINDS, type BuildingKind, MAX_PLAYERS, MIN_PLAYERS, type TechId, TECHS, UNIT_TYPES, type UnitType } from '../../shared/rules.ts';
 
 const MAX_IDS = 64;
 
@@ -51,6 +51,10 @@ function order(v: unknown): Order | null {
       return isInt(v.player) ? { o: v.o, player: v.player } : null;
     case 'surrender':
       return { o: 'surrender' };
+    case 'research':
+      return TECHS.some((t) => t.id === v.tech) ? { o: 'research', tech: v.tech as TechId } : null;
+    case 'unresearch':
+      return { o: 'unresearch' };
     case 'cancel':
       return isInt(v.region) && isProd(v.building) ? { o: 'cancel', region: v.region, building: v.building } : null;
     case 'unbuild':

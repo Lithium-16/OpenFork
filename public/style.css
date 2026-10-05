@@ -1010,6 +1010,97 @@ button.primary:hover:not(:disabled) {
   color: var(--ink);
 }
 
+/* Research: the tech tree, over the middle of the map. */
+.research {
+  top: 64px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(900px, calc(100% - 20px));
+  max-height: calc(100% - 300px);
+  overflow: auto;
+  padding: 0 0 10px;
+  /* Over the side panels while it's open. */
+  z-index: 5;
+}
+
+.research .rhead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 12px 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.research .tree {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  padding: 0 10px;
+}
+
+.research .gname {
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin: 0 2px 4px;
+}
+
+.research .tech {
+  display: grid;
+  gap: 3px;
+  padding: 6px 8px;
+  margin-bottom: 6px;
+  background: var(--raised);
+  box-shadow: 0 0 0 2px var(--line);
+  font-size: 12px;
+}
+
+.research .tech .effect {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.research .tech .foot {
+  font-size: 11px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.research .tech.open {
+  cursor: pointer;
+}
+
+.research .tech.open:hover {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.research .tech.done {
+  box-shadow: 0 0 0 2px var(--good);
+}
+
+.research .tech.done .foot {
+  color: var(--good);
+}
+
+.research .tech.active {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.research .tech.locked,
+.research .tech.wait {
+  opacity: 0.55;
+}
+
+@media (max-width: 720px) {
+  .research .tree {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 #map.placing {
   cursor: crosshair;
 }
