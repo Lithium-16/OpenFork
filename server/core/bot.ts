@@ -16,6 +16,7 @@ import {
   MAX_CITY,
   OPPORTUNISM,
   type Opportunism,
+  RESOURCES,
   UNITS,
 } from '../../shared/rules.ts';
 import type { Sim } from './sim.ts';
@@ -219,6 +220,16 @@ export class Bot {
     if (!this.style.defensive && barracks < 1 + Math.floor(mine.length / 12)) {
       const site = cities.filter((r) => can(r, 'barracks')).sort((a, b) => this.frontDistance(sim, a) - this.frontDistance(sim, b))[0];
       if (site !== undefined && sim.build(this.player, site, 'barracks') === null) return;
+    }
+
+    // Stores nearly full: a depot (one at a time), as far from the front as we can find.
+    const full = RESOURCES.some((k) => me.cap[k] > 0 && me.resources[k] >= 0.85 * me.cap[k]);
+    const depotUnderWay = mine.some((r) => sim.pending(regions[r]).some((c) => c.kind === 'depot'));
+    if (full && !depotUnderWay) {
+      const sites = mine.filter((r) => can(r, 'depot'));
+      const pick = [...cities.filter((r) => sites.includes(r)), ...sites].slice(0, 8);
+      const site = pick.sort((a, b) => this.frontDistance(sim, b) - this.frontDistance(sim, a))[0];
+      if (site !== undefined && sim.build(this.player, site, 'depot') === null) return;
     }
 
     if (this.random() >= this.style.develop) return;

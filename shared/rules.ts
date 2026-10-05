@@ -202,8 +202,8 @@ export type ProductionBuilding = 'barracks' | 'factory';
 export type EconKind = 'farm' | 'mine' | 'well' | 'market';
 export const ECON_KINDS: readonly EconKind[] = ['farm', 'mine', 'well', 'market'];
 /** 'city' founds a city, or expands one that's there; 'road' is built across a border. */
-export type BuildingKind = EconKind | 'city' | 'fort' | ProductionBuilding | 'road';
-export const BUILDING_KINDS: readonly BuildingKind[] = ['farm', 'mine', 'well', 'market', 'city', 'fort', 'barracks', 'factory', 'road'];
+export type BuildingKind = EconKind | 'city' | 'fort' | ProductionBuilding | 'road' | 'depot';
+export const BUILDING_KINDS: readonly BuildingKind[] = ['farm', 'mine', 'well', 'market', 'city', 'fort', 'barracks', 'factory', 'road', 'depot'];
 export const MAX_FORT = 3;
 export const MAX_CITY = 5;
 /** Builds a region can have waiting behind the one under way. */
@@ -221,6 +221,20 @@ export const CITY_YIELD: Resources = { money: 0.8, manpower: 0.25, steel: 0, oil
 /** Your capital starts at least this big; cities of countries nobody plays start at 1. */
 export const START_CAPITAL_LEVEL = 3;
 export const NEUTRAL_CITY_LEVEL = 1;
+
+// -- storage ----------------------------------------------------------------------------------
+
+/** What a country can stockpile: each city level stores this much, each depot this much more.
+ * Income beyond it is lost. Taking a city or depot takes its share of the owner's stock. */
+export const STORE_PER_CITY_LEVEL: Resources = { money: 250, manpower: 250, steel: 120, oil: 120 };
+export const STORE_PER_DEPOT: Resources = { money: 1000, manpower: 1000, steel: 500, oil: 500 };
+
+/** What one region stores. */
+export function storeOf(city: number, depots: number): Resources {
+  const out = { money: 0, manpower: 0, steel: 0, oil: 0 };
+  for (const k of RESOURCES) out[k] = STORE_PER_CITY_LEVEL[k] * city + STORE_PER_DEPOT[k] * depots;
+  return out;
+}
 
 export function usesSlot(kind: BuildingKind): boolean {
   return kind !== 'city' && kind !== 'road';
@@ -307,6 +321,8 @@ export function buildCost(kind: BuildingKind, level = 1): { cost: Resources; sec
       return { cost: res(150, 40), seconds: 120 };
     case 'road':
       return { cost: res(30, 5), seconds: 30 };
+    case 'depot':
+      return { cost: res(120, 20), seconds: 45 };
   }
 }
 

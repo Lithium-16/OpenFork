@@ -195,6 +195,20 @@ export const ICONS = {
     ['...OyO...', '...OyO...', '..OyWyO..', '..OyyyO..', '.OyyWyyO.', '.OyyyyyO.', 'OyyyWyyyO', 'OOOOOOOOO'],
     { y: '#b59a6a' },
   ),
+  depot: art(
+    [
+      '...OOO...',
+      '..OrrrO..',
+      '.OrrrrrO.',
+      'OrrrrrrrO',
+      'OOOOOOOOO',
+      'OGGOOOGGO',
+      'OGGOyOGGO',
+      'OGGOyOGGO',
+      'OOOOOOOOO',
+    ],
+    { r: '#b5653a', y: '#c19a5b' },
+  ),
   fort: art([
     'OOO.OOO.OOO',
     'OGO.OGO.OGO',

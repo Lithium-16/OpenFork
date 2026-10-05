@@ -13,6 +13,8 @@ import {
   MERGE_PENALTY,
   RETREAT_STRENGTH_LOSS,
   START_INFANTRY,
+  STORE_PER_CITY_LEVEL,
+  STORE_PER_DEPOT,
   START_CAPITAL_LEVEL,
   supplyReach,
   UNITS,
@@ -922,5 +924,56 @@ describe('artillery', () => {
     assert.match(s.produce(0, 0, 'barracks', 'artillery') ?? '', /can't make/);
     assert.equal(s.produce(0, 0, 'factory', 'artillery'), null);
     assert.deepEqual(s.state.regions[0].production.factory.queue, ['artillery']);
+  });
+});
+
+describe('storage', () => {
+  it('stores fill up to what cities and depots hold; the rest is lost', () => {
+    const s = duel();
+    clearBlobs(s);
+    const p = s.state.players[0];
+    s.tick(0.1);
+    const city = s.state.regions[0].city;
+    assert.equal(p.cap.money, STORE_PER_CITY_LEVEL.money * city);
+    p.resources.money = p.cap.money - 0.01;
+    run(s, 5);
+    assert.equal(p.resources.money, p.cap.money);
+    s.state.regions[1].depots = 1;
+    s.tick(0.1);
+    assert.equal(p.cap.money, STORE_PER_CITY_LEVEL.money * city + STORE_PER_DEPOT.money);
+    run(s, 2);
+    assert.ok(p.resources.money > STORE_PER_CITY_LEVEL.money * city, 'room again');
+  });
+
+  it('depots take a slot, can be built anywhere you hold and knocked down', () => {
+    const s = duel();
+    rich(s);
+    assert.equal(s.build(0, 1, 'depot'), null);
+    run(s, buildCost('depot').seconds + 1);
+    assert.equal(s.state.regions[1].depots, 1);
+    assert.equal(s.slotsUsed(s.state.regions[1]), 1);
+    assert.equal(s.demolish(0, 1, 'depot'), null);
+    assert.equal(s.state.regions[1].depots, 0);
+  });
+
+  it('taking a depot takes its share of the stock', () => {
+    const s = duel();
+    clearBlobs(s);
+    s.declareWar(1, 0);
+    s.state.regions[1].owner = 0;
+    s.state.regions[1].depots = 1;
+    s.tick(0.1);
+    const a = s.state.players[0];
+    const b = s.state.players[1];
+    a.resources.steel = 400;
+    b.resources.steel = 0;
+    const share = STORE_PER_DEPOT.steel / a.cap.steel;
+    place(s, 1, 'infantry', 1);
+    s.drainEvents();
+    run(s, 30);
+    assert.equal(s.state.regions[1].owner, 1);
+    assert.ok(Math.abs(a.resources.steel - 400 * (1 - share)) < 1, `left ${a.resources.steel}`);
+    assert.ok(Math.abs(b.resources.steel - 400 * share) < 1, `took ${b.resources.steel}`);
+    assert.ok(s.drainEvents().some((e) => e.kind === 'looted'));
   });
 });
