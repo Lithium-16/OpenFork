@@ -123,6 +123,10 @@ export const MAX_TRAINING = 100;
 export const DRILL_CAP = 50;
 export const DRILL_RATE = 1 / 6;
 export const MERGE_PENALTY = 10;
+/** A unit merges only with at least this share of its full strength (no patching up wrecks). */
+export const MERGE_MIN_STRENGTH = 0.25;
+/** Disbanding gives back this share of the manpower its remaining strength cost. */
+export const DISBAND_REFUND = 0.5;
 
 // -- supply -----------------------------------------------------------------------------------
 

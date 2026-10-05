@@ -27,6 +27,8 @@ function order(v: unknown): Order | null {
       return { o: 'split', blob: v.blob, ...(v.amount !== undefined ? { amount: v.amount as number } : {}) };
     case 'merge':
       return isIds(v.blobs) ? { o: 'merge', blobs: v.blobs } : null;
+    case 'disband':
+      return isIds(v.blobs) ? { o: 'disband', blobs: v.blobs } : null;
     case 'build':
       if (!isInt(v.region) || !BUILDING_KINDS.includes(v.kind as BuildingKind)) return null;
       if (v.target !== undefined && !isInt(v.target)) return null;

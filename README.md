@@ -38,8 +38,10 @@ to your friends, pick countries, and start. Bots fill the empty seats.
 | Right click | send the selected units to a region (they path there, fighting and capturing on the way) |
 | Right drag, WASD, arrows | pan |
 | Wheel | zoom |
-| X / G / H | split in half / merge (any amounts, up to 100) / halt the selected units; the unit panel splits off a batch or any number |
-| 1–9 or the build bar | placement mode: farm, mine, oil well, market, city (found or expand), fort, barracks, factory, road. Click one of your regions (roads: drag across regions); Shift places more, Esc / right click stops; a busy region queues it |
+| X / G / H | split in half / merge (any amounts, up to 100; not in a fight or below 25% strength) / halt the selected units; the unit panel splits off a batch or any number |
+| Del | disband the selected units (asks first; half the manpower of their strength back; not in a fight) |
+| 1–9 or the build bar | placement mode: farm, mine, oil well, market, city (found or expand), fort, barracks, factory, road. Click one of your regions (roads: drag across regions); Shift places more, Esc / right click stops; a busy region queues it. Your regions show their slots as boxes (hollow green = free) |
+| 0 | demolish mode: pick a building, click your regions that have one (red); no refund |
 | Q / E | queue infantry / tanks at the selected region's barracks / factory |
 | V | supply overlay: hubs, reach, cut-off regions, load per region |
 | B | yield overlay: what each of your regions makes per second (grey while it's stopped) |

@@ -74,6 +74,8 @@ export class MapView {
   overlay = false;
   /** Yield overlay on: what each of your regions makes per second. */
   yields = false;
+  /** Building slots of your regions, [used, all], shown as boxes (placing or yield overlay). */
+  slots: Map<number, [number, number]> | null = null;
   private readonly supplyLayer: HTMLCanvasElement;
   private supplySnap: Snapshot | null = null;
   private supplyImg: ImageData | null = null;
@@ -83,7 +85,7 @@ export class MapView {
   /** The stack shown as single tokens after a click on it, or null. */
   expanded: string | null = null;
   /** Placement mode: where the building can go, and the region under the cursor. */
-  placement: { valid: Set<number>; hover: number } | null = null;
+  placement: { valid: Set<number>; hover: number; demolish?: boolean } | null = null;
   /** Orders sent but not yet in a snapshot, drawn at once so input feels instant. */
   readonly pending: {
     move: { ids: number[]; to: number; since: number } | null;
@@ -928,8 +930,9 @@ export class MapView {
     }
   }
 
-  /** Placement: valid regions tinted green, everything else dimmed (changed regions only). */
-  private updatePlaceLayer(valid: Set<number>): void {
+  /** Placement: valid regions tinted green (red when demolishing), everything else dimmed
+   * (changed regions only). */
+  private updatePlaceLayer(valid: Set<number>, demolish: boolean): void {
     const W = this.map.width;
     const ctx = this.placeLayer.getContext('2d') as CanvasRenderingContext2D;
     if (!this.placeImg) {
@@ -942,10 +945,11 @@ export class MapView {
     const d = this.placeImg.data;
     let [x0, y0, x1, y1] = [W, this.map.height, -1, -1];
     for (let r = 0; r < this.shownValid.length; r++) {
-      const on = valid.has(r) ? 1 : 0;
+      const on = valid.has(r) ? (demolish ? 2 : 1) : 0;
       if (on === this.shownValid[r]) continue;
       this.shownValid[r] = on;
-      for (const p of this.regionPixels[r]) d.set(on ? [70, 220, 100, 120] : [8, 11, 14, 140], p * 4);
+      const tint = on === 2 ? [230, 80, 70, 120] : on === 1 ? [70, 220, 100, 120] : [8, 11, 14, 140];
+      for (const p of this.regionPixels[r]) d.set(tint, p * 4);
       const o = r * 4;
       x0 = Math.min(x0, this.regionBox[o]);
       y0 = Math.min(y0, this.regionBox[o + 1]);
@@ -1028,7 +1032,7 @@ export class MapView {
     if (this.fx.level === 'full') this.drawAmbient(snap);
     if (showSupply) ctx.drawImage(this.supplyLayer, 0, 0);
     if (place) {
-      this.updatePlaceLayer(place.valid);
+      this.updatePlaceLayer(place.valid, !!place.demolish);
       ctx.drawImage(this.placeLayer, 0, 0);
     }
     if (lit >= 0) ctx.drawImage(this.highlight, 0, 0);
@@ -1167,26 +1171,46 @@ export class MapView {
         if (load > 0) cells(ctx, x, y + below + 8 * px, Math.min(1, load), load > 1 ? '#ff5a5a' : load > 0.75 ? '#ffb347' : '#7bd389', px);
       }
 
-      // Yield overlay: what the region makes per second, as resource icons and amounts
-      // (grey while it makes nothing: out of supply or fought over).
-      if (this.yields && you !== null && rr[0] === you && zoom >= 0.5) {
+      // Under your regions, on one dark plate: what the region makes per second (yield
+      // overlay; grey while it makes nothing: out of supply or fought over), then its building
+      // slots as boxes, filled when used, hollow green when free (yield overlay and placement).
+      const slots = this.slots?.get(region.id);
+      if (you !== null && rr[0] === you && zoom >= 0.5 && (this.yields || slots)) {
         const econ = { farm: rr[9], mine: rr[10], well: rr[11], market: rr[12] };
         const y0 = regionYield(region, rr[2], econ);
-        const parts = RESOURCES.filter((k) => y0[k] > 0).map((k) => ({ k, text: `+${Math.round(y0[k] * 10) / 10}` }));
-        if (parts.length) {
-          const working = (rr[3] & 4) !== 0 && (owners.get(region.id)?.size ?? 0) <= 1;
-          const is = Math.max(2, ipx);
-          const ds = Math.max(2, ipx);
-          const w = (p: { text: string }) => 9 * is + ds + digitsWidth(p.text, ds);
-          const total = parts.reduce((sum, p) => sum + w(p), 0) + 3 * ds * (parts.length - 1);
+        const parts = this.yields ? RESOURCES.filter((k) => y0[k] > 0).map((k) => ({ k, text: `+${Math.round(y0[k] * 10) / 10}` })) : [];
+        const is = Math.max(2, ipx);
+        const ds = Math.max(2, ipx);
+        const w = (p: { text: string }) => 9 * is + ds + digitsWidth(p.text, ds);
+        const boxes = slots ? slots[1] * 5 * is - is : 0;
+        const items = parts.length + (slots ? 1 : 0);
+        if (items) {
+          const total = parts.reduce((sum, p) => sum + w(p), 0) + boxes + 3 * ds * (items - 1);
           const cy = Math.round(y + below + 12 * px + 6 * is);
           ctx.fillStyle = 'rgba(11, 15, 19, 0.75)';
           ctx.fillRect(Math.round(x - total / 2) - 2 * ds, cy - 6 * is, total + 4 * ds, 12 * is);
           let ix = Math.round(x - total / 2);
+          const working = (rr[3] & 4) !== 0 && (owners.get(region.id)?.size ?? 0) <= 1;
           for (const p of parts) {
             blit(ctx, HUD[p.k], ix, cy - Math.round(4.5 * is), is);
             pixelDigits(ctx, p.text, ix + 9 * is + ds + digitsWidth(p.text, ds) / 2, cy, ds, working ? '#7bd389' : '#8b9aa6');
             ix += w(p) + 3 * ds;
+          }
+          if (slots) {
+            const [used, all] = slots;
+            const top = cy - 2 * is;
+            for (let i = 0; i < all; i++) {
+              const bx = ix + i * 5 * is;
+              if (i < used) {
+                ctx.fillStyle = '#9aa7b1';
+                ctx.fillRect(bx, top, 4 * is, 4 * is);
+              } else {
+                ctx.fillStyle = '#7bd389';
+                ctx.fillRect(bx, top, 4 * is, 4 * is);
+                ctx.fillStyle = INK;
+                ctx.fillRect(bx + is, top + is, 2 * is, 2 * is);
+              }
+            }
           }
         }
       }
@@ -1471,6 +1495,28 @@ export class MapView {
 
     // Tokens and stacks.
     const placed: Placed[] = [];
+    // Digging in: one hollow ring round a country's units in a region (numbers included),
+    // behind them, fills clockwise from the top as they entrench (the slowest unit counts) and
+    // goes once they're fully dug in.
+    const digging = new Map<string, { x0: number; x1: number; y: number; dig: number }>();
+    for (const it of items) {
+      if (it.moving) continue;
+      const [x, y] = this.toScreen(it.tx, it.ty);
+      const k = `${it.owner}:${it.rows[0][6]}`;
+      const g = digging.get(k) ?? { x0: x, x1: x, y, dig: 1 };
+      g.x0 = Math.min(g.x0, x);
+      g.x1 = Math.max(g.x1, x);
+      g.dig = Math.min(g.dig, ...it.rows.map((b) => b[9]));
+      digging.set(k, g);
+    }
+    const fw = FRAME_W * px;
+    const fh = FRAME_H * px;
+    for (const g of digging.values()) {
+      if (g.dig <= 0 || g.dig >= 1) continue;
+      const top = g.y - fh / 2 - 2 * px;
+      const bottom = g.y + fh / 2 + 4 * px + plateHeight(px);
+      entrenchRing(ctx, Math.round((g.x0 + g.x1) / 2), Math.round((top + bottom) / 2), (g.x1 - g.x0) / 2 + fw / 2 + 5 * px, (bottom - top) / 2 + 2 * px, g.dig, px);
+    }
     const r = (FRAME_W * px) / 2;
     for (const it of items) {
       const [x, y] = this.toScreen(it.tx, it.ty);
@@ -1741,6 +1787,19 @@ export class MapView {
     if (selected && Math.floor(performance.now() / 400) % 2 === 0) {
       brackets(ctx, Math.round(p.x), Math.round(y0 + h / 2 + 2 * px), w / 2 + 2 * px, '#ffffff', px);
     }
+  }
+}
+
+/** A pixel oval (radii rx, ry) round (cx, cy), two pixels thick: a dark track, filled
+ * clockwise from the top to `progress` in earth gold. */
+function entrenchRing(ctx: CanvasRenderingContext2D, cx: number, cy: number, rx: number, ry: number, progress: number, px: number): void {
+  const steps = Math.max(48, Math.ceil((2 * Math.PI * Math.max(rx, ry)) / px));
+  for (let i = 0; i < steps; i++) {
+    const a = (i / steps) * 2 * Math.PI;
+    const x = Math.round((cx + rx * Math.sin(a)) / px) * px;
+    const y = Math.round((cy - ry * Math.cos(a)) / px) * px;
+    ctx.fillStyle = i / steps < progress ? '#e8c063' : 'rgba(11, 15, 19, 0.6)';
+    ctx.fillRect(x - px, y - px, 2 * px, 2 * px);
   }
 }
 
