@@ -38,8 +38,9 @@ interface Item {
   group: string;
   /** Part of the expanded stack: never merged or pushed, drawn on top. */
   pinned?: boolean;
-  /** Defenders under attack: what helps them hold (shown as a shield badge). */
-  shield?: { fort: number; dug: boolean; river: boolean };
+  /** Defenders under attack: their fort and whether the attackers come over a river (shown
+   * on the shield badge). */
+  shield?: { fort: number; river: boolean };
   /** Position in map coordinates. */
   tx: number;
   ty: number;
@@ -1305,7 +1306,7 @@ export class MapView {
         const river = sorted.some((b) => b[1] !== holder && overRiver(b));
         for (const sl of middle) {
           if (sl.owner === holder && !sl.moving) {
-            (sl as Item).shield = { fort: snap.regions[region][1], dug: sl.rows.some((b) => b[9] >= 0.5), river };
+            (sl as Item).shield = { fort: snap.regions[region][1], river };
           }
         }
       }
@@ -1495,13 +1496,6 @@ export class MapView {
 
     // Tokens and stacks.
     const placed: Placed[] = [];
-    // Units of one country parked in a region: their digging-in rings go see-through when
-    // there are several, so they don't hide each other.
-    const parked = new Map<string, number>();
-    for (const it of items) {
-      const k = `${it.owner}:${it.rows[0][6]}`;
-      if (!it.moving) parked.set(k, (parked.get(k) ?? 0) + 1);
-    }
     const r = (FRAME_W * px) / 2;
     for (const it of items) {
       const [x, y] = this.toScreen(it.tx, it.ty);
@@ -1512,19 +1506,6 @@ export class MapView {
       placed.push(p);
     }
     this.placed = placed;
-    // Digging in: a hollow circle round each token fills clockwise from the top as it
-    // entrenches, and goes once it's fully dug in (a stack: its slowest unit; an expanded
-    // stack: each unit). Drawn over all the tokens, see-through when several share a region.
-    items.forEach((it, i) => {
-      if (it.moving) return;
-      const dig = Math.min(...it.rows.map((b) => b[9]));
-      if (dig <= 0 || dig >= 1) return;
-      const crowd = (parked.get(`${it.owner}:${it.rows[0][6]}`) ?? 0) > 1;
-      // The frame's top-left pixel, exactly as tokenSprite places it.
-      const fx = placed[i].x - TOKEN_AX * px + Math.round(TOKEN_AX * px - (FRAME_W * px) / 2);
-      const fy = placed[i].y - TOKEN_AY * px + Math.round(TOKEN_AY * px - (FRAME_H * px) / 2);
-      entrenchRing(ctx, fx, fy, dig, px, crowd ? 0.65 : 1);
-    });
   }
 
   /** When each fight on screen fires its next artillery round. */
@@ -1776,9 +1757,12 @@ export class MapView {
         ctx.fillRect(bx, Math.round(y0 + h - px - (i + 1) * cell), px, Math.max(px, Math.round(cell) - px));
       }
     }
-    // Defenders under attack: a shield with fort level, dug in and river.
-    if (it.shield && !it.moving) {
-      const sh = shieldSprite(it.shield.fort, it.shield.dug, it.shield.river);
+    // A shield beside units that are digging in (it fills with earth from the bottom as they
+    // entrench, the slowest unit of a stack counting, and stays full once they're dug in)
+    // or under attack (with the fort level and a river the attackers cross).
+    const dig = it.moving ? 0 : Math.min(...rows.map((b) => b[9]));
+    if (!it.moving && (it.shield || dig > 0)) {
+      const sh = shieldSprite(it.shield?.fort ?? 0, dig, it.shield?.river ?? false);
       blit(ctx, sh, x0 - (sh.width + 1) * px, y0 + px, px);
     }
     // Selected: blinking corner brackets.
@@ -1788,49 +1772,26 @@ export class MapView {
   }
 }
 
-/** The unit's body inside a token, in art pixels from the frame's top-left: the 17-wide box
- * (rows 3-14, under the echelon marks) and its strength bar (rows 15-17). The digging-in
- * circle is centred on it. */
-const BODY_CX = FRAME_W / 2;
-const BODY_CY = (3 + 18) / 2;
-const RING_R = FRAME_W / 2 + 2;
-
-/** A one-pixel circle round a token's body (frame top-left at fx, fy): a dark track, filled
- * clockwise from the top to `progress` in earth gold, at the given opacity. Pixels are laid
- * on the token's own grid, mirrored about the centre, so the circle sits exactly round it. */
-function entrenchRing(ctx: CanvasRenderingContext2D, fx: number, fy: number, progress: number, px: number, alpha: number): void {
-  // The centre is the middle of a pixel (cell 8 of the 17-wide box, row 10 of rows 3-17);
-  // a pixel d away is that one plus d rounded, rounded the same way left and right.
-  const cell = (c: number, d: number) => Math.floor(c) + Math.sign(d) * Math.round(Math.abs(d));
-  const steps = Math.ceil(2 * Math.PI * RING_R) * 4;
-  const seen = new Set<string>();
-  ctx.save();
-  ctx.globalAlpha = alpha;
-  for (let i = 0; i < steps; i++) {
-    const a = (i / steps) * 2 * Math.PI;
-    const u = cell(BODY_CX, RING_R * Math.sin(a));
-    const v = cell(BODY_CY, -RING_R * Math.cos(a));
-    const key = `${u},${v}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    ctx.fillStyle = i / steps < progress ? '#e8c063' : '#0b0f13';
-    ctx.fillRect(fx + u * px, fy + v * px, px, px);
-  }
-  ctx.restore();
-}
-
 /** Where a unit fights: the region it attacks from next door, else its own. */
 function battleRegion(b: BlobRow): number {
   return (b[11] & 4) !== 0 && b[8] === 0 && b[7] >= 0 ? b[7] : b[6];
 }
 
 const shieldCache = new Map<string, HTMLCanvasElement>();
-/** A defender's shield: fort pips at the top, a blue wave for a river, a brown bar if dug in. */
-function shieldSprite(fort: number, dug: boolean, river: boolean): HTMLCanvasElement {
-  const key = `${fort}${dug}${river}`;
+/** The shield badge: earth fills it from the bottom as the units dig in (`dig` 0..1), with
+ * fort pips at the top and a blue wave for a river when they're under attack. */
+function shieldSprite(fort: number, dig: number, river: boolean): HTMLCanvasElement {
+  const rows = ['OOOOOOO', 'OGGGGGO', 'OGGGGGO', 'OGGGGGO', 'OGGGGGO', 'OGGGGGO', '.OGGGO.', '..OGO..', '...O...'].map((r) => r.split(''));
+  // Earth fills the inside by area, pixel by pixel from the tip up (each row left to right),
+  // full only once dug in; the row being filled is lighter, like fresh earth.
+  const inside: Array<[number, number]> = [];
+  for (let y = rows.length - 1; y >= 0; y--) for (let x = 0; x < 7; x++) if (rows[y][x] === 'G') inside.push([y, x]);
+  const filled = dig >= 1 ? inside.length : Math.min(inside.length - 1, Math.floor(dig * inside.length));
+  const key = `${fort}${filled}${river}`;
   let c = shieldCache.get(key);
   if (c) return c;
-  const rows = ['OOOOOOO', 'OGGGGGO', 'OGGGGGO', 'OGGGGGO', 'OGGGGGO', 'OGGGGGO', '.OGGGO.', '..OGO..', '...O...'].map((r) => r.split(''));
+  const surface = filled > 0 && filled < inside.length ? inside[filled - 1][0] : -1;
+  for (const [y, x] of inside.slice(0, filled)) rows[y][x] = y === surface ? 'd' : 'D';
   for (let i = 0; i < Math.min(3, fort); i++) rows[2][1 + i * 2] = 'K';
   if (river) {
     rows[4][1] = 'B';
@@ -1839,10 +1800,9 @@ function shieldSprite(fort: number, dug: boolean, river: boolean): HTMLCanvasEle
     rows[3][2] = 'B';
     rows[3][4] = 'B';
   }
-  if (dug) for (let x = 2; x <= 4; x++) rows[6][x] = 'D';
   c = art(
     rows.map((r) => r.join('')),
-    { G: '#c9d1d6', K: '#3b4248', B: '#4fa3e0', D: '#8a6a3d' },
+    { G: '#c9d1d6', K: '#3b4248', B: '#4fa3e0', D: '#9c7442', d: '#c49a5c' },
   );
   shieldCache.set(key, c);
   return c;
