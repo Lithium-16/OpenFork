@@ -41,13 +41,17 @@
   --raised: #1d252d;
   --line: #2c3a44;
   --text: #e6edf2;
-  --muted: #8b9aa6;
+  --muted: #a9b6c1;
   --accent: #4fd1ff;
   --accent-ink: #06141a;
   --warn: #ffb347;
   --bad: #ff5a5a;
   --good: #7bd389;
   --ink: #0b0f13;
+  /* Running text: a plain font reads far better than the pixel one at panel sizes. */
+  --read: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  /* The menu's UI scale (1, 1.25 or 1.5); every HUD box zooms by it. */
+  --ui-scale: 1;
   color-scheme: dark;
 }
 
@@ -221,7 +225,7 @@ select:focus {
 }
 
 input::placeholder {
-  color: #4f5e69;
+  color: #7f8e9a;
 }
 
 button {
@@ -370,7 +374,7 @@ button.primary:hover:not(:disabled) {
 
 .countries small {
   display: block;
-  font-size: 12px;
+  font-size: 13px;
   opacity: 0.75;
   text-transform: none;
 }
@@ -405,7 +409,7 @@ button.primary:hover:not(:disabled) {
 
 .hud .classbar {
   margin: 0 0 6px;
-  font-size: 12px;
+  font-size: 13px;
   padding: 2px 8px;
 }
 
@@ -440,7 +444,7 @@ button.primary:hover:not(:disabled) {
 
 .res small {
   color: var(--good);
-  font-size: 10px;
+  font-size: 13px;
 }
 
 .res small.neg {
@@ -511,7 +515,7 @@ button.primary:hover:not(:disabled) {
 .players {
   padding: 0 0 6px;
   min-width: 210px;
-  max-height: 45vh;
+  max-height: 45%;
   overflow: auto;
 }
 
@@ -537,7 +541,7 @@ button.primary:hover:not(:disabled) {
 
 .tag {
   color: var(--warn);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .players .num {
@@ -556,7 +560,7 @@ button.primary:hover:not(:disabled) {
   left: 10px;
   bottom: 10px;
   width: min(380px, calc(100% - 20px));
-  max-height: 62vh;
+  max-height: 62%;
   overflow: auto;
   padding: 0 0 10px;
 }
@@ -575,8 +579,7 @@ button.primary:hover:not(:disabled) {
 .panel .sub {
   color: var(--muted);
   margin-bottom: 8px;
-  text-transform: uppercase;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .panel .grid2 {
@@ -588,8 +591,7 @@ button.primary:hover:not(:disabled) {
 
 .panel .grid2 span:nth-child(odd) {
   color: var(--muted);
-  text-transform: uppercase;
-  font-size: 12px;
+  font-size: 13px;
   align-self: center;
 }
 
@@ -611,8 +613,7 @@ button.primary:hover:not(:disabled) {
 
 .panel .buttons.split .label {
   color: var(--muted);
-  text-transform: uppercase;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .panel .buttons.split input {
@@ -641,7 +642,7 @@ button.primary:hover:not(:disabled) {
 
 .unit .meta {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   margin-left: auto;
   text-align: right;
   font-variant-numeric: tabular-nums;
@@ -667,7 +668,6 @@ button.primary:hover:not(:disabled) {
   border-top: 2px dashed var(--line);
   margin-top: 8px;
   padding-top: 6px;
-  text-transform: uppercase;
   font-size: 13px;
   color: var(--accent);
 }
@@ -678,7 +678,7 @@ button.primary:hover:not(:disabled) {
   width: min(320px, calc(100% - 20px));
   padding: 0 0 6px;
   font-size: 13px;
-  max-height: 32vh;
+  max-height: 32%;
   overflow: hidden;
 }
 
@@ -715,7 +715,7 @@ button.primary:hover:not(:disabled) {
   left: 50%;
   transform: translateX(-50%);
   padding: 0 0 6px;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .legend div:not(.classbar) {
@@ -727,30 +727,31 @@ button.primary:hover:not(:disabled) {
 
 .legend .key {
   display: inline-block;
-  width: 10px;
-  height: 10px;
+  width: 14px;
+  height: 14px;
+  background-color: var(--ink);
   box-shadow: 0 0 0 2px var(--ink);
 }
 
 .legend .key.in {
-  background: var(--accent);
+  background: repeating-conic-gradient(var(--accent) 0 25%, transparent 0 50%) 0 0 / 4px 4px;
 }
 
 .legend .key.edge {
-  background: #e8e27a;
+  background: radial-gradient(#e8e27a 1px, transparent 1.5px) 0 0 / 4px 4px;
 }
 
 .legend .key.over {
-  background: var(--warn);
+  background: repeating-linear-gradient(0deg, var(--warn) 0 2px, transparent 2px 5px);
 }
 
 .legend .key.cut {
-  background: var(--bad);
+  background: repeating-linear-gradient(45deg, var(--bad) 0 2px, transparent 2px 5px);
 }
 
 .topbar .toggle {
   padding: 2px 5px;
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .topbar .toggle.on {
@@ -763,7 +764,7 @@ button.primary:hover:not(:disabled) {
   left: 10px;
   top: 52px;
   padding: 0 0 6px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   max-width: 360px;
 }
@@ -775,6 +776,19 @@ button.primary:hover:not(:disabled) {
 .help .fold {
   cursor: pointer;
   user-select: none;
+  width: 100%;
+  margin: 0 0 6px;
+  box-shadow: none;
+  text-align: left;
+}
+
+.help .fold:hover:not(:disabled) {
+  background: var(--text);
+  color: var(--ink);
+}
+
+.help.folded {
+  max-width: none;
 }
 
 .help.folded {
@@ -814,7 +828,7 @@ button.primary:hover:not(:disabled) {
 /* What the building under the pointer (or being placed) does. */
 .buildbar .about {
   padding: 0 10px 4px;
-  font-size: 11px;
+  font-size: 13px;
   color: var(--muted);
   min-height: 1.4em;
 }
@@ -823,7 +837,7 @@ button.primary:hover:not(:disabled) {
 .toggle small {
   margin-left: 3px;
   opacity: 0.6;
-  font-size: 10px;
+  font-size: 13px;
 }
 
 .buildbar .groups {
@@ -834,10 +848,8 @@ button.primary:hover:not(:disabled) {
 }
 
 .buildbar .gname {
-  font-size: 10px;
+  font-size: 13px;
   color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
   margin: 0 2px 1px;
 }
 
@@ -855,7 +867,7 @@ button.primary:hover:not(:disabled) {
   text-align: left;
   padding: 3px 6px 3px 4px;
   min-width: 104px;
-  font-size: 11px;
+  font-size: 13px;
   letter-spacing: 0.02em;
 }
 
@@ -880,7 +892,7 @@ button.primary:hover:not(:disabled) {
 }
 
 .buildbar .slot .price {
-  font-size: 9px;
+  font-size: 13px;
   color: var(--muted);
   text-transform: none;
   letter-spacing: 0;
@@ -916,7 +928,7 @@ button.primary:hover:not(:disabled) {
   display: inline-flex;
   flex-wrap: wrap;
   gap: 2px 7px;
-  font-size: 12px;
+  font-size: 13px;
   font-variant-numeric: tabular-nums;
   text-transform: none;
   letter-spacing: 0;
@@ -944,22 +956,7 @@ button.primary:hover:not(:disabled) {
   color: var(--bad);
 }
 
-.cost.gain {
-  color: var(--good);
-  font-size: 11px;
-}
-
-.buildbar .slot .gives {
-  font-size: 10px;
-  color: var(--muted);
-  text-transform: none;
-  letter-spacing: 0;
-  white-space: nowrap;
-}
-
 .buildbar .slot.active .cost,
-.buildbar .slot.active .gives,
-.buildbar .slot.active .cost.gain,
 .buildbar .slot.active .cost .chip.short {
   color: var(--accent-ink);
 }
@@ -970,7 +967,7 @@ button.primary:hover:not(:disabled) {
   align-items: center;
   gap: 4px 8px;
   margin: 4px 12px 0;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 
@@ -1115,14 +1112,14 @@ button.primary:hover:not(:disabled) {
 }
 
 .techtree .node .tier {
-  font-size: 9px;
+  font-size: 13px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--muted);
 }
 
 .techtree .node .effect {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--muted);
 }
 
@@ -1131,7 +1128,7 @@ button.primary:hover:not(:disabled) {
   flex-wrap: wrap;
   align-items: center;
   gap: 4px;
-  font-size: 11px;
+  font-size: 13px;
   position: relative;
 }
 
@@ -1178,7 +1175,7 @@ button.primary:hover:not(:disabled) {
   display: flex;
   flex-wrap: wrap;
   gap: 6px 18px;
-  font-size: 11px;
+  font-size: 13px;
   color: var(--muted);
 }
 
@@ -1224,11 +1221,12 @@ button.primary:hover:not(:disabled) {
 
 .panel button.x {
   padding: 0 6px;
-  font-size: 12px;
+  font-size: 13px;
   margin: 2px 0;
 }
 
-@media (max-width: 900px) {
+/* Narrow screens (or a big UI size on a small one): the HUD layer's own width decides. */
+@container hud (max-width: 900px) {
   .help {
     display: none;
   }
@@ -1252,8 +1250,7 @@ button.primary:hover:not(:disabled) {
   .buildbar .slot {
     width: auto;
   }
-  .buildbar .slot .price,
-  .buildbar .slot .gives {
+  .buildbar .slot .price {
     display: none;
   }
 }
@@ -1366,7 +1363,7 @@ button.danger:hover:not(:disabled) {
 
 .players .act {
   padding: 0 4px;
-  font-size: 10px;
+  font-size: 13px;
   margin: 0 0 0 2px;
 }
 
@@ -1392,4 +1389,144 @@ button.danger:hover:not(:disabled) {
 .offers .offer .row button {
   padding: 2px 8px;
   font-size: 13px;
+}
+
+/* -- readability and accessibility ---------------------------------------------------------- */
+
+/* Running text in the plain font; headings, labels, buttons and numbers stay pixel. */
+.hint,
+.tagline,
+.panel .sub,
+.panel .grid2 span:nth-child(even),
+.panel .note,
+.unit .meta,
+.feed,
+.legend,
+.help div:not(.classbar),
+.buildbar .about,
+.menu-card p,
+#confirm p,
+.toast,
+.techtree .node .effect {
+  font-family: var(--read);
+  -webkit-font-smoothing: auto;
+  font-smooth: auto;
+  letter-spacing: 0;
+}
+
+/* Everything on top of the map grows with the UI scale: the HUD layer covers the screen and
+   is zoomed, so its boxes lay out on a screen 1/scale the size, like browser zoom. */
+.hud-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  zoom: var(--ui-scale);
+  pointer-events: none;
+  container: hud / size;
+}
+
+/* A mid-size HUD (a laptop, or a bigger UI size): the top bar moves left of the country list
+   (wrapping if it must), and the build bar drops its group names and flows as one grid. */
+@container hud (max-width: 1400px) {
+  .topbar {
+    left: 10px;
+    transform: none;
+    max-width: calc(100% - 340px);
+    flex-wrap: wrap;
+  }
+  .help {
+    top: 92px;
+  }
+  .buildbar .gname {
+    display: none;
+  }
+  .buildbar .group,
+  .buildbar .slots {
+    display: contents;
+  }
+}
+
+/* The Controls box open: the selection panel stops short of it. */
+.hud-layer:has(.help:not(.folded)) .panel {
+  max-height: calc(100% - 270px);
+}
+
+.hud-layer > * {
+  pointer-events: auto;
+}
+
+.overlay .card,
+.toast {
+  zoom: var(--ui-scale);
+}
+
+/* Keyboard focus is always visible. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+/* Short of a resource: red and a dotted box, so it doesn't rest on colour alone. */
+.cost .chip.short {
+  outline: 1px dotted currentColor;
+  outline-offset: 1px;
+}
+
+/* Less motion when the system asks for it. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* The region panel's extra rows, folded under Details. */
+.panel details {
+  margin: 0 12px 8px;
+}
+
+.panel details summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-size: 13px;
+}
+
+.panel details .grid2 {
+  margin: 4px 0 0;
+}
+
+/* Settings in the menu: UI scale and effects. */
+.menu-card .opts {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.menu-card .opts span {
+  color: var(--muted);
+  font-size: 13px;
+  margin-right: 4px;
+}
+
+.menu-card .opts button {
+  padding: 4px 10px;
+  font-size: 13px;
+}
+
+.menu-card .opts button.on {
+  background: var(--accent);
+  color: var(--accent-ink);
 }

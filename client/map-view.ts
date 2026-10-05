@@ -543,8 +543,12 @@ export class MapView {
       const c = COLORS[state];
       for (const p of this.regionPixels[i]) {
         const x = p % W;
-        if (!c || (x + (p - x) / W) % 2) {
-          d[p * 4 + 3] = 0; // dithered
+        const y = (p - x) / W;
+        // Each state has its own pattern, not just a colour: checker (in supply), dots (edge of
+        // reach), diagonal stripes (cut off), horizontal stripes (overloaded).
+        const on = state === 1 ? (x + y) % 2 === 0 : state === 2 ? x % 2 === 0 && y % 2 === 0 : state === 3 ? (x + y) % 4 < 2 : y % 3 === 0;
+        if (!c || !on) {
+          d[p * 4 + 3] = 0;
           continue;
         }
         d[p * 4] = c[0];
@@ -1132,23 +1136,30 @@ export class MapView {
       if (x < -80 || y < -80 || x > this.canvas.clientWidth + 80 || y > this.canvas.clientHeight + 80) continue;
 
       // Icons in a row above the units: capital or city, and fort, each with its level as a
-      // roman numeral on its bottom-right corner; then barracks, factory.
+      // roman numeral on its bottom-right corner; the other buildings (barracks, factory,
+      // port, depots) count as "+N" (the region panel lists them). Without a city or fort,
+      // the first of them shows itself.
       const icons: Array<{ s: Sprite; level?: number }> = [];
       const city = rr[2];
       if (capitals.has(region.id)) icons.push({ s: ICONS.capital, level: city });
       else if (city > 0) icons.push({ s: ICONS.city, level: city });
       if (rr[1] > 0) icons.push({ s: ICONS.fort, level: rr[1] });
-      if (rr[3] & 1) icons.push({ s: ICONS.barracks });
-      if (rr[3] & 2) icons.push({ s: ICONS.factory });
-      if (rr[3] & 8) icons.push({ s: ICONS.port });
-      if (rr[13] > 0) icons.push({ s: ICONS.depot, level: rr[13] > 1 ? rr[13] : undefined });
+      const others: Sprite[] = [];
+      if (rr[3] & 1) others.push(ICONS.barracks);
+      if (rr[3] & 2) others.push(ICONS.factory);
+      if (rr[3] & 8) others.push(ICONS.port);
+      for (let d = 0; d < rr[13]; d++) others.push(ICONS.depot);
+      if (!icons.length && others.length) icons.push({ s: others.shift() as Sprite });
+      const extra = others.length;
       const showIcons = icons.length > 0 && zoom >= 0.5;
       const iconBottom = y + tokenTop - 2;
       if (showIcons) {
         const gap = 2 * ipx;
         // The numeral hangs 2 art pixels past the icon's right edge and 2 below it.
         const width = (i: { s: Sprite; level?: number }) => i.s.width * ipx + (i.level ? 2 * ipx : 0);
-        const total = icons.reduce((sum, i) => sum + width(i), 0) + gap * (icons.length - 1);
+        const plus = `+${extra}`;
+        const plusW = extra ? digitsWidth(plus, ipx) + 2 * ipx : 0;
+        const total = icons.reduce((sum, i) => sum + width(i), 0) + gap * (icons.length - 1) + (extra ? gap + ipx + plusW : 0);
         let ix = Math.round(x - total / 2);
         for (const icon of icons) {
           blit(ctx, icon.s, ix, iconBottom - icon.s.height * ipx, ipx);
@@ -1157,6 +1168,14 @@ export class MapView {
             blit(ctx, n, ix + (icon.s.width + 2 - n.width) * ipx, iconBottom - (n.height - 2) * ipx, ipx);
           }
           ix += width(icon) + gap;
+        }
+        if (extra) {
+          // "+N" on a dark plate, level with the icons' feet.
+          ix += ipx;
+          const h = 7 * ipx;
+          ctx.fillStyle = INK;
+          ctx.fillRect(ix, iconBottom - h, plusW, h);
+          pixelDigits(ctx, plus, ix + plusW / 2, iconBottom - h / 2, ipx, '#ffffff');
         }
       } else if (capitals.has(region.id)) {
         blitCentred(ctx, ICONS.capital, x, y, 1);
@@ -1167,14 +1186,17 @@ export class MapView {
       // Name, in the pixel font, above everything else (not over a battle unless zoomed in).
       const busy = (owners.get(region.id)?.size ?? 0) > 1;
       if (region.sea) {
-        // Sea names: wide-set, in sea blue, from further out than land names.
-        if (zoom >= 0.6 && (!busy || zoom >= 1.8)) {
+        // Sea names in sea blue, without the number that tells same-named parts apart (the
+        // panel keeps it).
+        if (zoom >= 0.8 && (!busy || zoom >= 1.8)) {
           const size = zoom >= 1.8 ? 16 : 12;
-          pixelText(ctx, region.name.toUpperCase().split('').join(' '), x, y + tokenTop - 3 - size / 2, size, '#8fb8d8');
+          pixelText(ctx, region.name.replace(/ \d+$/, '').toUpperCase(), x, y + tokenTop - 3 - size / 2, size, '#8fb8d8');
         }
         continue;
       }
-      if (zoom >= 0.9 && (!busy || zoom >= 1.8)) {
+      // Names: your regions and capitals from further out; everyone else's once zoomed in.
+      const named = (you !== null && rr[0] === you) || capitals.has(region.id) || zoom >= 1.4;
+      if (named && zoom >= 0.9 && (!busy || zoom >= 1.8)) {
         const size = zoom >= 1.8 ? 16 : 12;
         const top = showIcons ? iconBottom - 10 * ipx : y + tokenTop;
         pixelText(ctx, region.name.toUpperCase(), x, top - 3 - size / 2, size, '#e6edf2');
@@ -1770,7 +1792,8 @@ export class MapView {
 
   /** Moves the camera so a minimap point is in the middle of the screen. */
   focusMinimap(mini: HTMLCanvasElement, mx: number, my: number): void {
-    const k = this.map.width / mini.clientWidth;
+    // On-screen size (the HUD may be zoomed by the UI scale).
+    const k = this.map.width / mini.getBoundingClientRect().width;
     this.focus(mx * k, my * k, this.cam.scale);
   }
 
@@ -1790,7 +1813,7 @@ export class MapView {
     const y0 = Math.round(p.y - h / 2);
     // Everything but the live bits comes from a cached bitmap: one drawImage per token.
     // Idle motion: the pennant flutters (and a supply warning blinks) on each unit's own beat.
-    const beat = Math.floor((now + rows[0][0] * 137) / 700) % 2;
+    const beat = this.fx.level === 'full' ? Math.floor((now + rows[0][0] * 137) / 700) % 2 : 0;
     const token = tokenSprite(rows, color, px, beat);
     ctx.drawImage(token, p.x - TOKEN_AX * px, p.y - TOKEN_AY * px);
     // Troops at sea, aboard transports: a boat just right of the frame.
@@ -1932,11 +1955,19 @@ function tokenSprite(rows: BlobRow[], color: string, px: number, beat: number): 
   }
 
   // Supply: amber/red block in the top-right corner of the frame (blinking).
+  // Supply short: a square dot (partly supplied) or a cross (none), so the shape tells them
+  // apart as well as the colour.
   if (supplyMark) {
+    const none = supply <= 0;
+    const box = none ? 5 : 4;
     ctx.fillStyle = INK;
-    ctx.fillRect(x0 + w - 4 * px, y0 + 3 * px, 4 * px, 4 * px);
+    ctx.fillRect(x0 + w - box * px, y0 + 3 * px, box * px, box * px);
     ctx.fillStyle = beat ? shade(supplyMark, 0.55) : supplyMark;
-    ctx.fillRect(x0 + w - 3 * px, y0 + 4 * px, 2 * px, 2 * px);
+    if (none) {
+      for (const [dx, dy] of [[1, 1], [3, 1], [2, 2], [1, 3], [3, 3]]) ctx.fillRect(x0 + w - box * px + dx * px, y0 + 3 * px + dy * px, px, px);
+    } else {
+      ctx.fillRect(x0 + w - 3 * px, y0 + 4 * px, 2 * px, 2 * px);
+    }
   }
   // A small pennant on a staff at the top right, fluttering between two shapes.
   ctx.fillStyle = INK;

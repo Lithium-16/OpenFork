@@ -77,7 +77,6 @@ const HOTKEY_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '-', '=', 'p']
 const ECON_FIELD: Record<EconKind, number> = { farm: 9, mine: 10, well: 11, market: 12, lab: 14 };
 const tech = (id: TechId): Tech => TECHS.find((t) => t.id === id) as Tech;
 const UNIT_NAME: Record<UnitType, string> = { infantry: 'Infantry', tank: 'Tanks', artillery: 'Artillery', warship: 'Warships' };
-const UNIT_SHORT: Record<UnitType, string> = { infantry: 'INF', tank: 'ARM', artillery: 'ART', warship: 'NAV' };
 /** The key that orders each unit at the selected region. */
 const UNIT_KEY: Record<UnitType, string> = { infantry: 'q', tank: 'e', artillery: 'r', warship: 'f' };
 /** A region with no traits or city, for the plain yield of a building. */
@@ -121,6 +120,8 @@ export class GameScreen {
   private barHover: BuildingKind | null = null;
   /** Where the building being placed can go: worked out once per snapshot. */
   private valid: { snap: Snapshot; kind: BuildingKind; set: Set<number> } | null = null;
+  /** The region panel's Details fold is open. */
+  private detailsOpen = false;
   private slotCache: { snap: Snapshot; map: Map<number, [number, number]> } | null = null;
   private miniSnap: Snapshot | null = null;
   private miniCam = '';
@@ -164,6 +165,31 @@ export class GameScreen {
     $('#menu-resume').onclick = () => this.toggleMenu(false);
     $('#menu-surrender').onclick = () => void this.surrender();
     $('#menu-leave').onclick = () => void this.leaveAsked();
+    // UI size: one scale for every box on the map, remembered on this browser.
+    this.setUiScale(Number(stored(UI_SCALE)) || 1);
+    for (const b of document.querySelectorAll<HTMLButtonElement>('#menu-scale button')) {
+      b.onclick = () => this.setUiScale(Number(b.dataset.scale));
+    }
+    // The system asks for less motion: start with effects reduced (the FX button still works).
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      this.view.fx.level = 'reduced';
+      this.fxChosen = true;
+    }
+  }
+
+  /** Sets the UI size; sizes that would leave the HUD less than 1050×600 to lay out on are
+   * off (and a remembered one falls back) until the window is big enough. */
+  private setUiScale(want: number, remember = true): void {
+    const fits = (s: number) => s === 1 || (window.innerWidth / s >= 1050 && window.innerHeight / s >= 600);
+    const scale = fits(want) ? want : [1.5, 1.25, 1].find(fits) ?? 1;
+    document.documentElement.style.setProperty('--ui-scale', String(scale));
+    for (const b of document.querySelectorAll<HTMLButtonElement>('#menu-scale button')) {
+      const s = Number(b.dataset.scale);
+      b.classList.toggle('on', s === scale);
+      b.setAttribute('aria-pressed', String(s === scale));
+      b.disabled = !fits(s);
+    }
+    if (remember) store(UI_SCALE, String(want));
   }
 
   /** Still in the game: alive, and it isn't over. */
@@ -173,7 +199,11 @@ export class GameScreen {
 
   private toggleMenu(open = $('#menu').classList.contains('hidden')): void {
     $('#menu').classList.toggle('hidden', !open);
-    if (!open) return;
+    if (!open) {
+      (document.activeElement as HTMLElement | null)?.blur();
+      return;
+    }
+    $('#menu-resume').focus();
     const id = this.you !== null ? this.players[this.you]?.country : '';
     const country = this.map.countries.find((c) => c.id === id)?.name ?? 'your country';
     ($('#menu-surrender') as HTMLButtonElement).classList.toggle('hidden', !this.playing);
@@ -459,7 +489,10 @@ export class GameScreen {
     }
     // The controls panel folds to its strip and back (remembered).
     on($('#help-fold'), 'click', () => this.foldHelp(!$('#help').classList.contains('folded')));
-    this.foldHelp(stored(HELP_FOLDED) === '1');
+    // Open for a first game; folded to its "? Keys" strip after that, unless you chose.
+    const chosen = stored(HELP_FOLDED);
+    this.foldHelp(chosen !== null ? chosen === '1' : stored(PLAYED) === '1', false);
+    store(PLAYED, '1');
     // Diplomacy buttons (ORBAT, peace offers): act on press, see diplomacyAction.
     for (const sel of ['#players', '#offers']) {
       on($(sel), 'pointerdown', (e: PointerEvent) => {
@@ -601,13 +634,27 @@ export class GameScreen {
       },
       { passive: false },
     );
-    on(window, 'resize', () => this.view.resize());
+    on(window, 'resize', () => {
+      this.view.resize();
+      this.setUiScale(Number(stored(UI_SCALE)) || 1, false);
+    });
     on(window, 'keydown', (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT') return;
+      // A confirm box has the keyboard to itself; Enter and Space press the focused button.
+      if (!$('#confirm').classList.contains('hidden')) return;
+      // (only when it was reached by keyboard: a clicked button keeps no claim on Space).
+      const keyFocus = (e.target as HTMLElement).matches?.(':focus-visible');
+      if ((tag === 'BUTTON' || tag === 'SUMMARY') && keyFocus && (e.key === 'Enter' || e.key === ' ')) return;
       this.keys.add(e.key.toLowerCase());
       this.key(e);
     });
     on(window, 'keyup', (e: KeyboardEvent) => this.keys.delete(e.key.toLowerCase()));
+    // A button clicked with the mouse lets go of the focus, so Space and Enter stay game keys.
+    on(window, 'pointerup', () => {
+      const f = document.activeElement as HTMLElement | null;
+      if (f && (f.tagName === 'BUTTON' || f.tagName === 'SUMMARY') && !f.matches(':focus-visible') && !f.closest('.overlay')) f.blur();
+    });
     on(window, 'blur', () => this.keys.clear());
 
     // Touch: one finger taps/pans, two fingers zoom. Tap a unit, then tap a region to send it.
@@ -810,6 +857,8 @@ export class GameScreen {
       this.setOverlay(!this.view.overlay);
     } else if (k === 'b') {
       this.setYields(!this.view.yields);
+    } else if (k === '?' || k === '/') {
+      this.foldHelp(!$('#help').classList.contains('folded'));
     } else if (k === 't') {
       this.setResearchOpen(!this.researchOpen);
     } else if (k === ' ') {
@@ -1058,11 +1107,9 @@ export class GameScreen {
       const allowed = mine < 0 || canBuildOn(kind, this.map.regions[mine], snap.regions[mine][2]);
       const { cost, seconds } = buildCost(kind, level);
       const name = this.barName(kind, mine);
-      const note = maxed ? 'MAX' : !allowed ? `needs ${BUILD_NEEDS[kind]}` : '';
+      const note = maxed ? 'max' : !allowed ? 'not here' : '';
       const poor = !maxed && allowed && !afford(res, cost);
-      // What one more of it yields: exact for the region under the cursor, else the plain rate.
-      const gain = ECON_KINDS.includes(kind as EconKind) ? econYield(kind as EconKind, mine >= 0 ? this.map.regions[mine] : PLAIN_REGION, mine >= 0 ? snap.regions[mine][2] : 0) : null;
-      return { kind, n: HOTKEY_KEYS[HOTKEYS.indexOf(kind)] ?? '', name, note, cost, seconds, gain, poor };
+      return { kind, n: HOTKEY_KEYS[HOTKEYS.indexOf(kind)] ?? '', name, note, cost, seconds, poor };
     };
     const groups = BAR.map((g) => ({ group: g.group, cells: g.kinds.map(cell) }));
     const slots = mine >= 0 ? `${this.map.regions[mine].name}: slots ${this.slotsUsed(mine)}/${slotsOf(this.map.regions[mine], snap.regions[mine][2])}` : '';
@@ -1075,10 +1122,17 @@ export class GameScreen {
     if (key === this.buildbarKey) return;
     this.buildbarKey = key;
     const head = 'Build';
-    const aboutText = about ? BUILD_HELP[about] : 'Point at a building to see what it does. To knock one down, click the region and use Demolish.';
+    // What the building pointed at (or being placed) does, with its exact yield here.
+    let aboutText = about ? BUILD_HELP[about] : '';
+    if (about && mine >= 0 && !canBuildOn(about, this.map.regions[mine], snap.regions[mine][2])) aboutText += ` Not here: needs ${BUILD_NEEDS[about]}.`;
+    if (about && ECON_KINDS.includes(about as EconKind) && mine >= 0) {
+      const y = econYield(about as EconKind, this.map.regions[mine], snap.regions[mine][2]);
+      const here = RESOURCES.filter((k) => (y[k] ?? 0) > 0).map((k) => `+${round1(y[k] ?? 0)} ${k}/s`);
+      if (here.length) aboutText += ` Here: ${here.join(', ')}.`;
+    }
     bar.replaceChildren(
       classbar(slots ? `${head} // ${slots}` : head, hint),
-      el('div', { class: 'about' }, [aboutText]),
+      ...(aboutText ? [el('div', { class: 'about' }, [aboutText])] : []),
       el('div', { class: 'groups' }, [
         ...groups.map((g) =>
           el('div', { class: 'group' }, [
@@ -1090,8 +1144,7 @@ export class GameScreen {
                 el('button', { class: `slot${this.placing === c.kind ? ' active' : ''}${c.poor ? ' poor' : ''}`, 'data-kind': c.kind }, [
                   el('img', { src: buildingIcon(c.kind), alt: '' }),
                   el('span', { class: 'name' }, [el('b', {}, [c.n]), ` ${c.name}`]),
-                  c.note ? el('span', { class: 'price' }, [c.note]) : costChips(c.cost, res),
-                  el('span', { class: 'gives' }, [...(c.gain ? [yieldChips(c.gain), ' · '] : []), `${c.seconds}s`]),
+                  el('span', { class: 'price' }, [c.note || costChips(c.cost, res), ` · ${c.seconds}s`]),
                 ]),
               ),
             ),
@@ -1116,10 +1169,12 @@ export class GameScreen {
     this.renderTopbar();
   }
 
-  private foldHelp(folded: boolean): void {
+  private foldHelp(folded: boolean, remember = true): void {
     $('#help').classList.toggle('folded', folded);
-    $('#help-fold-label').textContent = folded ? 'Show ▾' : 'Hide ▴';
-    store(HELP_FOLDED, folded ? '1' : '0');
+    $('#help-fold').setAttribute('aria-expanded', String(!folded));
+    $('#help-fold-title').textContent = folded ? '? Keys' : 'Controls';
+    $('#help-fold-label').textContent = folded ? '' : 'Hide ▴';
+    if (remember) store(HELP_FOLDED, folded ? '1' : '0');
   }
 
   private setYields(on: boolean): void {
@@ -1172,7 +1227,7 @@ export class GameScreen {
     const menu = el('button', { class: 'toggle' }, ['Menu', el('small', {}, ['Esc'])]);
     menu.onclick = () => this.toggleMenu(true);
     if (this.you === null) {
-      $('#topbar').replaceChildren(el('span', { class: 'tag' }, ['[OBSERVER]']), menu, el('span', { class: 'clock' }, [t]));
+      $('#topbar').replaceChildren(el('span', { class: 'tag' }, ['Watching']), menu, el('span', { class: 'clock' }, [t]));
       return;
     }
     const p = snap.players[this.you];
@@ -1218,10 +1273,10 @@ export class GameScreen {
     const strength = new Map<number, number>();
     for (const b of snap.blobs) strength.set(b[1], (strength.get(b[1]) ?? 0) + b[3]);
     $('#players').replaceChildren(
-      classbar('ORBAT', 'Regions · Strength'),
+      classbar('Countries', 'Regions · Strength'),
       ...this.players.map((p) => {
         const row = snap.players[p.id];
-        const tag = !row.alive ? '[KIA]' : p.id === this.you ? '[YOU]' : !p.human ? '[BOT]' : row.bot ? '[AWAY]' : '';
+        const tag = !row.alive ? 'out' : p.id === this.you ? 'you' : !p.human ? 'bot' : row.bot ? 'away' : '';
         const me = this.you;
         const other = me !== null && p.id !== me && row.alive && snap.players[me]?.alive;
         const war = other && this.atWar(me, p.id);
@@ -1234,7 +1289,7 @@ export class GameScreen {
         } else if (other && !war && truce === 0) {
           act = el('button', { class: 'act war', 'data-act': 'war', 'data-player': String(p.id) }, ['Declare war']);
         }
-        const rel = war ? el('span', { class: 'tag war' }, [pending ? '[WAR · OFFERED]' : '[WAR]']) : truce > 0 ? el('span', { class: 'tag truce' }, [`[TRUCE ${truce}s]`]) : '';
+        const rel = war ? el('span', { class: 'tag war' }, [pending ? 'war · peace offered' : 'at war']) : truce > 0 ? el('span', { class: 'tag truce' }, [`truce ${truce}s`]) : '';
         return el('div', { class: `p${row.alive ? '' : ' dead'}` }, [
           el('span', { class: 'swatch', style: `background:${p.color}` }),
           el('span', {}, [p.name.replace(/ \(bot\)$/, '')]),
@@ -1400,14 +1455,16 @@ export class GameScreen {
     const type = UNIT_INDEX[b[2]];
     const where =
       b[8] > 0 ? `→ ${this.map.regions[b[7]].name}` : b[11] & 4 && b[7] >= 0 ? `attacking ${this.map.regions[b[7]].name}` : this.map.regions[b[6]].name;
+    // Only what's worth saying: full supply, no training and not dug in go unmentioned.
+    const status: string[] = [];
+    if (b[5] > 0) status.push(`trained ${b[5]}`);
+    if (b[10] < 0.99) status.push(`supply ${Math.round(b[10] * 100)}%${this.supplyWhy(b) ? ` (${this.supplyWhy(b)})` : ''}`);
+    if (!UNITS[type].naval && this.map.regions[b[6]]?.sea) status.push('at sea');
+    else if (!UNITS[type].naval && b[9] > 0) status.push(b[9] >= 0.99 ? 'dug in' : `digging in ${Math.round(b[9] * 100)}%`);
     const row = el('div', { class: `unit${this.selected.has(b[0]) ? ' sel' : ''}` }, [
       el('span', { class: 'swatch', style: `background:${colorOf(this.players, b[1])}` }),
-      el('span', {}, [`${UNIT_SHORT[type]} ${Math.ceil(b[3])}/${b[4]}`]),
-      el('span', { class: 'meta' }, [
-        `TRN ${b[5]} · SUP ${Math.round(b[10] * 100)}%${this.supplyWhy(b) ? ` (${this.supplyWhy(b).toUpperCase()})` : ''} ${UNITS[type].naval ? '' : this.map.regions[b[6]]?.sea ? ' · AT SEA' : ` · DUG ${Math.round(b[9] * 100)}%`}`,
-        el('br'),
-        where.toUpperCase(),
-      ]),
+      el('span', {}, [`${UNIT_NAME[type]} ${Math.ceil(b[3])}/${b[4]}`]),
+      el('span', { class: 'meta' }, [...(status.length ? [status.join(' · '), el('br')] : []), where]),
     ]);
     if (selectable) {
       row.onclick = (e) => {
@@ -1507,18 +1564,25 @@ export class GameScreen {
     // The stack cap counts every token in the region, moving out or waiting included.
     const myCount = snap.blobs.filter((b) => b[6] === region.id && b[1] === this.you).length;
     const used = rr[9] + rr[10] + rr[11] + rr[12] + rr[13] + rr[14] + (rr[1] > 0 ? 1 : 0) + (rr[3] & 1 ? 1 : 0) + (rr[3] & 2 ? 1 : 0) + (rr[3] & 8 ? 1 : 0);
+    // The essentials up front; the rest folds under Details (remembered while you play).
     const info: Array<[string, string]> = [
       ['Owner', owner >= 0 ? (this.players[owner]?.name ?? '?') : 'Neutral'],
-      ['City', rr[2] > 0 ? `level ${rr[2]} / ${MAX_CITY} · supplies ${supplyReach(rr[2], this.techsOf(owner))} regions out` : 'none'],
+      ['City', rr[2] > 0 ? `level ${rr[2]} / ${MAX_CITY}` : 'none'],
       ['Produces', this.yieldLine(region, rr)],
-      ...(rr[2] > 0 || rr[13] > 0 ? [['Stores', storeText(storeOf(rr[2], rr[13], this.techsOf(owner)))] as [string, string]] : []),
       ['Slots', `${used} / ${slotsOf(region, rr[2])} built`],
-      ['Fort', `${rr[1]} / ${MAX_FORT}`],
-      ['Supply', owner >= 0 ? this.supplyLine(region.id) : '—'],
-      ['Stack', `${myCount} / ${stackCap(region, rr[2], rr[1])} of yours`],
-      ['Capture', `~${Math.round(captureSeconds(region, rr[1], 0))} s untrained`],
+      ...(rr[1] > 0 ? [['Fort', `level ${rr[1]} / ${MAX_FORT}`] as [string, string]] : []),
     ];
-    out.push(el('div', { class: 'grid2' }, info.flatMap(([k, v]) => [el('span', {}, [k]), el('span', {}, [v])])));
+    const more: Array<[string, string]> = [
+      ...(rr[2] > 0 ? [['Supplies', `${supplyReach(rr[2], this.techsOf(owner))} regions out`] as [string, string]] : []),
+      ...(rr[2] > 0 || rr[13] > 0 ? [['Stores', storeText(storeOf(rr[2], rr[13], this.techsOf(owner)))] as [string, string]] : []),
+      ['Supply', owner >= 0 ? this.supplyLine(region.id) : 'none'],
+      ['Stack', `${myCount} / ${stackCap(region, rr[2], rr[1])} of yours`],
+      ['Capture', `about ${Math.round(captureSeconds(region, rr[1], 0))} s untrained`],
+    ];
+    const grid = (rows: Array<[string, string]>) => el('div', { class: 'grid2' }, rows.flatMap(([k, v]) => [el('span', {}, [k]), el('span', {}, [v])]));
+    const details = el('details', this.detailsOpen ? { open: '' } : {}, [el('summary', {}, ['Details']), grid(more)]);
+    details.addEventListener('toggle', () => (this.detailsOpen = (details as HTMLDetailsElement).open));
+    out.push(grid(info), details);
     if (rr[4] >= 0) {
       out.push(el('div', {}, [`Being captured by ${this.players[rr[4]]?.name ?? '?'}`]), cellBar(rr[5]));
     }
@@ -1556,8 +1620,6 @@ export class GameScreen {
           out.push(el('div', { class: `line build${i ? ' queued' : ''}` }, [el('span', {}, [`${i ? 'Next' : 'Building'}: ${label(p)}`]), cancel(i)]));
           if (i === 0) out.push(cellBar(rr[7]));
         });
-      } else {
-        out.push(el('div', { class: 'sub' }, ['Build: pick something in the build bar (1-9), then click here']));
       }
       for (const line of snap.production.filter((p) => p.region === region.id)) out.push(...this.productionLine(line, res));
     }
@@ -1611,6 +1673,9 @@ export class GameScreen {
 }
 
 const HELP_FOLDED = 'openfork.helpFolded';
+const UI_SCALE = 'openfork.uiScale';
+/** Set once a game has been played on this browser. */
+const PLAYED = 'openfork.played';
 
 /** localStorage, or nothing when it's blocked. */
 function stored(key: string): string | null {
@@ -1655,15 +1720,6 @@ function costChips(cost: Partial<Resources>, have?: Resources): HTMLElement {
     RESOURCES.filter((k) => (cost[k] ?? 0) > 0).map((k) =>
       el('span', { class: `chip${have && have[k] < (cost[k] ?? 0) ? ' short' : ''}` }, [el('img', { src: hudIcon(k), alt: k }), fmt(cost[k] ?? 0)]),
     ),
-  );
-}
-
-/** A yield per second as resource icons: +0.4 per kind. */
-function yieldChips(y: Partial<Resources>): HTMLElement {
-  return el(
-    'span',
-    { class: 'cost gain' },
-    RESOURCES.filter((k) => (y[k] ?? 0) > 0).map((k) => el('span', { class: 'chip' }, [el('img', { src: hudIcon(k), alt: k }), `+${round1(y[k] ?? 0)}/s`])),
   );
 }
 

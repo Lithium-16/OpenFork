@@ -51,14 +51,22 @@ export function confirmBox(head: string, text: string, yes: string): Promise<boo
   $('#confirm-text').textContent = text;
   $('#confirm-yes').textContent = yes;
   box.classList.remove('hidden');
+  // Focus goes to Cancel (the safe choice) and comes back where it was; Esc cancels.
+  const back = document.activeElement as HTMLElement | null;
+  $('#confirm-no').focus();
   return new Promise((resolve) => {
     const done = (v: boolean) => {
       box.classList.add('hidden');
       $('#confirm-yes').onclick = null;
       $('#confirm-no').onclick = null;
+      box.onkeydown = null;
+      back?.focus();
       resolve(v);
     };
     $('#confirm-yes').onclick = () => done(true);
     $('#confirm-no').onclick = () => done(false);
+    box.onkeydown = (e) => {
+      if (e.key === 'Escape') done(false);
+    };
   });
 }
