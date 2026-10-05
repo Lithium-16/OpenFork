@@ -575,8 +575,8 @@ button.primary:hover:not(:disabled) {
 .panel .grid2 {
   display: grid;
   grid-template-columns: auto 1fr;
-  gap: 1px 10px;
-  margin-bottom: 8px;
+  gap: 0 10px;
+  margin-bottom: 6px;
 }
 
 .panel .grid2 span:nth-child(odd) {
@@ -642,7 +642,7 @@ button.primary:hover:not(:disabled) {
   display: flex;
   gap: 2px;
   height: 6px;
-  margin: 3px 0 6px;
+  margin: 3px 0 4px;
 }
 
 .bar i {
@@ -656,8 +656,8 @@ button.primary:hover:not(:disabled) {
 
 .line {
   border-top: 2px dashed var(--line);
-  margin-top: 8px;
-  padding-top: 6px;
+  margin-top: 6px;
+  padding-top: 4px;
   font-size: 13px;
   color: var(--accent);
 }
@@ -1212,7 +1212,51 @@ button.primary:hover:not(:disabled) {
 .panel button.x {
   padding: 0 6px;
   font-size: 13px;
-  margin: 2px 0;
+  margin: 2px 0 2px 4px;
+}
+
+.panel button.x.on {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+/* What's built: one wrapped row of names, each with × to demolish it. */
+.panel .built {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.panel .built .label {
+  color: var(--muted);
+  font-size: 13px;
+  margin-right: 2px;
+}
+
+.panel .chipx {
+  padding: 1px 6px;
+  font-size: 13px;
+  margin: 0;
+  text-transform: none;
+}
+
+.panel .chipx b {
+  color: var(--bad);
+  font-weight: 400;
+  margin-left: 5px;
+}
+
+.panel .chipx:hover b {
+  color: var(--ink);
+}
+
+/* One line per unit a building makes: the order button, then its cost. */
+.panel .costline button {
+  padding: 3px 8px;
+  font-size: 13px;
+  margin: 0;
 }
 
 /* Narrow screens (or a big UI size on a small one): the HUD layer's own width decides. */
@@ -1484,7 +1528,7 @@ select:focus-visible {
 
 /* The region panel's extra rows, folded under Details. */
 .panel details {
-  margin: 0 12px 8px;
+  margin: 0 12px 4px;
 }
 
 .panel details summary {

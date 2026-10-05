@@ -1385,10 +1385,10 @@ export class GameScreen {
   /** The region panel's supply line: reach, and for your regions your load against capacity. */
   private supplyLine(region: number): string {
     const row = (this.snap as Snapshot).regions[region];
-    if (!(row[3] & 4)) return 'CUT OFF';
+    if (!(row[3] & 4)) return 'cut off';
     const { load, cap } = this.load(region);
-    if (row[0] !== this.you) return `in supply · feeds ${Math.round(cap)}`;
-    return `in supply · load ${Math.round(load)} / ${Math.round(cap)}${load > cap ? ' OVERLOADED' : ''}`;
+    if (row[0] !== this.you) return `feeds ${Math.round(cap)}`;
+    return `load ${Math.round(load)}/${Math.round(cap)}${load > cap ? ' (overloaded)' : ''}`;
   }
 
   /** Why a unit is short of supply ('' if it isn't). */
@@ -1451,10 +1451,11 @@ export class GameScreen {
     }
   }
 
-  private unitRow(b: BlobRow, selectable: boolean): HTMLElement {
+  /** One unit; `inRegion`: listed under that region, so standing there goes unsaid. */
+  private unitRow(b: BlobRow, selectable: boolean, inRegion = -1): HTMLElement {
     const type = UNIT_INDEX[b[2]];
     const where =
-      b[8] > 0 ? `→ ${this.map.regions[b[7]].name}` : b[11] & 4 && b[7] >= 0 ? `attacking ${this.map.regions[b[7]].name}` : this.map.regions[b[6]].name;
+      b[8] > 0 ? `→ ${this.map.regions[b[7]].name}` : b[11] & 4 && b[7] >= 0 ? `attacking ${this.map.regions[b[7]].name}` : b[6] === inRegion ? '' : this.map.regions[b[6]].name;
     // Only what's worth saying: full supply, no training and not dug in go unmentioned.
     const status: string[] = [];
     if (b[5] > 0) status.push(`trained ${b[5]}`);
@@ -1464,7 +1465,7 @@ export class GameScreen {
     const row = el('div', { class: `unit${this.selected.has(b[0]) ? ' sel' : ''}` }, [
       el('span', { class: 'swatch', style: `background:${colorOf(this.players, b[1])}` }),
       el('span', {}, [`${UNIT_NAME[type]} ${Math.ceil(b[3])}/${b[4]}`]),
-      el('span', { class: 'meta' }, [...(status.length ? [status.join(' · '), el('br')] : []), where]),
+      el('span', { class: 'meta' }, [status.join(' · '), ...(status.length && where ? [el('br')] : []), where]),
     ]);
     if (selectable) {
       row.onclick = (e) => {
@@ -1557,7 +1558,7 @@ export class GameScreen {
       );
       if (here.length) {
         out.push(el('div', { class: 'line' }, ['Units here']));
-        for (const b of here) out.push(this.unitRow(b, b[1] === this.you));
+        for (const b of here) out.push(this.unitRow(b, b[1] === this.you, region.id));
       }
       return out;
     }
@@ -1572,14 +1573,16 @@ export class GameScreen {
       ['Slots', `${used} / ${slotsOf(region, rr[2])} built`],
       ...(rr[1] > 0 ? [['Fort', `level ${rr[1]} / ${MAX_FORT}`] as [string, string]] : []),
     ];
-    const more: Array<[string, string]> = [
-      ...(rr[2] > 0 ? [['Supplies', `${supplyReach(rr[2], this.techsOf(owner))} regions out`] as [string, string]] : []),
-      ...(rr[2] > 0 || rr[13] > 0 ? [['Stores', storeText(storeOf(rr[2], rr[13], this.techsOf(owner)))] as [string, string]] : []),
-      ['Supply', owner >= 0 ? this.supplyLine(region.id) : 'none'],
-      ['Stack', `${myCount} / ${stackCap(region, rr[2], rr[1])} of yours`],
-      ['Capture', `about ${Math.round(captureSeconds(region, rr[1], 0))} s untrained`],
+    // Details, three lines at most: supply (and how far a city's reaches), what it stores, and
+    // the stack (plus how long it takes to capture, for land that isn't yours).
+    const reach = rr[2] > 0 ? ` · reaches ${supplyReach(rr[2], this.techsOf(owner))} regions` : '';
+    const capture = owner !== this.you || this.you === null ? ` · capture ${Math.round(captureSeconds(region, rr[1], 0))} s` : '';
+    const more: Array<[string, string | Node]> = [
+      ['Supply', (owner >= 0 ? this.supplyLine(region.id) : 'none') + reach],
+      ...(rr[2] > 0 || rr[13] > 0 ? [['Stores', costChips(storeOf(rr[2], rr[13], this.techsOf(owner)))] as [string, Node]] : []),
+      ['Stack', `${myCount} / ${stackCap(region, rr[2], rr[1])} yours${capture}`],
     ];
-    const grid = (rows: Array<[string, string]>) => el('div', { class: 'grid2' }, rows.flatMap(([k, v]) => [el('span', {}, [k]), el('span', {}, [v])]));
+    const grid = (rows: Array<[string, string | Node]>) => el('div', { class: 'grid2' }, rows.flatMap(([k, v]) => [el('span', {}, [k]), el('span', {}, [v])]));
     const details = el('details', this.detailsOpen ? { open: '' } : {}, [el('summary', {}, ['Details']), grid(more)]);
     details.addEventListener('toggle', () => (this.detailsOpen = (details as HTMLDetailsElement).open));
     out.push(grid(info), details);
@@ -1597,11 +1600,19 @@ export class GameScreen {
       if (rr[3] & 2) built.push(['factory', 'Factory']);
       if (rr[3] & 8) built.push(['port', 'Port']);
       for (let i = 0; i < rr[13]; i++) built.push(['depot', 'Depot']);
-      const knock = (kind: BuildingKind) =>
-        el('button', { class: 'x', 'data-act': 'demolish', 'data-region': String(region.id), 'data-kind': kind }, ['Demolish']);
+      // One wrapped row: each building's name with × to demolish it.
       if (built.length) {
-        out.push(el('div', { class: 'line' }, ['Buildings']));
-        for (const [kind, name] of built) out.push(el('div', { class: 'line build queued' }, [el('span', {}, [name]), knock(kind)]));
+        out.push(
+          el('div', { class: 'built' }, [
+            el('span', { class: 'label' }, ['Built']),
+            ...built.map(([kind, name]) =>
+              el('button', { class: 'chipx', 'data-act': 'demolish', 'data-region': String(region.id), 'data-kind': kind, 'aria-label': `Demolish ${name}` }, [
+                name,
+                el('b', {}, ['×']),
+              ]),
+            ),
+          ]),
+        );
       }
       const pending = this.pending(region.id);
       if (pending.length) {
@@ -1615,7 +1626,7 @@ export class GameScreen {
           return kind === 'road' ? `Road → ${this.map.regions[target]?.name ?? '?'}` : BUILD_LABEL[kind];
         };
         const cancel = (index: number) =>
-          el('button', { class: 'x', 'data-act': 'unbuild', 'data-region': String(region.id), 'data-index': String(index) }, ['Cancel']);
+          el('button', { class: 'x', 'data-act': 'unbuild', 'data-region': String(region.id), 'data-index': String(index), 'aria-label': 'Cancel' }, ['×']);
         pending.forEach((p, i) => {
           out.push(el('div', { class: `line build${i ? ' queued' : ''}` }, [el('span', {}, [`${i ? 'Next' : 'Building'}: ${label(p)}`]), cancel(i)]));
           if (i === 0) out.push(cellBar(rr[7]));
@@ -1626,7 +1637,7 @@ export class GameScreen {
 
     if (here.length) {
       out.push(el('div', { class: 'line' }, ['Units here']));
-      for (const b of here) out.push(this.unitRow(b, b[1] === this.you));
+      for (const b of here) out.push(this.unitRow(b, b[1] === this.you, region.id));
     }
     return out;
   }
@@ -1641,35 +1652,33 @@ export class GameScreen {
   }
 
   private productionLine(line: ProductionView, res: Resources): HTMLElement[] {
-    // One order button and cost line per unit the building makes (factory: tanks, artillery).
-    const out: HTMLElement[] = [];
+    // A heading with the queue, Repeat and Cancel last; a bar; then one line per unit it makes:
+    // the order button with what an order costs beside it (short resources boxed in red).
     const status = line.queue.length
-      ? `${line.queue.map((t) => UNIT_NAME[t].toLowerCase()).join(', ')}${line.progress < 0 ? ' // awaiting resources' : ''}`
+      ? `${line.queue.map((t) => UNIT_NAME[t].toLowerCase()).join(', ')}${line.progress < 0 ? ' (awaiting resources)' : ''}`
       : 'idle';
-    out.push(el('div', { class: 'line' }, [`${BUILD_LABEL[line.building]}: ${status}`]), cellBar(Math.max(0, line.progress)));
-    const adds: HTMLElement[] = [];
+    const repeat = el('button', { class: `x${line.repeat ? ' on' : ''}`, 'aria-pressed': String(line.repeat) }, ['Repeat']);
+    repeat.onclick = () => this.send({ o: 'repeat', region: line.region, building: line.building, on: !line.repeat });
+    const cancel = el('button', { class: 'x', 'aria-label': 'Cancel last' }, ['×']) as HTMLButtonElement;
+    cancel.disabled = line.queue.length === 0;
+    cancel.onclick = () => this.send({ o: 'cancel', region: line.region, building: line.building });
+    const out: HTMLElement[] = [
+      el('div', { class: 'line build' }, [el('span', {}, [`${BUILD_LABEL[line.building]}: ${status}`]), el('span', {}, [repeat, cancel])]),
+      cellBar(Math.max(0, line.progress)),
+    ];
     for (const type of unitsOf(line.building)) {
       const stats = unitStats(type, this.myTechs());
       // Locked behind research: say which tech, and the button stays off.
       const needs = UNIT_TECH[type];
       const locked = needs !== undefined && !this.myTechs().includes(needs);
-      const add = el('button', {}, [
-        locked ? `${UNIT_NAME[type]}: research ${tech(needs as TechId).name} (T)` : `${UNIT_KEY[type].toUpperCase()} + ${UNIT_NAME[type]}`,
-      ]) as HTMLButtonElement;
+      const add = el('button', {}, [locked ? `${UNIT_NAME[type]}: research ${tech(needs as TechId).name} (T)` : `${UNIT_KEY[type].toUpperCase()} + ${stats.batch} ${UNIT_NAME[type].toLowerCase()}`]) as HTMLButtonElement;
       add.disabled = locked || line.queue.length >= 5;
       add.onclick = () => this.send({ o: 'produce', region: line.region, building: line.building, unit: type });
-      adds.push(add);
-      // What one order costs, in plain sight (short resources in red).
-      out.push(el('div', { class: 'costline' }, [`${stats.batch} ${UNIT_NAME[type].toLowerCase()}:`, costChips(stats.cost, res), `${stats.buildTime}s`]));
+      out.push(el('div', { class: 'costline' }, locked ? [add] : [add, costChips(stats.cost, res), `${stats.buildTime}s`]));
     }
-    const repeat = el('button', {}, [line.repeat ? 'Repeat: on' : 'Repeat: off']);
-    repeat.onclick = () => this.send({ o: 'repeat', region: line.region, building: line.building, on: !line.repeat });
-    const cancel = el('button', {}, ['Cancel last']) as HTMLButtonElement;
-    cancel.disabled = line.queue.length === 0;
-    cancel.onclick = () => this.send({ o: 'cancel', region: line.region, building: line.building });
-    out.push(el('div', { class: 'buttons' }, [...adds, repeat, cancel]));
     return out;
   }
+
 }
 
 const HELP_FOLDED = 'openfork.helpFolded';
@@ -1721,11 +1730,6 @@ function costChips(cost: Partial<Resources>, have?: Resources): HTMLElement {
       el('span', { class: `chip${have && have[k] < (cost[k] ?? 0) ? ' short' : ''}` }, [el('img', { src: hudIcon(k), alt: k }), fmt(cost[k] ?? 0)]),
     ),
   );
-}
-
-/** What a region stores, short: $1000 · 1000 manpower · 500 steel · 500 oil. */
-function storeText(s: Resources): string {
-  return `$${s.money} · ${s.manpower} manpower · ${s.steel} steel · ${s.oil} oil (taken with it)`;
 }
 
 function round1(n: number): string {
