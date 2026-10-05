@@ -195,7 +195,7 @@ export class Game {
       r.owner,
       r.fort,
       r.city,
-      (r.barracks ? 1 : 0) | (r.factory ? 2 : 0) | (r.supplied ? 4 : 0),
+      (r.barracks ? 1 : 0) | (r.factory ? 2 : 0) | (r.supplied ? 4 : 0) | (r.port ? 8 : 0),
       r.capture ? r.capture.by : -1,
       r.capture ? round(r.capture.progress, 2) : 0,
       r.construction ? BUILDING_INDEX.indexOf(r.construction.kind) : -1,
@@ -260,7 +260,7 @@ export class Game {
     const out: ProductionView[] = [];
     this.sim.state.regions.forEach((r, i) => {
       if (r.owner !== player) return;
-      for (const building of ['barracks', 'factory'] as const) {
+      for (const building of ['barracks', 'factory', 'port'] as const) {
         if (!r[building]) continue;
         const line = r.production[building];
         const head = line.queue[0];
