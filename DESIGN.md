@@ -54,6 +54,24 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
   per level, every second) and economic buildings make the rest. Traits make the matching
   building better: farmland → farms, industry → mines, oil field → oil wells (only there).
   The yield overlay (B) shows what each of your regions makes; the region panel says it too.
+- **Storage:** each resource has a store size: every city level stores 250 money and
+  manpower and 120 steel and oil, every **depot** 1000 / 500 more. Income past it is lost (a
+  gauge under each stock in the top bar turns orange and says FULL). A depot is a building
+  (a slot, $120 + 20 steel, 45 s) for any region you hold in supply. **Taking a region with
+  a city or depots takes its share of the owner's stock**: what it stores out of all their
+  storage, up to the captor's own room.
+- **Research** (T): a tech tree of five branches, three tiers each, one tech at a time; each
+  needs the one before it. Tiers cost $250 / 500 / 900 and 30 / 80 / 150 steel and take
+  60 / 90 / 120 s, paid up front (refunded if cancelled).
+  - Infantry: Rifles (+20% attack), Trenches (dig in twice as fast, dug in +50%),
+    Conscription (−30% manpower).
+  - Armour: Engines (+20% speed), Armour plate (+30% defence), Synthetic fuel (−50% oil).
+  - Artillery: Heavy shells (+30%), Rangefinders (forts no help against shells), Long guns
+    (range 3).
+  - Economy: Farming (farms +30%), Industry (mines and wells +30%), Banking (markets and
+    city tax +25%).
+  - Logistics: Warehouses (storage +50%), Railways (supply +1 region), Field kitchens
+    (regions feed +30% troops).
 - **Upkeep:** each blob costs money per minute, scaled by its size and type. If income goes
   below upkeep, **blobs wither**: they lose strength and training until you're back in the
   plus.
@@ -99,12 +117,17 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
 
 ## 4. Units (blobs)
 - A blob is a token with a **type**, a **strength** (a small number, capped per type: infantry
-  20, tanks 10) and a **training** level. v1 types: **infantry and tanks**. Naval and air come
-  later.
+  20, tanks 10) and a **training** level. Types: **infantry, tanks and artillery**. Naval and
+  air come later.
 - **Stat-based:** each type has attack, defense, speed, cost and upkeep. **Terrain matters
   a lot:** tanks are strong on plains and weak in forest and mountains.
-- **Production:** you order a blob at a barracks (infantry) or factory (tanks), and a "repeat"
-  toggle keeps producing. A new blob appears in the building's region.
+- **Production:** you order a blob at a barracks (infantry) or factory (tanks or artillery),
+  and a "repeat" toggle keeps producing. A new blob appears in the building's region.
+- **Artillery:** standing still and in supply, it shells enemy units up to **2 regions away**
+  (its own side's fights first, else the strongest enemy force). Shells ignore digging in
+  and count forts half. It never storms a region: sent at enemies, it waits at the border
+  and shells. Up close it barely hits back and breaks fast. Bots keep it one region behind
+  the front.
 - **Training:**
   - **Gained** from combat veterancy and from drilling: any idle blob in supply slowly trains
     up to a cap.

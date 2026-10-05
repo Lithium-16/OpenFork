@@ -6,7 +6,8 @@ and bots take the other countries. The rules are in **[DESIGN.md](DESIGN.md)**.
 
 Status: first playable. Everyone starts at peace; bots go to war when attacked or when they
 see a weak neighbour (by difficulty). You can play a land war on mainland Europe (319 regions from real
-provinces) with infantry and tanks, forts, entrenchment, supply, production, and
+provinces) with infantry, tanks and artillery, forts, entrenchment, supply, storage and depots,
+a tech tree, production, and
 defensive/easy/normal/hard bots, or pure PvP with no bots. Naval, air, alliances and fog of war come later.
 
 ## Run it
@@ -40,9 +41,10 @@ to your friends, pick countries, and start. Bots fill the empty seats.
 | Wheel | zoom |
 | X / G / H | split in half / merge (any amounts, up to 100; not in a fight or below 25% strength) / halt the selected units; the unit panel splits off a batch or any number |
 | Del | disband the selected units (asks first; half the manpower of their strength back; not in a fight) |
-| 1–9 or the build bar | placement mode: farm, mine, oil well, market, city (found or expand), fort, barracks, factory, road. Click one of your regions (roads: drag across regions); Shift places more, Esc / right click stops; a busy region queues it. Your regions show their slots as boxes (hollow green = free) |
+| 1–9, - or the build bar | placement mode: farm, mine, oil well, market, city (found or expand), fort, barracks, factory, road, depot (-). Click one of your regions (roads: drag across regions); Shift places more, Esc / right click stops; a busy region queues it. Your regions show their slots as boxes (hollow green = free) |
 | 0 | demolish mode: pick a building, click your regions that have one (red); no refund |
-| Q / E | queue infantry / tanks at the selected region's barracks / factory |
+| Q / E / R | queue infantry / tanks / artillery at the selected region's barracks / factory |
+| T / Tech button | research: the tech tree (one tech at a time; the button shows progress) |
 | V | supply overlay: hubs, reach, cut-off regions, load per region |
 | B | yield overlay: what each of your regions makes per second (grey while it's stopped) |
 | Esc / Menu button | menu: surrender, or back to the main menu (a bot plays your country on); Esc first clears a selection or placement |
