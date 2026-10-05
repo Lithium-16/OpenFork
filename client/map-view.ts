@@ -1495,27 +1495,12 @@ export class MapView {
 
     // Tokens and stacks.
     const placed: Placed[] = [];
-    // Digging in: one hollow ring round a country's units in a region (numbers included),
-    // behind them, fills clockwise from the top as they entrench (the slowest unit counts) and
-    // goes once they're fully dug in.
-    const digging = new Map<string, { x0: number; x1: number; y: number; dig: number }>();
+    // Units of one country parked in a region: their digging-in rings go see-through when
+    // there are several, so they don't hide each other.
+    const parked = new Map<string, number>();
     for (const it of items) {
-      if (it.moving) continue;
-      const [x, y] = this.toScreen(it.tx, it.ty);
       const k = `${it.owner}:${it.rows[0][6]}`;
-      const g = digging.get(k) ?? { x0: x, x1: x, y, dig: 1 };
-      g.x0 = Math.min(g.x0, x);
-      g.x1 = Math.max(g.x1, x);
-      g.dig = Math.min(g.dig, ...it.rows.map((b) => b[9]));
-      digging.set(k, g);
-    }
-    const fw = FRAME_W * px;
-    const fh = FRAME_H * px;
-    for (const g of digging.values()) {
-      if (g.dig <= 0 || g.dig >= 1) continue;
-      const top = g.y - fh / 2 - 2 * px;
-      const bottom = g.y + fh / 2 + 4 * px + plateHeight(px);
-      entrenchRing(ctx, Math.round((g.x0 + g.x1) / 2), Math.round((top + bottom) / 2), (g.x1 - g.x0) / 2 + fw / 2 + 5 * px, (bottom - top) / 2 + 2 * px, g.dig, px);
+      if (!it.moving) parked.set(k, (parked.get(k) ?? 0) + 1);
     }
     const r = (FRAME_W * px) / 2;
     for (const it of items) {
@@ -1527,6 +1512,16 @@ export class MapView {
       placed.push(p);
     }
     this.placed = placed;
+    // Digging in: a hollow circle round each token fills clockwise from the top as it
+    // entrenches, and goes once it's fully dug in (a stack: its slowest unit; an expanded
+    // stack: each unit). Drawn over all the tokens, see-through when several share a region.
+    items.forEach((it, i) => {
+      if (it.moving) return;
+      const dig = Math.min(...it.rows.map((b) => b[9]));
+      if (dig <= 0 || dig >= 1) return;
+      const crowd = (parked.get(`${it.owner}:${it.rows[0][6]}`) ?? 0) > 1;
+      entrenchRing(ctx, placed[i].x, placed[i].y, Math.round((FRAME_W * px) / 2 + 2 * px), dig, px, crowd ? 0.65 : 1);
+    });
   }
 
   /** When each fight on screen fires its next artillery round. */
@@ -1790,17 +1785,25 @@ export class MapView {
   }
 }
 
-/** A pixel oval (radii rx, ry) round (cx, cy), two pixels thick: a dark track, filled
- * clockwise from the top to `progress` in earth gold. */
-function entrenchRing(ctx: CanvasRenderingContext2D, cx: number, cy: number, rx: number, ry: number, progress: number, px: number): void {
-  const steps = Math.max(48, Math.ceil((2 * Math.PI * Math.max(rx, ry)) / px));
+/** A one-pixel circle of radius r round (cx, cy): a dark track, filled clockwise from the
+ * top to `progress` in earth gold, at the given opacity. */
+function entrenchRing(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, progress: number, px: number, alpha: number): void {
+  const steps = Math.max(48, Math.ceil((2 * Math.PI * r) / px) * 2);
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  let last = '';
   for (let i = 0; i < steps; i++) {
     const a = (i / steps) * 2 * Math.PI;
-    const x = Math.round((cx + rx * Math.sin(a)) / px) * px;
-    const y = Math.round((cy - ry * Math.cos(a)) / px) * px;
-    ctx.fillStyle = i / steps < progress ? '#e8c063' : 'rgba(11, 15, 19, 0.6)';
-    ctx.fillRect(x - px, y - px, 2 * px, 2 * px);
+    const x = Math.round((cx + r * Math.sin(a)) / px) * px;
+    const y = Math.round((cy - r * Math.cos(a)) / px) * px;
+    // One square per pixel of the circle (steps overlap; alpha would stack).
+    const key = `${x},${y}`;
+    if (key === last) continue;
+    last = key;
+    ctx.fillStyle = i / steps < progress ? '#e8c063' : '#0b0f13';
+    ctx.fillRect(x, y, px, px);
   }
+  ctx.restore();
 }
 
 /** Where a unit fights: the region it attacks from next door, else its own. */
