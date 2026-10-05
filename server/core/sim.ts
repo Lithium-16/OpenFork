@@ -4,7 +4,6 @@
 import {
   type BotDifficulty,
   type BuildingKind,
-  BASE_YIELD,
   BROKE_LOSS,
   BROKE_TRAINING,
   BUILD_NEEDS,
@@ -12,9 +11,7 @@ import {
   buildCost,
   CAPTURE_DECAY,
   canBuildOn,
-  CITY_YIELD,
   ECON_KINDS,
-  econYield,
   type EconKind,
   FOUND_CITY_MIN_HOPS,
   HINTERLAND_HOPS,
@@ -44,6 +41,7 @@ import {
   PEACE_OFFER_SECONDS,
   type ProductionBuilding,
   REFILL_RATE,
+  regionYield,
   RESOURCES,
   type Resources,
   RETREAT_STRENGTH_LOSS,
@@ -59,7 +57,6 @@ import {
   TRAINING_DAMAGE,
   TRAINING_PROTECTION,
   TRUCE_SECONDS,
-  TRAIT_YIELD,
   type UnitType,
   UNITS,
   VETERANCY_RATE,
@@ -1043,12 +1040,7 @@ export class Sim {
     }
     this.state.regions.forEach((rs, i) => {
       if (rs.owner === NEUTRAL || !rs.supplied || this.hostileIn(i, rs.owner)) return;
-      const p = players[rs.owner];
-      const region = this.world.regions[i];
-      add(p.income, BASE_YIELD);
-      for (const t of region.traits) add(p.income, TRAIT_YIELD[t]);
-      for (const k of ECON_KINDS) if (rs.econ[k]) add(p.income, econYield(k, region), rs.econ[k]);
-      if (rs.city) add(p.income, CITY_YIELD, rs.city);
+      add(players[rs.owner].income, regionYield(this.world.regions[i], rs.city, rs.econ));
     });
     for (const b of this.state.blobs.values()) players[b.owner].upkeep += b.size * UNITS[b.type].upkeep;
     for (const p of players) {

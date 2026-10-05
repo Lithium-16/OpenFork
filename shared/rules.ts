@@ -1,6 +1,6 @@
 // Every gameplay number lives here (DESIGN.md has the rules in words). Rates are per second
 // unless they say otherwise; the server multiplies by the tick length.
-import type { Region, RegionSize, Terrain, Trait } from './map.ts';
+import type { Region, RegionSize, Terrain } from './map.ts';
 
 export const TICK_MS = 100;
 /** How often clients get a full state snapshot. */
@@ -52,10 +52,10 @@ export const UNITS: Record<UnitType, UnitStats> = {
     attack: 1,
     defense: 1.2,
     terrainAttack: { plains: 1, forest: 1, hills: 1, mountains: 1 },
-    cost: { money: 50, manpower: 40, steel: 0, oil: 0 },
+    cost: { money: 50, manpower: 100, steel: 0, oil: 0 },
     buildTime: 20,
     upkeep: 0.02,
-    refillCost: { money: 1, manpower: 2, steel: 0, oil: 0 },
+    refillCost: { money: 1, manpower: 5, steel: 0, oil: 0 },
     supplyNeed: 1,
     producedAt: 'barracks',
   },
@@ -66,7 +66,7 @@ export const UNITS: Record<UnitType, UnitStats> = {
     attack: 2.5,
     defense: 1.5,
     terrainAttack: { plains: 1.2, forest: 0.6, hills: 0.7, mountains: 0.4 },
-    cost: { money: 90, manpower: 12, steel: 38, oil: 18 },
+    cost: { money: 90, manpower: 30, steel: 38, oil: 18 },
     buildTime: 30,
     upkeep: 0.06,
     refillCost: { money: 3, manpower: 1, steel: 3, oil: 1 },
@@ -155,15 +155,11 @@ export const STACK_MIN = 2;
 
 // -- economy ----------------------------------------------------------------------------------
 
-export const BASE_YIELD: Resources = { money: 0.12, manpower: 0.15, steel: 0, oil: 0 };
-export const TRAIT_YIELD: Record<Trait, Partial<Resources>> = {
-  industry: { steel: 1, money: 0.3 },
-  oil: { oil: 0.8 },
-  farmland: { manpower: 0.35 },
-};
+// Land on its own yields nothing: cities (tax) and economic buildings do. A region's traits
+// make the matching building yield more (see econYield).
 
 export type StartingResources = 'low' | 'normal' | 'high';
-export const STARTING: Resources = { money: 120, manpower: 120, steel: 25, oil: 20 };
+export const STARTING: Resources = { money: 150, manpower: 250, steel: 40, oil: 20 };
 export const STARTING_MULTIPLIER: Record<StartingResources, number> = { low: 0.5, normal: 1, high: 2 };
 
 // -- buildings --------------------------------------------------------------------------------
@@ -188,7 +184,7 @@ export const FOUND_CITY_MIN_HOPS = 2;
 /** Crossing a border with a road takes this share of the time. */
 export const ROAD_SPEED = 0.6;
 /** What a city gives per level, every second (tax and manpower). */
-export const CITY_YIELD: Resources = { money: 0.6, manpower: 0.15, steel: 0, oil: 0 };
+export const CITY_YIELD: Resources = { money: 0.8, manpower: 0.25, steel: 0, oil: 0 };
 /** Your capital starts at least this big; cities of countries nobody plays start at 1. */
 export const START_CAPITAL_LEVEL = 3;
 export const NEUTRAL_CITY_LEVEL = 1;
@@ -201,18 +197,31 @@ export function slotsOf(region: Region, city: number): number {
   return SLOTS[region.size] + city;
 }
 
-/** What one economic building yields per second in a region. */
-export function econYield(kind: EconKind, region: Region): Partial<Resources> {
+/** What one economic building yields per second in a region: farmland, industry and
+ * (for markets) a city make theirs yield more. */
+export function econYield(kind: EconKind, region: Region, city = 0): Partial<Resources> {
   switch (kind) {
     case 'farm':
-      return { manpower: 0.3 };
+      return { manpower: region.traits.includes('farmland') ? 0.6 : 0.4 };
     case 'mine':
-      return { steel: region.traits.includes('industry') ? 0.4 : 0.25 };
+      return { steel: region.traits.includes('industry') ? 0.6 : 0.3 };
     case 'well':
-      return { oil: 0.4 };
+      return { oil: 0.5 };
     case 'market':
-      return { money: 0.4 };
+      return { money: city > 0 ? 0.6 : 0.4 };
   }
+}
+
+/** Everything a region yields per second while it's supplied and not fought over: its city's
+ * tax plus its economic buildings. */
+export function regionYield(region: Region, city: number, econ: Record<EconKind, number>): Resources {
+  const out: Resources = { money: 0, manpower: 0, steel: 0, oil: 0 };
+  for (const k of RESOURCES) out[k] += CITY_YIELD[k] * city;
+  for (const kind of ECON_KINDS) {
+    const y = econYield(kind, region, city);
+    for (const k of RESOURCES) out[k] += (y[k] ?? 0) * econ[kind];
+  }
+  return out;
 }
 
 /** Where a building may go by the region alone (the sim also checks owner, slots, reach). */

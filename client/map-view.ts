@@ -3,9 +3,9 @@
 import { decodeGrid, type GameMap, WATER } from '../shared/map.ts';
 import type { BlobRow, GamePlayer, Snapshot } from '../shared/protocol.ts';
 import { UNIT_INDEX } from '../shared/protocol.ts';
-import { BUILDING_KINDS, type BuildingKind, ROAD_SUPPLY_HOP, supplyCapacity, supplyReach, UNITS } from '../shared/rules.ts';
+import { BUILDING_KINDS, type BuildingKind, regionYield, RESOURCES, ROAD_SUPPLY_HOP, supplyCapacity, supplyReach, UNITS } from '../shared/rules.ts';
 import { Fx } from './fx.ts';
-import { art, blit, blitCentred, FRAME_H, FRAME_W, ICONS, INK, MAP_ART, pixelDigits, ROAD_COLOR, ROAD_SHADE, shade, type Sprite, unitFrame } from './sprites.ts';
+import { art, blit, blitCentred, digitsWidth, FRAME_H, FRAME_W, HUD, ICONS, INK, MAP_ART, pixelDigits, ROAD_COLOR, ROAD_SHADE, shade, type Sprite, unitFrame } from './sprites.ts';
 
 export interface Camera {
   x: number;
@@ -72,6 +72,8 @@ export class MapView {
   cam: Camera = { x: 0, y: 0, scale: 1 };
   /** Supply overlay on (for the player `you`). */
   overlay = false;
+  /** Yield overlay on: what each of your regions makes per second. */
+  yields = false;
   private readonly supplyLayer: HTMLCanvasElement;
   private supplySnap: Snapshot | null = null;
   private supplyImg: ImageData | null = null;
@@ -1119,24 +1121,35 @@ export class MapView {
       const y = Math.round(fy);
       if (x < -80 || y < -80 || x > this.canvas.clientWidth + 80 || y > this.canvas.clientHeight + 80) continue;
 
-      // Icons in a row above the units: capital, fort, barracks, factory (towns are on the map).
-      const icons: Sprite[] = [];
-      if (capitals.has(region.id)) icons.push(ICONS.capital);
-      if (rr[1] > 0) for (let i = 0; i < rr[1]; i++) icons.push(ICONS.fort);
-      if (rr[3] & 1) icons.push(ICONS.barracks);
-      if (rr[3] & 2) icons.push(ICONS.factory);
+      // Icons in a row above the units: capital or city (with its level), fort, barracks,
+      // factory.
+      const icons: Array<{ s: Sprite; level?: number }> = [];
+      const city = rr[2];
+      if (capitals.has(region.id)) icons.push({ s: ICONS.capital, level: city });
+      else if (city > 0) icons.push({ s: ICONS.city, level: city });
+      if (rr[1] > 0) for (let i = 0; i < rr[1]; i++) icons.push({ s: ICONS.fort });
+      if (rr[3] & 1) icons.push({ s: ICONS.barracks });
+      if (rr[3] & 2) icons.push({ s: ICONS.factory });
       const showIcons = icons.length > 0 && zoom >= 0.5;
       const iconBottom = y + tokenTop - 2;
       if (showIcons) {
         const gap = ipx;
-        const total = icons.reduce((sum, i) => sum + i.width * ipx, 0) + gap * (icons.length - 1);
+        const ds = Math.max(2, ipx);
+        const width = (i: { s: Sprite; level?: number }) => i.s.width * ipx + (i.level ? ipx + digitsWidth(String(i.level), ds) : 0);
+        const total = icons.reduce((sum, i) => sum + width(i), 0) + gap * (icons.length - 1);
         let ix = Math.round(x - total / 2);
         for (const icon of icons) {
-          blit(ctx, icon, ix, iconBottom - icon.height * ipx, ipx);
-          ix += icon.width * ipx + gap;
+          blit(ctx, icon.s, ix, iconBottom - icon.s.height * ipx, ipx);
+          if (icon.level) {
+            const text = String(icon.level);
+            outlinedDigits(ctx, text, ix + icon.s.width * ipx + ipx + digitsWidth(text, ds) / 2, iconBottom - (5 * ds) / 2 - 1, ds);
+          }
+          ix += width(icon) + gap;
         }
       } else if (capitals.has(region.id)) {
         blitCentred(ctx, ICONS.capital, x, y, 1);
+      } else if (city > 0) {
+        blitCentred(ctx, ICONS.city, x, y, 1);
       }
 
       // Name, in the pixel font, above everything else (not over a battle unless zoomed in).
@@ -1152,6 +1165,30 @@ export class MapView {
         if (this.supply.hubs.includes(region.id)) blitCentred(ctx, ICONS.crate, x - 12 * ipx, y + tokenTop - 6 * ipx, ipx);
         const load = (this.supply.need.get(region.id) ?? 0) / supplyCapacity(region, rr[2]);
         if (load > 0) cells(ctx, x, y + below + 8 * px, Math.min(1, load), load > 1 ? '#ff5a5a' : load > 0.75 ? '#ffb347' : '#7bd389', px);
+      }
+
+      // Yield overlay: what the region makes per second, as resource icons and amounts
+      // (grey while it makes nothing: out of supply or fought over).
+      if (this.yields && you !== null && rr[0] === you && zoom >= 0.5) {
+        const econ = { farm: rr[9], mine: rr[10], well: rr[11], market: rr[12] };
+        const y0 = regionYield(region, rr[2], econ);
+        const parts = RESOURCES.filter((k) => y0[k] > 0).map((k) => ({ k, text: `+${Math.round(y0[k] * 10) / 10}` }));
+        if (parts.length) {
+          const working = (rr[3] & 4) !== 0 && (owners.get(region.id)?.size ?? 0) <= 1;
+          const is = Math.max(2, ipx);
+          const ds = Math.max(2, ipx);
+          const w = (p: { text: string }) => 9 * is + ds + digitsWidth(p.text, ds);
+          const total = parts.reduce((sum, p) => sum + w(p), 0) + 3 * ds * (parts.length - 1);
+          const cy = Math.round(y + below + 12 * px + 6 * is);
+          ctx.fillStyle = 'rgba(11, 15, 19, 0.75)';
+          ctx.fillRect(Math.round(x - total / 2) - 2 * ds, cy - 6 * is, total + 4 * ds, 12 * is);
+          let ix = Math.round(x - total / 2);
+          for (const p of parts) {
+            blit(ctx, HUD[p.k], ix, cy - Math.round(4.5 * is), is);
+            pixelDigits(ctx, p.text, ix + 9 * is + ds + digitsWidth(p.text, ds) / 2, cy, ds, working ? '#7bd389' : '#8b9aa6');
+            ix += w(p) + 3 * ds;
+          }
+        }
       }
 
       // Capture progress: 8 cells in the capturer's colour, under the units.

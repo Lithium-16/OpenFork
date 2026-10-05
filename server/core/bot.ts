@@ -270,8 +270,22 @@ export class Bot {
   private econSite(sim: Sim, mine: number[]): { r: number; kind: EconKind } | null {
     const regions = sim.state.regions;
     const me = sim.state.players[this.player];
-    // What we're short of decides the building where the land doesn't.
-    const wanted: EconKind = me.resources.manpower < 80 ? 'farm' : 'market';
+    // What we're short of decides the building where the land doesn't: land yields nothing
+    // by itself, so men, steel and oil only come from farms, mines and wells.
+    const net = me.income.money - me.upkeep;
+    const size = mine.length / 20;
+    const wanted: EconKind =
+      me.income.manpower < 0.8 + size
+        ? 'farm'
+        : net < 1 + size
+          ? 'market'
+          : me.income.steel < (this.style.tanks ? 0.6 + size / 2 : 0.3)
+            ? 'mine'
+            : this.style.tanks && me.income.oil < 0.3 + size / 4
+              ? 'well'
+              : me.income.manpower < 2 * net
+                ? 'farm'
+                : 'market';
     const options: Array<{ r: number; kind: EconKind; score: number }> = [];
     for (const r of mine) {
       for (const kind of ECON_KINDS) {
@@ -279,11 +293,14 @@ export class Bot {
         const t = sim.world.regions[r].traits;
         let score = this.random();
         if (this.style.smart) {
-          if (kind === 'well') score += 3;
-          if (kind === 'mine' && t.includes('industry')) score += 2.5;
+          if (kind === wanted) score += 3;
+          // The land that makes a building yield more.
+          if (kind === 'mine' && t.includes('industry')) score += 1.5;
           if (kind === 'farm' && t.includes('farmland')) score += 1.5;
-          if (kind === wanted) score += 1;
-          if (kind === 'mine' && !t.includes('industry')) score -= 0.5;
+          if (kind === 'well' && this.style.tanks) score += 1;
+          // Nothing more of what's piling up unspent.
+          const pile = { farm: me.resources.manpower > 600, mine: me.resources.steel > 400, well: me.resources.oil > 300, market: me.resources.money > 1500 };
+          if (pile[kind]) score -= 3;
           // Not right on a front line.
           if (this.threat(sim, r) > 0) score -= 2;
           if (regions[r].city > 0) score += 0.3;
