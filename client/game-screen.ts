@@ -9,12 +9,15 @@ import {
   buildCost,
   canBuildOn,
   captureSeconds,
+  DISBAND_REFUND,
   ECON_KINDS,
   type EconKind,
+  econYield,
   FOUND_CITY_MIN_HOPS,
   HINTERLAND_HOPS,
   MAX_CITY,
   MAX_FORT,
+  regionYield,
   RESOURCES,
   type Resources,
   slotsOf,
@@ -51,7 +54,22 @@ const BAR: Array<{ group: string; kinds: BuildingKind[] }> = [
 const HOTKEYS: BuildingKind[] = BAR.flatMap((g) => g.kinds);
 /** Region row fields of the economic buildings. */
 const ECON_FIELD: Record<EconKind, number> = { farm: 9, mine: 10, well: 11, market: 12 };
-const RES_SHORT: Record<keyof Resources, string> = { money: '$', manpower: 'MP ', steel: 'ST ', oil: 'OIL ' };
+/** A region with no traits or city, for the plain yield of a building. */
+const PLAIN_REGION = { traits: [], terrain: 'plains', size: 'medium' } as unknown as Region;
+const gives = (kind: EconKind, traits: Region['traits'] = [], city = 0) =>
+  Object.values(econYield(kind, { ...PLAIN_REGION, traits }, city))[0] ?? 0;
+/** What each building does, shown in the build bar. */
+const BUILD_HELP: Record<BuildingKind, string> = {
+  farm: `Farm: +${gives('farm')} manpower/s (+${gives('farm', ['farmland'])} on farmland). Farmland or plains, within ${HINTERLAND_HOPS} regions of your city.`,
+  mine: `Mine: +${gives('mine')} steel/s (+${gives('mine', ['industry'])} on industry). Industry, hills or mountains, within ${HINTERLAND_HOPS} regions of your city.`,
+  well: `Oil well: +${gives('well')} oil/s. Oil fields only, within ${HINTERLAND_HOPS} regions of your city.`,
+  market: `Market: +${gives('market')} money/s (+${gives('market', [], 1)} in a city). Anywhere within ${HINTERLAND_HOPS} regions of your city.`,
+  city: `City: found one (a supply hub that pays tax) or expand one: more tax and manpower, a slot, +1 stack cap, supply reaches further.`,
+  fort: `Fort: defenders get a bonus, enemies move and capture slower here. Up to ${MAX_FORT} levels.`,
+  barracks: 'Barracks: trains infantry (Q). In a city.',
+  factory: 'Factory: builds tanks (E). In a city.',
+  road: 'Road: drag across your regions. Crossing is faster and supply reaches further.',
+};
 
 export class GameScreen {
   private readonly net: Net;
@@ -68,8 +86,13 @@ export class GameScreen {
   /** The region under the cursor. */
   private hover = -1;
   private buildbarKey = '';
+  /** The build bar button under the pointer. */
+  private barHover: BuildingKind | null = null;
   /** Where the building being placed can go: worked out once per snapshot. */
-  private valid: { snap: Snapshot; kind: BuildingKind; set: Set<number> } | null = null;
+  private valid: { snap: Snapshot; kind: BuildingKind; demolish: boolean; set: Set<number> } | null = null;
+  private slotCache: { snap: Snapshot; map: Map<number, [number, number]> } | null = null;
+  /** Demolish mode: picking a building and clicking a region knocks one down instead. */
+  private demolishing = false;
   private miniSnap: Snapshot | null = null;
   private miniCam = '';
   private miniAt = 0;
@@ -180,7 +203,8 @@ export class GameScreen {
         toast('Effects reduced to keep the game smooth (FX in the top bar)', 'info');
       }
       if (this.snap) {
-        this.view.placement = this.placing ? { valid: this.validFor(this.placing), hover: this.hover } : null;
+        this.view.placement = this.placing ? { valid: this.validFor(this.placing), hover: this.hover, demolish: this.demolishing } : null;
+        this.view.slots = this.placing || this.demolishing || this.view.yields ? this.slotMap() : null;
         this.view.draw(this.snap, this.players, this.you, this.selected, this.region, this.box);
         // The minimap: on news or a camera move, at most 5 times a second.
         const cam = `${this.view.cam.x}|${this.view.cam.y}|${this.view.cam.scale}`;
@@ -268,6 +292,9 @@ export class GameScreen {
         if ((e.target as HTMLElement).closest('button')) this.sfx.tick();
       });
     }
+    // The controls panel folds to its strip and back (remembered).
+    on($('#help-fold'), 'click', () => this.foldHelp(!$('#help').classList.contains('folded')));
+    this.foldHelp(stored(HELP_FOLDED) === '1');
     // Diplomacy buttons (ORBAT, peace offers): act on press, see diplomacyAction.
     for (const sel of ['#players', '#offers']) {
       on($(sel), 'pointerdown', (e: PointerEvent) => {
@@ -278,7 +305,24 @@ export class GameScreen {
       });
     }
     // Build bar and the region panel's cancel buttons: also act on press (redrawn often).
+    // What a building does: shown in the bar for the one under the pointer.
+    on($('#buildbar'), 'pointerover', (e: PointerEvent) => {
+      const b = (e.target as HTMLElement).closest('[data-kind]') as HTMLElement | null;
+      const kind = (b?.dataset.kind as BuildingKind | undefined) ?? null;
+      if (kind === this.barHover) return;
+      this.barHover = kind;
+      this.renderBuildbar();
+    });
+    on($('#buildbar'), 'pointerleave', () => {
+      this.barHover = null;
+      this.renderBuildbar();
+    });
     on($('#buildbar'), 'pointerdown', (e: PointerEvent) => {
+      if ((e.target as HTMLElement).closest('[data-tool=demolish]')) {
+        e.preventDefault();
+        this.setDemolishing(!this.demolishing);
+        return;
+      }
       const b = (e.target as HTMLElement).closest('[data-kind]') as HTMLElement | null;
       if (!b) return;
       e.preventDefault();
@@ -573,6 +617,8 @@ export class GameScreen {
       this.toggleMenu(false);
     } else if (k === 'escape' && this.placing) {
       this.setPlacing(null);
+    } else if (k === 'escape' && this.demolishing) {
+      this.setDemolishing(false);
     } else if (k === 'escape' && (this.selected.size || this.region >= 0 || this.view.expanded !== null)) {
       this.selected.clear();
       this.region = -1;
@@ -583,15 +629,21 @@ export class GameScreen {
       for (const id of sel) this.send({ o: 'split', blob: id });
     } else if (k === 'g' && sel.length > 1) {
       this.mergeSelected();
+    } else if ((k === 'delete' || k === 'backspace') && sel.length) {
+      this.disbandSelected();
     } else if (k === 'h' && sel.length) {
       this.send({ o: 'stop', blobs: sel });
     } else if (k === 'm') {
       this.setMuted(!this.sfx.muted);
     } else if (k === 'v') {
       this.setOverlay(!this.view.overlay);
+    } else if (k === 'b') {
+      this.setYields(!this.view.yields);
     } else if (k === ' ') {
       e.preventDefault();
       this.centreOnCapital();
+    } else if (k === '0') {
+      this.setDemolishing(!this.demolishing);
     } else if (k >= '1' && k <= '9' && k.length === 1) {
       this.setPlacing(HOTKEYS[Number(k) - 1]);
     } else if (k === 'q' && this.region >= 0) {
@@ -621,6 +673,11 @@ export class GameScreen {
 
   /** Enters placement mode for a building, or leaves it (same building again, or null). */
   private setPlacing(kind: BuildingKind | null): void {
+    if (kind && this.demolishing && (kind === 'city' || kind === 'road')) {
+      toast(`a ${BUILD_LABEL[kind].toLowerCase()} can't be demolished`);
+      this.sfx.refuse();
+      return;
+    }
     this.placing = kind === this.placing ? null : kind;
     if (this.placing && this.you === null) this.placing = null;
     this.roadPath = null;
@@ -629,11 +686,46 @@ export class GameScreen {
     this.renderBuildbar();
   }
 
-  /** A click in placement mode: build there (Shift keeps placing). */
+  /** Demolish mode on or off; the building picked stays picked. */
+  private setDemolishing(on: boolean): void {
+    this.demolishing = on && this.you !== null;
+    if (this.demolishing && (this.placing === 'road' || this.placing === 'city')) this.setPlacing(null);
+    $('#buildbar').classList.toggle('demolish', this.demolishing);
+    this.buildbarKey = '';
+    this.renderBuildbar();
+  }
+
+  /** Why a building can't be knocked down in a region, or null if it can. */
+  private whyNotDemolish(kind: BuildingKind, region: number): string | null {
+    const rr = this.snap?.regions[region];
+    if (!rr || rr[0] !== this.you) return 'pick one of your regions';
+    const label = BUILD_LABEL[kind].toLowerCase();
+    if (ECON_KINDS.includes(kind as EconKind)) return rr[ECON_FIELD[kind as EconKind]] > 0 ? null : `no ${label} here`;
+    if (kind === 'fort') return rr[1] > 0 ? null : 'no fort here';
+    if (kind === 'barracks') return rr[3] & 1 ? null : 'no barracks here';
+    if (kind === 'factory') return rr[3] & 2 ? null : 'no factory here';
+    return `a ${label} can't be demolished`;
+  }
+
+  /** A click in placement mode: build there, or knock one down in demolish mode (Shift keeps
+   * the tool). */
   private place(x: number, y: number, shift: boolean): void {
     const kind = this.placing;
-    if (!kind || kind === 'road') return;
+    if (!kind) return;
     const region = this.view.regionAt(x, y);
+    if (this.demolishing) {
+      const why = this.whyNotDemolish(kind, region);
+      if (why) {
+        toast(why);
+        this.sfx.refuse();
+        return;
+      }
+      this.send({ o: 'demolish', region, kind });
+      this.sfx.place();
+      if (!shift) this.setPlacing(null);
+      return;
+    }
+    if (kind === 'road') return;
     const why = this.whyNot(kind, region);
     if (why) {
       toast(why);
@@ -774,9 +866,22 @@ export class GameScreen {
     return null;
   }
 
+  /** Slots of each of your regions, [used, all] (once per snapshot). */
+  private slotMap(): Map<number, [number, number]> {
+    const snap = this.snap as Snapshot;
+    if (this.slotCache?.snap === snap) return this.slotCache.map;
+    const map = new Map<number, [number, number]>();
+    snap.regions.forEach((rr, i) => {
+      if (rr[0] === this.you) map.set(i, [this.slotsUsed(i), slotsOf(this.map.regions[i], rr[2])]);
+    });
+    this.slotCache = { snap, map };
+    return map;
+  }
+
   private validFor(kind: BuildingKind): Set<number> {
     const snap = this.snap as Snapshot;
-    if (this.valid?.snap !== snap || this.valid.kind !== kind) this.valid = { snap, kind, set: this.validRegions(kind) };
+    const demolish = this.demolishing;
+    if (this.valid?.snap !== snap || this.valid.kind !== kind || this.valid.demolish !== demolish) this.valid = { snap, kind, demolish, set: this.validRegions(kind) };
     return this.valid.set;
   }
 
@@ -785,7 +890,9 @@ export class GameScreen {
     const regions = this.snap?.regions ?? [];
     for (let i = 0; i < regions.length; i++) {
       if (regions[i][0] !== this.you) continue;
-      const ok = kind === 'road' ? this.map.regions[i].neighbors.some((n) => !this.whyNot('road', i, n.id)) : !this.whyNot(kind, i);
+      const ok = this.demolishing
+        ? !this.whyNotDemolish(kind, i)
+        : kind === 'road' ? this.map.regions[i].neighbors.some((n) => !this.whyNot('road', i, n.id)) : !this.whyNot(kind, i);
       if (ok) out.add(i);
     }
     return out;
@@ -793,6 +900,7 @@ export class GameScreen {
 
   /** What a building is called on the bar, for the region under the cursor. */
   private barName(kind: BuildingKind, region: number): string {
+    if (this.demolishing) return BUILD_LABEL[kind];
     if (kind === 'city') {
       if (region < 0) return 'City';
       const level = this.nextLevel(kind, region);
@@ -810,44 +918,84 @@ export class GameScreen {
     if (!snap || this.you === null || !snap.players[this.you]?.alive) return;
     const res = this.resources();
     const mine = this.hover >= 0 && snap.regions[this.hover][0] === this.you ? this.hover : -1;
+    const wreck = this.demolishing;
     const cell = (kind: BuildingKind) => {
       const level = mine >= 0 ? this.nextLevel(kind, mine) : kind === 'city' ? 2 : 1;
       const maxed = (kind === 'fort' && level > MAX_FORT) || (kind === 'city' && level > MAX_CITY);
       const allowed = mine < 0 || canBuildOn(kind, this.map.regions[mine], snap.regions[mine][2]);
       const { cost, seconds } = buildCost(kind, level);
       const name = this.barName(kind, mine);
-      const price = maxed ? 'MAX' : !allowed ? `needs ${BUILD_NEEDS[kind]}` : `${costText(cost)} · ${seconds}s`;
-      const poor = !maxed && allowed && !afford(res, cost);
-      return { kind, n: HOTKEYS.indexOf(kind) + 1, name, price, poor };
+      // Demolishing: whether there's one to knock down (in the region under the cursor).
+      const fixed = kind === 'city' || kind === 'road';
+      const note = wreck
+        ? fixed
+          ? "can't demolish"
+          : mine >= 0
+            ? this.whyNotDemolish(kind, mine)
+              ? 'none here'
+              : 'knock one down'
+            : 'no refund'
+        : maxed
+          ? 'MAX'
+          : !allowed
+            ? `needs ${BUILD_NEEDS[kind]}`
+            : '';
+      const poor = !wreck && !maxed && allowed && !afford(res, cost);
+      // What one more of it yields: exact for the region under the cursor, else the plain rate.
+      const gain = !wreck && ECON_KINDS.includes(kind as EconKind) ? econYield(kind as EconKind, mine >= 0 ? this.map.regions[mine] : PLAIN_REGION, mine >= 0 ? snap.regions[mine][2] : 0) : null;
+      return { kind, n: HOTKEYS.indexOf(kind) + 1, name, note, cost, seconds, gain, poor, off: wreck && fixed };
     };
     const groups = BAR.map((g) => ({ group: g.group, cells: g.kinds.map(cell) }));
     const slots = mine >= 0 ? `${this.map.regions[mine].name}: slots ${this.slotsUsed(mine)}/${slotsOf(this.map.regions[mine], snap.regions[mine][2])}` : '';
-    const hint = this.placing === 'road' ? 'drag across your regions · shift: more · esc' : this.placing ? 'click a region · shift: more · esc' : '1-9';
-    const key = `${this.placing}|${slots}|${JSON.stringify(groups)}`;
+    const hint = wreck
+      ? this.placing
+        ? 'click a red region · shift: more · esc'
+        : 'pick a building · 0 / esc: stop'
+      : this.placing === 'road'
+        ? 'drag across your regions · shift: more · esc'
+        : this.placing
+          ? 'click a region · shift: more · esc'
+          : '1-9 · 0: demolish';
+    // Redrawn only when something on it changed (what you can afford included).
+    const can = RESOURCES.map((k) => groups.map((g) => g.cells.map((c) => res[k] >= c.cost[k])));
+    const about = this.barHover ?? this.placing;
+    const key = `${wreck}|${this.placing}|${about}|${slots}|${JSON.stringify(groups)}|${JSON.stringify(can)}`;
     if (key === this.buildbarKey) return;
     this.buildbarKey = key;
+    const head = wreck ? 'Demolish' : 'Build';
+    const aboutText = wreck
+      ? 'Demolish: pick a building, then click your regions that have one (red). Frees the slot at once; nothing is refunded.'
+      : about
+        ? BUILD_HELP[about]
+        : 'Point at a building to see what it does.';
+    const demolish = el('button', { class: `slot tool${wreck ? ' active' : ''}`, 'data-tool': 'demolish' }, [
+      el('span', { class: 'glyph' }, ['✕']),
+      el('span', { class: 'name' }, [el('b', {}, ['0']), ' Demolish']),
+      el('span', { class: 'price' }, [wreck ? 'on: click to stop' : 'frees a slot']),
+    ]);
     bar.replaceChildren(
-      classbar(slots ? `Build // ${slots}` : 'Build', hint),
-      el(
-        'div',
-        { class: 'groups' },
-        groups.map((g) =>
+      classbar(slots ? `${head} // ${slots}` : head, hint),
+      el('div', { class: 'about' }, [aboutText]),
+      el('div', { class: 'groups' }, [
+        ...groups.map((g) =>
           el('div', { class: 'group' }, [
             el('div', { class: 'gname' }, [g.group]),
             el(
               'div',
               { class: 'slots' },
               g.cells.map((c) =>
-                el('button', { class: `slot${this.placing === c.kind ? ' active' : ''}${c.poor ? ' poor' : ''}`, 'data-kind': c.kind }, [
+                el('button', { class: `slot${this.placing === c.kind ? ' active' : ''}${c.poor ? ' poor' : ''}${c.off ? ' off' : ''}`, 'data-kind': c.kind }, [
                   el('img', { src: buildingIcon(c.kind), alt: '' }),
                   el('span', { class: 'name' }, [el('b', {}, [String(c.n)]), ` ${c.name}`]),
-                  el('span', { class: 'price' }, [c.price]),
+                  c.note ? el('span', { class: 'price' }, [c.note]) : costChips(c.cost, res),
+                  wreck ? '' : el('span', { class: 'gives' }, [...(c.gain ? [yieldChips(c.gain), ' · '] : []), `${c.seconds}s`]),
                 ]),
               ),
             ),
           ]),
         ),
-      ),
+        el('div', { class: 'group' }, [el('div', { class: 'gname' }, ['Remove']), el('div', { class: 'slots' }, [demolish])]),
+      ]),
     );
   }
 
@@ -864,6 +1012,34 @@ export class GameScreen {
     this.view.overlay = on && this.you !== null;
     $('#legend').classList.toggle('hidden', !this.view.overlay);
     this.renderTopbar();
+  }
+
+  private foldHelp(folded: boolean): void {
+    $('#help').classList.toggle('folded', folded);
+    $('#help-fold-label').textContent = folded ? 'Show ▾' : 'Hide ▴';
+    store(HELP_FOLDED, folded ? '1' : '0');
+  }
+
+  private setYields(on: boolean): void {
+    this.view.yields = on && this.you !== null;
+    this.renderTopbar();
+  }
+
+  /** Disbands the selected units, after asking, for part of their manpower back. */
+  private disbandSelected(): void {
+    const sel = [...this.selected].map((id) => this.blob(id)).filter((b): b is BlobRow => !!b);
+    if (!sel.length) return;
+    const back = sel.reduce((sum, b) => {
+      const stats = UNITS[UNIT_INDEX[b[2]]];
+      return sum + (b[3] * stats.cost.manpower * DISBAND_REFUND) / stats.batch;
+    }, 0);
+    const [what, its] = sel.length === 1 ? ['this unit', 'its'] : [`these ${sel.length} units`, 'their'];
+    void confirmBox('Disband', `Disband ${what}? You get back ${Math.floor(back)} manpower (half of what ${its} strength cost). Units in a fight can't disband.`, 'Disband').then((ok) => {
+      if (!ok) return;
+      this.send({ o: 'disband', blobs: sel.map((b) => b[0]) });
+      this.selected.clear();
+      this.renderPanel();
+    });
   }
 
   /** Merges selected units of the same type that stand in the same region. */
@@ -891,7 +1067,7 @@ export class GameScreen {
     const snap = this.snap;
     if (!snap) return;
     const t = `T+${clock(snap.time)}`;
-    const menu = el('button', { class: 'toggle', title: 'Menu: surrender, leave (Esc)' }, ['Menu']);
+    const menu = el('button', { class: 'toggle' }, ['Menu', el('small', {}, ['Esc'])]);
     menu.onclick = () => this.toggleMenu(true);
     if (this.you === null) {
       $('#topbar').replaceChildren(el('span', { class: 'tag' }, ['[OBSERVER]']), menu, el('span', { class: 'clock' }, [t]));
@@ -901,7 +1077,7 @@ export class GameScreen {
     const parts: HTMLElement[] = RESOURCES.map((k, i) => {
       let rate = p.income[i];
       if (k === 'money') rate -= p.upkeep;
-      return el('span', { class: 'res', title: k }, [
+      return el('span', { class: 'res' }, [
         el('img', { src: hudIcon(k), alt: k }),
         el('b', {}, [fmt(p.res[i])]),
         el('small', { class: rate < 0 ? 'neg' : '' }, [`${rate >= 0 ? '+' : ''}${rate.toFixed(1)}/s`]),
@@ -909,12 +1085,14 @@ export class GameScreen {
     });
     if (p.broke) parts.push(el('span', { class: 'broke' }, ['BROKE: UNITS WITHERING']));
     if (!p.alive) parts.push(el('span', { class: 'broke' }, ['ELIMINATED // OBSERVING']));
-    const supply = el('button', { class: `toggle${this.view.overlay ? ' on' : ''}`, title: 'Supply overlay (V)' }, ['Supply']);
+    const supply = el('button', { class: `toggle${this.view.overlay ? ' on' : ''}` }, ['Supply', el('small', {}, ['V'])]);
     supply.onclick = () => this.setOverlay(!this.view.overlay);
-    parts.push(supply);
-    const sound = el('button', { class: `toggle${this.sfx.muted ? '' : ' on'}`, title: 'Sound on/off (M)' }, [this.sfx.muted ? 'Muted' : 'Sound']);
+    const yields = el('button', { class: `toggle${this.view.yields ? ' on' : ''}` }, ['Yield', el('small', {}, ['B'])]);
+    yields.onclick = () => this.setYields(!this.view.yields);
+    parts.push(supply, yields);
+    const sound = el('button', { class: `toggle${this.sfx.muted ? '' : ' on'}` }, [this.sfx.muted ? 'Muted' : 'Sound', el('small', {}, ['M'])]);
     sound.onclick = () => this.setMuted(!this.sfx.muted);
-    const fx = el('button', { class: `toggle${this.view.fx.level === 'full' ? ' on' : ''}`, title: 'Effects: full / reduced' }, [this.view.fx.level === 'full' ? 'FX' : 'FX low']);
+    const fx = el('button', { class: `toggle${this.view.fx.level === 'full' ? ' on' : ''}` }, [this.view.fx.level === 'full' ? 'FX' : 'FX low']);
     fx.onclick = () => {
       this.fxChosen = true;
       this.setEffects(this.view.fx.level === 'full' ? 'reduced' : 'full');
@@ -932,7 +1110,7 @@ export class GameScreen {
     const strength = new Map<number, number>();
     for (const b of snap.blobs) strength.set(b[1], (strength.get(b[1]) ?? 0) + b[3]);
     $('#players').replaceChildren(
-      classbar('ORBAT', 'Regions'),
+      classbar('ORBAT', 'Regions · Strength'),
       ...this.players.map((p) => {
         const row = snap.players[p.id];
         const tag = !row.alive ? '[KIA]' : p.id === this.you ? '[YOU]' : !p.human ? '[BOT]' : row.bot ? '[AWAY]' : '';
@@ -944,17 +1122,18 @@ export class GameScreen {
         const pending = other && snap.offers.some(([f, t]) => f === me && t === p.id);
         let act: HTMLElement | string = '';
         if (other && war && !pending) {
-          act = el('button', { class: 'act peace', 'data-act': 'peace', 'data-player': String(p.id), title: offered ? 'Accept their offer of peace' : 'Offer peace' }, [offered ? 'Accept' : 'Peace']);
+          act = el('button', { class: 'act peace', 'data-act': 'peace', 'data-player': String(p.id) }, [offered ? 'Accept peace' : 'Offer peace']);
         } else if (other && !war && truce === 0) {
-          act = el('button', { class: 'act war', 'data-act': 'war', 'data-player': String(p.id), title: 'Declare war' }, ['War']);
+          act = el('button', { class: 'act war', 'data-act': 'war', 'data-player': String(p.id) }, ['Declare war']);
         }
         const rel = war ? el('span', { class: 'tag war' }, [pending ? '[WAR · OFFERED]' : '[WAR]']) : truce > 0 ? el('span', { class: 'tag truce' }, [`[TRUCE ${truce}s]`]) : '';
-        return el('div', { class: `p${row.alive ? '' : ' dead'}`, title: `${regions.get(p.id) ?? 0} regions, ${Math.round(strength.get(p.id) ?? 0)} strength` }, [
+        return el('div', { class: `p${row.alive ? '' : ' dead'}` }, [
           el('span', { class: 'swatch', style: `background:${p.color}` }),
           el('span', {}, [p.name.replace(/ \(bot\)$/, '')]),
           el('span', { class: 'tag' }, [tag]),
           rel,
           el('span', { class: 'num' }, [`${regions.get(p.id) ?? 0}`]),
+          el('span', { class: 'num str' }, [fmt(strength.get(p.id) ?? 0)]),
           act,
         ]);
       }),
@@ -1127,8 +1306,8 @@ export class GameScreen {
 
   private unitsPanel(sel: BlobRow[]): HTMLElement[] {
     const strength = sel.reduce((s, b) => s + b[3], 0);
-    const btn = (label: string, fn: () => void, title = '') => {
-      const b = el('button', { title }, [label]);
+    const btn = (label: string, fn: () => void) => {
+      const b = el('button', {}, [label]);
       b.onclick = () => {
         fn();
         this.renderPanel();
@@ -1138,10 +1317,12 @@ export class GameScreen {
     return [
       classbar('Units selected', `${sel.length}`),
       el('div', { class: 'sub' }, [`Strength ${Math.round(strength)} · right-click a region to send`]),
+      el('div', { class: 'sub' }, ['Split halves each unit (both keep their training) · merge joins one type in one region, for some training']),
       el('div', { class: 'buttons' }, [
-        btn('Split (X)', () => sel.forEach((b) => this.send({ o: 'split', blob: b[0] })), 'Halve each unit; both halves keep their training'),
-        btn('Merge (G)', () => this.mergeSelected(), 'Same type, same region; costs some training'),
+        btn('Split (X)', () => sel.forEach((b) => this.send({ o: 'split', blob: b[0] }))),
+        btn('Merge (G)', () => this.mergeSelected()),
         btn('Halt (H)', () => this.send({ o: 'stop', blobs: sel.map((b) => b[0]) })),
+        btn('Disband (Del)', () => this.disbandSelected()),
       ]),
       ...this.splitRow(sel, btn),
       ...sel.slice(0, 30).map((b) => this.unitRow(b, true)),
@@ -1149,7 +1330,7 @@ export class GameScreen {
   }
 
   /** One unit standing still: split off a batch, half, or any amount. */
-  private splitRow(sel: BlobRow[], btn: (label: string, fn: () => void, title?: string) => HTMLElement): HTMLElement[] {
+  private splitRow(sel: BlobRow[], btn: (label: string, fn: () => void) => HTMLElement): HTMLElement[] {
     if (sel.length !== 1 || sel[0][8] > 0 || sel[0][4] < 2) return [];
     const b = sel[0];
     const size = b[4];
@@ -1166,10 +1347,10 @@ export class GameScreen {
     return [
       el('div', { class: 'buttons split' }, [
         el('span', { class: 'label' }, ['Split off']),
-        ...(size > batch ? [btn(String(batch), () => split(batch), `Split off one batch (${batch})`)] : []),
-        btn('½', () => split(size / 2), 'Split off half'),
+        ...(size > batch ? [btn(String(batch), () => split(batch))] : []),
+        btn('½', () => split(size / 2)),
         field,
-        btn('Split', () => split(Number(field.value)), 'Split off this many'),
+        btn('Split', () => split(Number(field.value))),
       ]),
     ];
   }
@@ -1191,6 +1372,7 @@ export class GameScreen {
     const info: Array<[string, string]> = [
       ['Owner', owner >= 0 ? (this.players[owner]?.name ?? '?') : 'Neutral'],
       ['City', rr[2] > 0 ? `level ${rr[2]} / ${MAX_CITY} · supplies ${supplyReach(rr[2])} regions out` : 'none'],
+      ['Produces', this.yieldLine(region, rr)],
       ['Slots', `${used} / ${slotsOf(region, rr[2])} built`],
       ['Fort', `${rr[1]} / ${MAX_FORT}`],
       ['Supply', owner >= 0 ? this.supplyLine(region.id) : '—'],
@@ -1212,7 +1394,7 @@ export class GameScreen {
       if (rr[3] & 1) built.push(['barracks', 'Barracks']);
       if (rr[3] & 2) built.push(['factory', 'Factory']);
       const knock = (kind: BuildingKind) =>
-        el('button', { class: 'x', 'data-act': 'demolish', 'data-region': String(region.id), 'data-kind': kind, title: 'Demolish (no refund)' }, ['✕']);
+        el('button', { class: 'x', 'data-act': 'demolish', 'data-region': String(region.id), 'data-kind': kind }, ['Demolish']);
       if (built.length) {
         out.push(el('div', { class: 'line' }, ['Buildings']));
         for (const [kind, name] of built) out.push(el('div', { class: 'line build queued' }, [el('span', {}, [name]), knock(kind)]));
@@ -1229,7 +1411,7 @@ export class GameScreen {
           return kind === 'road' ? `Road → ${this.map.regions[target]?.name ?? '?'}` : BUILD_LABEL[kind];
         };
         const cancel = (index: number) =>
-          el('button', { class: 'x', 'data-act': 'unbuild', 'data-region': String(region.id), 'data-index': String(index), title: 'Cancel (full refund)' }, ['✕']);
+          el('button', { class: 'x', 'data-act': 'unbuild', 'data-region': String(region.id), 'data-index': String(index) }, ['Cancel']);
         pending.forEach((p, i) => {
           out.push(el('div', { class: `line build${i ? ' queued' : ''}` }, [el('span', {}, [`${i ? 'Next' : 'Building'}: ${label(p)}`]), cancel(i)]));
           if (i === 0) out.push(cellBar(rr[7]));
@@ -1247,18 +1429,27 @@ export class GameScreen {
     return out;
   }
 
+  /** What a region makes per second, or why it makes nothing. */
+  private yieldLine(region: Region, rr: Snapshot['regions'][number]): string {
+    const y = regionYield(region, rr[2], { farm: rr[9], mine: rr[10], well: rr[11], market: rr[12] });
+    const parts = RESOURCES.filter((k) => y[k] > 0).map((k) => `+${Math.round(y[k] * 100) / 100} ${k}/s`);
+    if (!parts.length) return 'nothing (build a farm, mine, oil well or market)';
+    const idle = rr[0] >= 0 && !(rr[3] & 4) ? ' (stopped: out of supply)' : '';
+    return parts.join(', ') + idle;
+  }
+
   private productionLine(line: ProductionView, res: Resources): HTMLElement[] {
     const type = line.building === 'barracks' ? 'infantry' : 'tank';
     const stats = UNITS[type];
-    const add = el('button', { title: `${costText(stats.cost)} · ${stats.buildTime}s · size ${stats.batch}` }, [
-      `${line.building === 'barracks' ? 'Q' : 'E'} + ${type === 'tank' ? 'Tanks' : 'Infantry'}`,
+    const label = type === 'tank' ? 'Tanks' : 'Infantry';
+    const add = el('button', {}, [
+      `${line.building === 'barracks' ? 'Q' : 'E'} + ${label}`,
     ]) as HTMLButtonElement;
     add.disabled = line.queue.length >= 5;
-    if (!afford(res, stats.cost) && line.queue.length === 0) add.title += ' (not enough resources yet)';
     add.onclick = () => this.send({ o: 'produce', region: line.region, building: line.building });
-    const repeat = el('button', { title: 'Keep producing' }, [line.repeat ? 'Repeat: on' : 'Repeat: off']);
+    const repeat = el('button', {}, [line.repeat ? 'Repeat: on' : 'Repeat: off']);
     repeat.onclick = () => this.send({ o: 'repeat', region: line.region, building: line.building, on: !line.repeat });
-    const cancel = el('button', { title: 'Cancel the last order' }, ['X']) as HTMLButtonElement;
+    const cancel = el('button', {}, ['Cancel last']) as HTMLButtonElement;
     cancel.disabled = line.queue.length === 0;
     cancel.onclick = () => this.send({ o: 'cancel', region: line.region, building: line.building });
     const status = line.queue.length
@@ -1267,11 +1458,31 @@ export class GameScreen {
     return [
       el('div', { class: 'line' }, [`${line.building === 'barracks' ? 'Barracks' : 'Factory'}: ${status}`]),
       cellBar(Math.max(0, line.progress)),
+      // What one order costs, in plain sight (short resources in red).
+      el('div', { class: 'costline' }, [`${stats.batch} ${label.toLowerCase()}:`, costChips(stats.cost, res), `${stats.buildTime}s`]),
       el('div', { class: 'buttons' }, [add, repeat, cancel]),
     ];
   }
 }
 
+const HELP_FOLDED = 'openfork.helpFolded';
+
+/** localStorage, or nothing when it's blocked. */
+function stored(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function store(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // storage blocked: not remembered
+  }
+}
 
 function clock(t: number): string {
   return `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
@@ -1291,8 +1502,26 @@ function buildingIcon(kind: BuildingKind): string {
   return url;
 }
 
-function costText(cost: Resources): string {
-  return RESOURCES.filter((k) => cost[k] > 0)
-    .map((k) => `${RES_SHORT[k]}${cost[k]}`)
-    .join(' ');
+/** A cost as resource icons and amounts; what you can't pay yet is marked short. */
+function costChips(cost: Partial<Resources>, have?: Resources): HTMLElement {
+  return el(
+    'span',
+    { class: 'cost' },
+    RESOURCES.filter((k) => (cost[k] ?? 0) > 0).map((k) =>
+      el('span', { class: `chip${have && have[k] < (cost[k] ?? 0) ? ' short' : ''}` }, [el('img', { src: hudIcon(k), alt: k }), fmt(cost[k] ?? 0)]),
+    ),
+  );
+}
+
+/** A yield per second as resource icons: +0.4 per kind. */
+function yieldChips(y: Partial<Resources>): HTMLElement {
+  return el(
+    'span',
+    { class: 'cost gain' },
+    RESOURCES.filter((k) => (y[k] ?? 0) > 0).map((k) => el('span', { class: 'chip' }, [el('img', { src: hudIcon(k), alt: k }), `+${round1(y[k] ?? 0)}/s`])),
+  );
+}
+
+function round1(n: number): string {
+  return String(Math.round(n * 100) / 100);
 }

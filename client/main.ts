@@ -178,11 +178,7 @@ function renderLobbyBody(map: GameMap | null): void {
   for (let n = MIN_PLAYERS; n <= MAX_PLAYERS; n++) sizes.push([String(n), `${n} countries`]);
   // Pure PvP: the game has one country per person here, so the size setting doesn't apply.
   const pvp = s.difficulty === 'none';
-  const size = select('size', sizes);
-  if (pvp) {
-    (size as HTMLSelectElement).disabled = true;
-    size.title = 'Pure PvP: one country per person in the lobby';
-  }
+  const size = pvp ? el('span', {}, ['One per person (pure PvP)']) : select('size', sizes);
   settings.replaceChildren(
     el('span', {}, ['Map']),
     select('map', [['europe', 'Europe']]),

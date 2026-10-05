@@ -4,7 +4,6 @@
 import {
   type BotDifficulty,
   type BuildingKind,
-  BASE_YIELD,
   BROKE_LOSS,
   BROKE_TRAINING,
   BUILD_NEEDS,
@@ -12,9 +11,7 @@ import {
   buildCost,
   CAPTURE_DECAY,
   canBuildOn,
-  CITY_YIELD,
   ECON_KINDS,
-  econYield,
   type EconKind,
   FOUND_CITY_MIN_HOPS,
   HINTERLAND_HOPS,
@@ -28,6 +25,7 @@ import {
   supplyReach,
   CROSS_SECONDS,
   CUT_OFF_SECONDS,
+  DISBAND_REFUND,
   DAMAGE_RATE,
   DRILL_CAP,
   DRILL_RATE,
@@ -37,6 +35,7 @@ import {
   FORT_BONUS,
   FORT_MOVE_PENALTY,
   MAX_TRAINING,
+  MERGE_MIN_STRENGTH,
   MERGE_PENALTY,
   MIN_STRENGTH,
   OUT_OF_SUPPLY_LOSS,
@@ -44,6 +43,7 @@ import {
   PEACE_OFFER_SECONDS,
   type ProductionBuilding,
   REFILL_RATE,
+  regionYield,
   RESOURCES,
   type Resources,
   RETREAT_STRENGTH_LOSS,
@@ -59,7 +59,6 @@ import {
   TRAINING_DAMAGE,
   TRAINING_PROTECTION,
   TRUCE_SECONDS,
-  TRAIT_YIELD,
   type UnitType,
   UNITS,
   VETERANCY_RATE,
@@ -500,6 +499,8 @@ export class Sim {
       if (b.type !== into.type) return 'only units of the same type merge';
       if (b.region !== into.region || b.progress > 0 || into.progress > 0) return 'units must be in the same region';
     }
+    if (blobs.some((b) => this.inFight(b))) return 'units in a fight can\'t merge';
+    if (blobs.some((b) => b.strength < MERGE_MIN_STRENGTH * b.size)) return `units below ${MERGE_MIN_STRENGTH * 100}% strength can't merge`;
     const max = UNITS[into.type].maxSize;
     if (into.size >= max) return 'already full';
     for (const b of rest) {
@@ -520,6 +521,26 @@ export class Sim {
       if (b.size <= 0 || b.strength < MIN_STRENGTH) this.remove(b.id);
     }
     return null;
+  }
+
+  /** Disbands units, giving back part of the manpower their remaining strength cost. */
+  disband(playerId: number, blobIds: number[]): string | null {
+    const blobs = this.own(playerId, blobIds);
+    if (typeof blobs === 'string') return blobs;
+    if (blobs.some((b) => this.inFight(b))) return 'units in a fight can\'t disband';
+    const p = this.state.players[playerId];
+    for (const b of blobs) {
+      const stats = UNITS[b.type];
+      p.resources.manpower += (b.strength * stats.cost.manpower * DISBAND_REFUND) / stats.batch;
+      this.remove(b.id);
+    }
+    this.touch();
+    return null;
+  }
+
+  /** In a battle as of the last pass: dealing or taking damage. */
+  inFight(b: Blob): boolean {
+    return this.fighting.has(b.id);
   }
 
   /** Builds a region has: the one under way, then the ones waiting. */
@@ -715,6 +736,7 @@ export class Sim {
     this.updateSupply();
     this.moveBlobs(dt);
     const fighting = this.battles(dt);
+    this.fighting = fighting;
     this.captures(dt);
     this.economy(dt);
     this.blobUpkeep(dt, fighting);
@@ -954,6 +976,8 @@ export class Sim {
 
   /** Units attacking each region from next door, as of the last battle pass. */
   private attackers = new Map<number, Blob[]>();
+  /** Units that fought in the last battle pass. */
+  private fighting = new Set<number>();
 
   /** Someone attacks this region from next door. */
   private underAttack(region: number): boolean {
@@ -1043,12 +1067,7 @@ export class Sim {
     }
     this.state.regions.forEach((rs, i) => {
       if (rs.owner === NEUTRAL || !rs.supplied || this.hostileIn(i, rs.owner)) return;
-      const p = players[rs.owner];
-      const region = this.world.regions[i];
-      add(p.income, BASE_YIELD);
-      for (const t of region.traits) add(p.income, TRAIT_YIELD[t]);
-      for (const k of ECON_KINDS) if (rs.econ[k]) add(p.income, econYield(k, region), rs.econ[k]);
-      if (rs.city) add(p.income, CITY_YIELD, rs.city);
+      add(players[rs.owner].income, regionYield(this.world.regions[i], rs.city, rs.econ));
     });
     for (const b of this.state.blobs.values()) players[b.owner].upkeep += b.size * UNITS[b.type].upkeep;
     for (const p of players) {

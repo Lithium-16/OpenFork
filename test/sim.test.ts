@@ -2,10 +2,14 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
   buildCost,
+  CITY_YIELD,
   CROSS_SECONDS,
   CUT_OFF_SECONDS,
+  DISBAND_REFUND,
   DRILL_CAP,
+  econYield,
   ENTRENCH_SECONDS,
+  MERGE_MIN_STRENGTH,
   MERGE_PENALTY,
   RETREAT_STRENGTH_LOSS,
   START_INFANTRY,
@@ -462,6 +466,47 @@ describe('training, digging in, merging', () => {
     assert.match(s.merge(0, [big.id, c.id]) ?? '', /already full/);
   });
 
+  it('units in a fight, or below a quarter of their strength, do not merge', () => {
+    const s = duel();
+    clearBlobs(s);
+    s.declareWar(1, 0);
+    s.state.regions[2].owner = 0;
+    s.state.regions[3].owner = 1;
+    const a = place(s, 0, 'infantry', 2);
+    const b = place(s, 0, 'infantry', 2);
+    const enemy = place(s, 1, 'infantry', 2);
+    s.tick(0.1);
+    assert.ok(s.inFight(a));
+    assert.match(s.merge(0, [a.id, b.id]) ?? '', /in a fight/);
+    s.state.blobs.delete(enemy.id);
+    s.tick(0.1);
+    assert.ok(!s.inFight(a));
+    b.strength = b.size * (MERGE_MIN_STRENGTH - 0.01);
+    assert.match(s.merge(0, [a.id, b.id]) ?? '', /below 25%/);
+    b.strength = b.size * MERGE_MIN_STRENGTH;
+    assert.equal(s.merge(0, [a.id, b.id]), null);
+  });
+
+  it('disbanding gives back part of the manpower, never in a fight', () => {
+    const s = duel();
+    clearBlobs(s);
+    const p = s.state.players[0];
+    const a = place(s, 0, 'infantry', 0);
+    a.strength = a.size / 2;
+    const before = p.resources.manpower;
+    assert.equal(s.disband(0, [a.id]), null);
+    assert.ok(!s.state.blobs.has(a.id));
+    const refund = (a.strength * UNITS.infantry.cost.manpower * DISBAND_REFUND) / UNITS.infantry.batch;
+    assert.ok(Math.abs(p.resources.manpower - before - refund) < 1e-9);
+    s.declareWar(1, 0);
+    s.state.regions[2].owner = 0;
+    const b = place(s, 0, 'infantry', 2);
+    place(s, 1, 'infantry', 2);
+    s.tick(0.1);
+    assert.match(s.disband(0, [b.id]) ?? '', /in a fight/);
+    assert.match(s.disband(1, [b.id]) ?? '', /./, 'only your own units');
+  });
+
   it('only same-type blobs merge; split halves keep their training', () => {
     const s = duel();
     clearBlobs(s);
@@ -533,16 +578,26 @@ describe('supply', () => {
 });
 
 describe('economy', () => {
-  it('earns from regions and traits, and pays upkeep', () => {
-    const map = makeMap([{ traits: ['industry'] }, { traits: ['oil'] }], chain(2), [{ id: 'A', capital: 0 }]);
+  it('land yields nothing by itself: cities and buildings do, and traits make buildings better', () => {
+    const map = makeMap([{ traits: ['industry'] }, { traits: ['oil'] }, { terrain: 'hills' }], chain(3), [{ id: 'A', capital: 0 }]);
     const s = sim(map, ['A']);
     clearBlobs(s);
     const p = s.state.players[0];
-    const before = { ...p.resources };
-    run(s, 10);
-    assert.ok(p.resources.steel > before.steel);
-    assert.ok(p.resources.oil > before.oil);
-    assert.ok(p.resources.money > before.money);
+    const regions = s.state.regions;
+    regions[2].owner = 0;
+    s.tick(0.1);
+    // Only the capital's tax: no steel or oil from the industry and oil field alone.
+    assert.ok(Math.abs(p.income.money - CITY_YIELD.money * regions[0].city) < 1e-9);
+    assert.ok(Math.abs(p.income.manpower - CITY_YIELD.manpower * regions[0].city) < 1e-9);
+    assert.equal(p.income.steel, 0);
+    assert.equal(p.income.oil, 0);
+    regions[0].econ.mine = 1;
+    regions[1].econ.well = 1;
+    regions[2].econ.mine = 1;
+    s.tick(0.1);
+    assert.ok(Math.abs(p.income.steel - (econYield('mine', map.regions[0]).steel ?? 0) - (econYield('mine', map.regions[2]).steel ?? 0)) < 1e-9);
+    assert.ok((econYield('mine', map.regions[0]).steel ?? 0) > (econYield('mine', map.regions[2]).steel ?? 0));
+    assert.ok(p.income.oil > 0);
     place(s, 0, 'infantry', 0);
     s.tick(0.1);
     assert.ok(p.upkeep > 0);
@@ -697,7 +752,7 @@ describe('development', () => {
     s.build(0, 1, 'market');
     finish(s);
     assert.equal(s.state.regions[1].econ.market, 1);
-    assert.ok(Math.abs(s.state.players[0].income.money - before - 0.4) < 1e-9);
+    assert.ok(Math.abs(s.state.players[0].income.money - before - (econYield('market', s.world.regions[1]).money ?? 0)) < 1e-9);
   });
 
   it('expanding a city raises tax, slots, stack cap and supply reach; forts raise stack cap', () => {
@@ -709,7 +764,7 @@ describe('development', () => {
     finish(s);
     assert.equal(s.state.regions[0].city, START_CAPITAL_LEVEL + 1);
     assert.equal(s.stackCap(0), cap0 + 1);
-    assert.ok(Math.abs(p.income.money - money0 - 0.6) < 1e-9);
+    assert.ok(Math.abs(p.income.money - money0 - CITY_YIELD.money) < 1e-9);
     assert.equal(supplyReach(s.state.regions[0].city), supplyReach(START_CAPITAL_LEVEL) + 1);
     const cap1 = s.stackCap(1);
     s.build(0, 1, 'fort');

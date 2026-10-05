@@ -55,10 +55,12 @@
     <main id="game" class="screen hidden">
       <canvas id="map"></canvas>
       <div id="topbar" class="hud topbar"></div>
-      <div id="players" class="hud players"></div>
+      <div class="rightcol">
+        <div id="players" class="hud players"></div>
+        <div id="offers" class="hud offers hidden"></div>
+      </div>
       <div id="panel" class="hud panel hidden"></div>
       <div id="feed" class="hud feed"></div>
-      <div id="offers" class="hud offers hidden"></div>
       <div id="legend" class="hud legend hidden">
         <div class="classbar"><span>Supply</span><span>V</span></div>
         <div><i class="key in"></i>in supply <i class="key edge"></i>edge of reach <i class="key over"></i>overloaded <i class="key cut"></i>cut off</div>
@@ -71,11 +73,11 @@
         <canvas id="minimap"></canvas>
       </div>
       <div id="help" class="hud help">
-        <div class="classbar"><span>Controls</span></div>
+        <div class="classbar fold" id="help-fold"><span>Controls</span><span id="help-fold-label">Hide ▴</span></div>
         <div><b>LMB</b> select · <b>drag</b> box · <b>RMB</b> send · <b>RMB drag</b> pan · <b>wheel</b> zoom</div>
-        <div><b>click</b> stack: expand · <b>2×click</b> select stack · <b>X</b> split · <b>G</b> merge · <b>H</b> halt</div>
-        <div><b>1-9</b> build: click a region, roads: drag (<b>shift</b> more, <b>esc</b> stop) · <b>Q</b>/<b>E</b> produce</div>
-        <div><b>V</b> supply · <b>Space</b> capital · <b>M</b> mute · <b>Esc</b> menu</div>
+        <div><b>click</b> stack: expand · <b>2×click</b> select stack · <b>X</b> split · <b>G</b> merge · <b>H</b> halt · <b>Del</b> disband</div>
+        <div><b>1-9</b> build: click a region, roads: drag (<b>shift</b> more, <b>esc</b> stop) · <b>0</b> demolish · <b>Q</b>/<b>E</b> produce</div>
+        <div><b>V</b> supply · <b>B</b> yield · <b>Space</b> capital · <b>M</b> mute · <b>Esc</b> menu</div>
       </div>
       <div id="over" class="overlay hidden">
         <div class="card">
