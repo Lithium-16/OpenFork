@@ -409,29 +409,17 @@ button.primary:hover:not(:disabled) {
   padding: 2px 8px;
 }
 
-/* Resources and toggles: in the gap between the controls (left, 360px) and the ORBAT
- * (right, at most 300px), centred there; wraps onto more rows rather than overlap them. */
 .topbar {
   top: 10px;
-  left: 382px;
-  right: 322px;
-  margin: 0 auto;
-  width: fit-content;
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 6px 14px;
-  padding: 6px 12px;
+  gap: 18px;
+  padding: 6px 14px;
   align-items: center;
   white-space: nowrap;
-}
-
-.topbar .group {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  align-items: center;
-  gap: 6px 12px;
+  max-width: calc(100% - 20px);
+  overflow-x: auto;
 }
 
 .res {
@@ -480,7 +468,6 @@ button.primary:hover:not(:disabled) {
   right: 10px;
   padding: 0 0 6px;
   min-width: 210px;
-  max-width: 300px;
   max-height: 45vh;
   overflow: auto;
 }
@@ -490,12 +477,6 @@ button.primary:hover:not(:disabled) {
   gap: 8px;
   align-items: center;
   padding: 2px 10px;
-}
-
-.players .name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .players .p.dead {
@@ -963,7 +944,7 @@ button.primary:hover:not(:disabled) {
     top: auto;
     bottom: 10px;
     left: 10px;
-    right: 10px;
+    transform: none;
   }
   .feed,
   .minimap {

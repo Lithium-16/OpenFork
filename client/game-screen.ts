@@ -958,6 +958,7 @@ export class GameScreen {
     supply.onclick = () => this.setOverlay(!this.view.overlay);
     const yields = el('button', { class: `toggle${this.view.yields ? ' on' : ''}` }, ['Yield', el('small', {}, ['B'])]);
     yields.onclick = () => this.setYields(!this.view.yields);
+    parts.push(supply, yields);
     const sound = el('button', { class: `toggle${this.sfx.muted ? '' : ' on'}` }, [this.sfx.muted ? 'Muted' : 'Sound', el('small', {}, ['M'])]);
     sound.onclick = () => this.setMuted(!this.sfx.muted);
     const fx = el('button', { class: `toggle${this.view.fx.level === 'full' ? ' on' : ''}` }, [this.view.fx.level === 'full' ? 'FX' : 'FX low']);
@@ -965,9 +966,9 @@ export class GameScreen {
       this.fxChosen = true;
       this.setEffects(this.view.fx.level === 'full' ? 'reduced' : 'full');
     };
-    // Two groups, so a narrow screen breaks the bar between resources and buttons.
-    const controls = el('span', { class: 'group' }, [supply, yields, sound, fx, menu, el('span', { class: 'clock' }, [t])]);
-    $('#topbar').replaceChildren(el('span', { class: 'group' }, parts), controls);
+    parts.push(sound, fx, menu);
+    parts.push(el('span', { class: 'clock' }, [t]));
+    $('#topbar').replaceChildren(...parts);
   }
 
   private renderPlayers(): void {
@@ -997,7 +998,7 @@ export class GameScreen {
         const rel = war ? el('span', { class: 'tag war' }, [pending ? '[WAR · OFFERED]' : '[WAR]']) : truce > 0 ? el('span', { class: 'tag truce' }, [`[TRUCE ${truce}s]`]) : '';
         return el('div', { class: `p${row.alive ? '' : ' dead'}` }, [
           el('span', { class: 'swatch', style: `background:${p.color}` }),
-          el('span', { class: 'name' }, [p.name.replace(/ \(bot\)$/, '')]),
+          el('span', {}, [p.name.replace(/ \(bot\)$/, '')]),
           el('span', { class: 'tag' }, [tag]),
           rel,
           el('span', { class: 'num' }, [`${regions.get(p.id) ?? 0}`]),
