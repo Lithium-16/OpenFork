@@ -654,7 +654,7 @@ export class MapView {
     if (snap === this.developSnap) return;
     this.developSnap = snap;
     let key = `${snap.roads.length}|`;
-    for (const r of snap.regions) key += `${r[2]}${r[9]}${r[10]}${r[11]}${r[12]},`;
+    for (const r of snap.regions) key += `${r[2]}${r[9]}${r[10]}${r[11]}${r[12]}${r[14]},`;
     if (key === this.developKey) return;
     this.developKey = key;
     const ctx = this.developLayer.getContext('2d') as CanvasRenderingContext2D;
@@ -684,6 +684,7 @@ export class MapView {
       for (let k = 0; k < r[10]; k++) sprites.push(MAP_ART.mine);
       for (let k = 0; k < r[11]; k++) sprites.push(MAP_ART.well);
       for (let k = 0; k < r[12]; k++) sprites.push(MAP_ART.market);
+      for (let k = 0; k < r[14]; k++) sprites.push(MAP_ART.lab);
       if (sprites.length) {
         const spots = this.spotsIn(i);
         sprites.forEach((sprite, k) => {
@@ -781,8 +782,8 @@ export class MapView {
   /** Where a building of this kind in this region stands (or will), in map pixels. */
   private siteOf(region: number, kind: BuildingKind, row: Snapshot['regions'][number], done: boolean): [number, number] {
     const r = this.map.regions[region];
-    if (kind === 'farm' || kind === 'mine' || kind === 'well' || kind === 'market') {
-      const n = row[9] + row[10] + row[11] + row[12] - (done ? 1 : 0);
+    if (kind === 'farm' || kind === 'mine' || kind === 'well' || kind === 'market' || kind === 'lab') {
+      const n = row[9] + row[10] + row[11] + row[12] + row[14] - (done ? 1 : 0);
       const spot = this.spotsIn(region)[Math.max(0, n)];
       if (spot) return [spot[0] + 1, spot[1]];
     }
@@ -791,7 +792,7 @@ export class MapView {
       return [tx + 7, ty - 4];
     }
     // Forts, barracks, factories, roads: the next free spot, clear of the unit tokens.
-    const spot = this.spotsIn(region)[row[9] + row[10] + row[11] + row[12]];
+    const spot = this.spotsIn(region)[row[9] + row[10] + row[11] + row[12] + row[14]];
     return spot ? [spot[0] + 1, spot[1]] : [r.x + 9, r.y - 8];
   }
 
@@ -1178,7 +1179,7 @@ export class MapView {
       // slots as boxes, filled when used, hollow green when free (yield overlay and placement).
       const slots = this.slots?.get(region.id);
       if (you !== null && rr[0] === you && zoom >= 0.5 && (this.yields || slots)) {
-        const econ = { farm: rr[9], mine: rr[10], well: rr[11], market: rr[12] };
+        const econ = { farm: rr[9], mine: rr[10], well: rr[11], market: rr[12], lab: rr[14] };
         const y0 = regionYield(region, rr[2], econ, snap.players[you]?.techs);
         const parts = this.yields ? RESOURCES.filter((k) => y0[k] > 0).map((k) => ({ k, text: `+${Math.round(y0[k] * 10) / 10}` })) : [];
         const is = Math.max(2, ipx);

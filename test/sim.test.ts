@@ -982,20 +982,40 @@ describe('storage', () => {
 });
 
 describe('research', () => {
-  it('one tech at a time, each after the one before it, paid up front', () => {
+  it('one tech at a time, each after its parent, paid in research points as they come', () => {
     const s = duel();
     rich(s);
     const p = s.state.players[0];
+    p.resources.research = 0;
     assert.match(s.research(0, 'trenches') ?? '', /needs Rifles/);
-    const money = p.resources.money;
     assert.equal(s.research(0, 'rifles'), null);
-    assert.equal(p.resources.money, money - techCost(1).cost.money);
     assert.match(s.research(0, 'farming') ?? '', /already researching/);
-    run(s, techCost(1).seconds + 0.5);
+    // Only what the capital makes: slow.
+    run(s, 10);
+    assert.ok(p.research && p.research.paid > 0 && p.research.paid < techCost(1));
+    // A stock of points finishes it at once.
+    p.resources.research = techCost(1);
+    s.tick(0.1);
     assert.deepEqual(p.techs, ['rifles']);
     assert.equal(s.research(0, 'trenches'), null);
+    s.tick(0.1);
+    const paid = p.research?.paid ?? 0;
+    const stock = p.resources.research;
     assert.equal(s.unresearch(0), null);
     assert.equal(p.research, null);
+    assert.ok(Math.abs(p.resources.research - stock - paid) < 1e-9, 'points paid in come back');
+  });
+
+  it('labs make research points, in cities only', () => {
+    const s = duel();
+    rich(s);
+    s.tick(0.1);
+    const before = s.state.players[0].income.research;
+    assert.match(s.build(0, 1, 'lab') ?? '', /needs a city/);
+    assert.equal(s.build(0, 0, 'lab'), null);
+    run(s, buildCost('lab').seconds + 1);
+    assert.equal(s.state.regions[0].econ.lab, 1);
+    assert.ok(Math.abs(s.state.players[0].income.research - before - (econYield('lab', s.world.regions[0]).research ?? 0)) < 1e-9);
   });
 
   it('techs change the numbers: rifles hit harder, warehouses store more, long guns reach further', () => {
@@ -1018,5 +1038,19 @@ describe('research', () => {
     s.tick(0.1);
     assert.equal(s.state.players[0].cap.money, cap * 1.5);
     assert.equal(unitStats('artillery', ['shells', 'rangefinders', 'longGuns']).range, 3);
+  });
+});
+
+describe('tanks need research', () => {
+  it('a factory makes tanks only after Tanks is researched', () => {
+    const s = duel();
+    rich(s);
+    s.state.regions[0].factory = true;
+    assert.match(s.produce(0, 0, 'factory', 'tank') ?? '', /research Tanks first/);
+    assert.equal(s.produce(0, 0, 'factory'), null, 'unspecified: artillery, which needs nothing');
+    assert.deepEqual(s.state.regions[0].production.factory.queue, ['artillery']);
+    s.state.players[0].techs = ['tanks'];
+    assert.equal(s.produce(0, 0, 'factory', 'tank'), null);
+    assert.equal(s.research(0, 'engines'), null, 'and Engines opens up');
   });
 });

@@ -18,8 +18,6 @@ import {
   type Opportunism,
   RESOURCES,
   type TechId,
-  TECHS,
-  techCost,
   whyNotResearch,
   UNITS,
 } from '../../shared/rules.ts';
@@ -59,8 +57,8 @@ const STYLES: Record<BotDifficulty, Style> = {
 };
 
 /** What bots research, in order: armies first for the ones that make tanks, else the economy. */
-const RESEARCH_MILITARY: TechId[] = ['rifles', 'farming', 'warehouses', 'trenches', 'shells', 'industry', 'engines', 'railways', 'armour', 'fuel', 'rangefinders', 'banking', 'conscription', 'longGuns', 'kitchens'];
-const RESEARCH_ECONOMY: TechId[] = ['farming', 'warehouses', 'rifles', 'industry', 'trenches', 'railways', 'banking', 'kitchens', 'conscription', 'shells', 'engines', 'armour', 'rangefinders', 'fuel', 'longGuns'];
+const RESEARCH_MILITARY: TechId[] = ['tanks', 'rifles', 'farming', 'warehouses', 'trenches', 'shells', 'industry', 'engines', 'railways', 'armour', 'fuel', 'rangefinders', 'banking', 'conscription', 'longGuns', 'kitchens'];
+const RESEARCH_ECONOMY: TechId[] = ['farming', 'warehouses', 'rifles', 'industry', 'trenches', 'railways', 'banking', 'kitchens', 'conscription', 'shells', 'tanks', 'engines', 'armour', 'rangefinders', 'fuel', 'longGuns'];
 
 export class Bot {
   readonly player: number;
@@ -189,14 +187,23 @@ export class Bot {
     const regions = sim.state.regions;
     const mine = regions.flatMap((rs, i) => (rs.owner === this.player ? [i] : []));
 
+    // Research: always the next tech on our list (it costs research points, paid as they come).
+    if (!me.research) {
+      const order = this.style.tanks ? RESEARCH_MILITARY : RESEARCH_ECONOMY;
+      const tech = order.find((t) => whyNotResearch(t, me.techs) === null);
+      if (tech) sim.research(this.player, tech);
+    }
+
     for (const r of mine) {
       if (this.style.defensive) break; // no new units
       const rs = regions[r];
       if (rs.barracks && rs.production.barracks.queue.length === 0) sim.produce(this.player, r, 'barracks');
       if (this.style.tanks && rs.factory && rs.production.factory.queue.length === 0) {
-        // At war, about every other order is guns.
-        const guns = this.enemies(sim).length > 0 && this.random() < 0.45;
-        sim.produce(this.player, r, 'factory', guns ? 'artillery' : 'tank');
+        // Tanks once researched (at war, about every other order is guns); until then guns,
+        // and only at war, so peacetime money goes to researching Tanks.
+        const war = this.enemies(sim).length > 0;
+        const tanks = me.techs.includes('tanks');
+        if (tanks || war) sim.produce(this.player, r, 'factory', !tanks || (war && this.random() < 0.45) ? 'artillery' : 'tank');
       }
     }
 
@@ -230,15 +237,6 @@ export class Bot {
       if (site !== undefined && sim.build(this.player, site, 'barracks') === null) return;
     }
 
-    // Research: the next tech on our list we can afford with money to spare.
-    if (!me.research) {
-      const order = this.style.tanks ? RESEARCH_MILITARY : RESEARCH_ECONOMY;
-      const tech = order.find((t) => whyNotResearch(t, me.techs) === null);
-      const tier = TECHS.find((t) => t.id === tech)?.tier ?? 1;
-      const { cost } = techCost(tier);
-      if (tech && me.resources.money >= cost.money + this.style.reserve && me.resources.steel >= cost.steel) sim.research(this.player, tech);
-    }
-
     // Stores nearly full: a depot (one at a time), as far from the front as we can find.
     const full = RESOURCES.some((k) => me.cap[k] > 0 && me.resources[k] >= 0.85 * me.cap[k]);
     const depotUnderWay = mine.some((r) => sim.pending(regions[r]).some((c) => c.kind === 'depot'));
@@ -247,6 +245,14 @@ export class Bot {
       const pick = [...cities.filter((r) => sites.includes(r)), ...sites].slice(0, 8);
       const site = pick.sort((a, b) => this.frontDistance(sim, b) - this.frontDistance(sim, a))[0];
       if (site !== undefined && sim.build(this.player, site, 'depot') === null) return;
+    }
+
+    // Labs: one per three cities, three at most, when there's money to spare for one.
+    const labs = mine.reduce((n, r) => n + regions[r].econ.lab + sim.pending(regions[r]).filter((c) => c.kind === 'lab').length, 0);
+    const labCost = buildCost('lab').cost;
+    if (labs < Math.min(3, 1 + Math.floor(cities.length / 3)) && me.resources.money >= 3 * labCost.money && me.resources.steel >= labCost.steel) {
+      const site = cities.find((r) => can(r, 'lab'));
+      if (site !== undefined && sim.build(this.player, site, 'lab') === null) return;
     }
 
     if (this.random() >= this.style.develop) return;
@@ -321,6 +327,7 @@ export class Bot {
     const options: Array<{ r: number; kind: EconKind; score: number }> = [];
     for (const r of mine) {
       for (const kind of ECON_KINDS) {
+        if (kind === 'lab') continue; // labs have their own rule (see economy)
         if (sim.whyNotBuild(this.player, r, kind) !== null) continue;
         const t = sim.world.regions[r].traits;
         let score = this.random();
@@ -331,7 +338,7 @@ export class Bot {
           if (kind === 'farm' && t.includes('farmland')) score += 1.5;
           if (kind === 'well' && this.style.tanks) score += 1;
           // Nothing more of what's piling up unspent.
-          const pile = { farm: me.resources.manpower > 600, mine: me.resources.steel > 400, well: me.resources.oil > 300, market: me.resources.money > 1500 };
+          const pile = { farm: me.resources.manpower > 600, mine: me.resources.steel > 400, well: me.resources.oil > 300, market: me.resources.money > 1500, lab: false };
           if (pile[kind]) score -= 3;
           // Not right on a front line.
           if (this.threat(sim, r) > 0) score -= 2;
