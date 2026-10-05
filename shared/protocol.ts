@@ -3,6 +3,7 @@ import type {
   BotSetting,
   BuildingKind,
   ProductionBuilding,
+  Resources,
   StartingResources,
   UnitType,
 } from './rules.ts';
@@ -89,8 +90,8 @@ export type BlobRow = [number, number, number, number, number, number, number, n
 
 /** One region: [owner, fort, city level, flags (1 barracks, 2 factory, 4 supplied), capture
  * by or -1, capture progress 0..1, construction kind index or -1, construction progress 0..1,
- * construction target (a road's other end) or -1, farms, mines, oil wells, markets]. */
-export type RegionRow = [number, number, number, number, number, number, number, number, number, number, number, number, number];
+ * construction target (a road's other end) or -1, farms, mines, oil wells, markets, depots]. */
+export type RegionRow = [number, number, number, number, number, number, number, number, number, number, number, number, number, number];
 
 export interface PlayerRow {
   alive: boolean;
@@ -98,6 +99,8 @@ export interface PlayerRow {
   res: [number, number, number, number];
   income: [number, number, number, number];
   upkeep: number;
+  /** Most it can stockpile: money, manpower, steel, oil. */
+  cap: [number, number, number, number];
   broke: boolean;
   bot: boolean;
 }
@@ -119,6 +122,7 @@ export type GameEvent =
   | { kind: 'peaceRefused'; from: number; to: number }
   | { kind: 'battle'; region: number; sides: number[] }
   | { kind: 'captured'; region: number; by: number; from: number }
+  | { kind: 'looted'; region: number; by: number; from: number; got: Resources }
   | { kind: 'built'; region: number; owner: number; building: BuildingKind; level: number }
   | { kind: 'produced'; region: number; owner: number; type: UnitType }
   | { kind: 'eliminated'; player: number; by: number; surrendered?: boolean }

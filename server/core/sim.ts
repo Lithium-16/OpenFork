@@ -52,6 +52,7 @@ import {
   RIVER_BONUS,
   START_EXTRA_REGIONS,
   START_INFANTRY,
+  storeOf,
   STARTING,
   STARTING_MULTIPLIER,
   type StartingResources,
@@ -142,6 +143,7 @@ export class Sim {
         },
         broke: false,
         income: zero(),
+        cap: zero(),
         upkeep: 0,
       };
       this.state.players.push(player);
@@ -556,7 +558,7 @@ export class Sim {
 
   /** Slots taken in a region, counting builds under way and waiting. */
   slotsUsed(rs: RegionState): number {
-    let n = ECON_KINDS.reduce((sum, k) => sum + rs.econ[k], 0) + (rs.fort > 0 ? 1 : 0) + (rs.barracks ? 1 : 0) + (rs.factory ? 1 : 0);
+    let n = ECON_KINDS.reduce((sum, k) => sum + rs.econ[k], 0) + (rs.fort > 0 ? 1 : 0) + (rs.barracks ? 1 : 0) + (rs.factory ? 1 : 0) + rs.depots;
     let fortPending = rs.fort > 0;
     for (const c of this.pending(rs)) {
       if (c.kind === 'fort') {
@@ -693,6 +695,9 @@ export class Sim {
       if (!rs[kind]) return `no ${kind} here`;
       rs[kind] = false;
       rs.production[kind] = emptyLine();
+    } else if (kind === 'depot') {
+      if (rs.depots <= 0) return 'no depot here';
+      rs.depots--;
     } else return `a ${kind} can't be demolished`;
     return null;
   }
@@ -1081,12 +1086,49 @@ export class Sim {
       if (rs.capture.progress >= 1) {
         const from = rs.owner;
         if (from !== NEUTRAL) this.state.warActivity.set(pairKey(by, from), this.state.time);
+        // A city or depot: its share of the loser's stock goes with it.
+        const got = from !== NEUTRAL ? this.loot(i, from) : null;
         this.setOwner(i, by);
         this.events.push({ kind: 'captured', region: i, by, from });
+        if (got) {
+          const p = this.state.players[by];
+          this.updateCaps();
+          for (const k of RESOURCES) {
+            got[k] = Math.max(0, Math.min(got[k], p.cap[k] - p.resources[k]));
+            p.resources[k] += got[k];
+          }
+          this.events.push({ kind: 'looted', region: i, by, from, got });
+        }
         const lost = this.state.players.find((p) => p.alive && p.capital === i && p.id !== by);
         if (lost) this.eliminate(lost.id, by);
       }
     });
+  }
+
+  /** Sets every player's storage size from the cities and depots they hold. */
+  private updateCaps(): void {
+    for (const p of this.state.players) p.cap = zero();
+    this.state.regions.forEach((rs) => {
+      if (rs.owner === NEUTRAL || (!rs.city && !rs.depots)) return;
+      add(this.state.players[rs.owner].cap, storeOf(rs.city, rs.depots));
+    });
+  }
+
+  /** Takes a region's share of its owner's stock (what its city and depots hold, out of all
+   * their storage), or null if it stores nothing. */
+  private loot(region: number, from: number): Resources | null {
+    const rs = this.state.regions[region];
+    if (!rs.city && !rs.depots) return null;
+    this.updateCaps();
+    const p = this.state.players[from];
+    const here = storeOf(rs.city, rs.depots);
+    const got = zero();
+    for (const k of RESOURCES) {
+      if (p.cap[k] <= 0) continue;
+      got[k] = p.resources[k] * Math.min(1, here[k] / p.cap[k]);
+      p.resources[k] -= got[k];
+    }
+    return got;
   }
 
   /** Hands a region over. Buildings stay; queued work belonged to the old owner. */
@@ -1139,9 +1181,12 @@ export class Sim {
       add(players[rs.owner].income, regionYield(this.world.regions[i], rs.city, rs.econ));
     });
     for (const b of this.state.blobs.values()) players[b.owner].upkeep += b.size * UNITS[b.type].upkeep;
+    this.updateCaps();
     for (const p of players) {
       if (!p.alive) continue;
-      for (const k of RESOURCES) p.resources[k] += p.income[k] * dt;
+      // Income fills the stores up to their size; the rest is lost (a stock already over the
+      // size, after losing a depot, stays but doesn't grow).
+      for (const k of RESOURCES) p.resources[k] = Math.max(p.resources[k], Math.min(p.cap[k], p.resources[k] + p.income[k] * dt));
       p.resources.money -= p.upkeep * dt;
       p.broke = p.resources.money < 0;
       if (p.broke) p.resources.money = 0;
@@ -1163,6 +1208,7 @@ export class Sim {
     if (c.kind === 'fort') rs.fort = c.level;
     else if (c.kind === 'city') rs.city = c.level;
     else if (c.kind === 'barracks' || c.kind === 'factory') rs[c.kind] = true;
+    else if (c.kind === 'depot') rs.depots++;
     else if (c.kind === 'road') {
       // The other end changed hands meanwhile: give the money back instead.
       if (this.state.regions[c.target].owner !== rs.owner) {

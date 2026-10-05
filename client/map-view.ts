@@ -1135,6 +1135,7 @@ export class MapView {
       if (rr[1] > 0) icons.push({ s: ICONS.fort, level: rr[1] });
       if (rr[3] & 1) icons.push({ s: ICONS.barracks });
       if (rr[3] & 2) icons.push({ s: ICONS.factory });
+      if (rr[13] > 0) icons.push({ s: ICONS.depot, level: rr[13] > 1 ? rr[13] : undefined });
       const showIcons = icons.length > 0 && zoom >= 0.5;
       const iconBottom = y + tokenTop - 2;
       if (showIcons) {

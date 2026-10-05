@@ -24,6 +24,9 @@ import {
   stackCap,
   supplyCapacity,
   supplyReach,
+  STORE_PER_CITY_LEVEL,
+  STORE_PER_DEPOT,
+  storeOf,
   UNITS,
   type UnitType,
   unitsOf,
@@ -45,15 +48,18 @@ const BUILD_LABEL: Record<BuildingKind, string> = {
   barracks: 'Barracks',
   factory: 'Factory',
   road: 'Road',
+  depot: 'Depot',
 };
-/** The build bar, in groups; hotkeys 1-9 follow this order. */
+/** The build bar, in groups; hotkeys 1-9 then - follow this order. */
 const BAR: Array<{ group: string; kinds: BuildingKind[] }> = [
   { group: 'Economy', kinds: ['farm', 'mine', 'well', 'market'] },
   { group: 'City', kinds: ['city'] },
   { group: 'Military', kinds: ['fort', 'barracks', 'factory'] },
-  { group: 'Logistics', kinds: ['road'] },
+  { group: 'Logistics', kinds: ['road', 'depot'] },
 ];
 const HOTKEYS: BuildingKind[] = BAR.flatMap((g) => g.kinds);
+/** The key for each of HOTKEYS. */
+const HOTKEY_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '-'];
 /** Region row fields of the economic buildings. */
 const ECON_FIELD: Record<EconKind, number> = { farm: 9, mine: 10, well: 11, market: 12 };
 const UNIT_NAME: Record<UnitType, string> = { infantry: 'Infantry', tank: 'Tanks', artillery: 'Artillery' };
@@ -75,6 +81,7 @@ const BUILD_HELP: Record<BuildingKind, string> = {
   barracks: 'Barracks: trains infantry (Q). In a city.',
   factory: 'Factory: builds tanks (E). In a city.',
   road: 'Road: drag across your regions. Crossing is faster and supply reaches further.',
+  depot: `Depot: stores ${STORE_PER_DEPOT.money} more money and manpower, ${STORE_PER_DEPOT.steel} more steel and oil (cities store ${STORE_PER_CITY_LEVEL.money} / ${STORE_PER_CITY_LEVEL.steel} per level). Anywhere you own; if it's taken, the enemy takes its share of your stock.`,
 };
 
 export class GameScreen {
@@ -652,6 +659,8 @@ export class GameScreen {
       this.setDemolishing(!this.demolishing);
     } else if (k >= '1' && k <= '9' && k.length === 1) {
       this.setPlacing(HOTKEYS[Number(k) - 1]);
+    } else if (k === '-') {
+      this.setPlacing(HOTKEYS[HOTKEY_KEYS.indexOf('-')]);
     } else if (k === 'q' && this.region >= 0) {
       this.send({ o: 'produce', region: this.region, building: 'barracks' });
     } else if (k === 'e' && this.region >= 0) {
@@ -712,6 +721,7 @@ export class GameScreen {
     if (kind === 'fort') return rr[1] > 0 ? null : 'no fort here';
     if (kind === 'barracks') return rr[3] & 1 ? null : 'no barracks here';
     if (kind === 'factory') return rr[3] & 2 ? null : 'no factory here';
+    if (kind === 'depot') return rr[13] > 0 ? null : 'no depot here';
     return `a ${label} can't be demolished`;
   }
 
@@ -795,7 +805,7 @@ export class GameScreen {
   /** Slots taken in a region, counting builds under way and waiting (mirrors Sim.slotsUsed). */
   private slotsUsed(region: number): number {
     const rr = (this.snap as Snapshot).regions[region];
-    let n = rr[9] + rr[10] + rr[11] + rr[12] + (rr[1] > 0 ? 1 : 0) + (rr[3] & 1 ? 1 : 0) + (rr[3] & 2 ? 1 : 0);
+    let n = rr[9] + rr[10] + rr[11] + rr[12] + rr[13] + (rr[1] > 0 ? 1 : 0) + (rr[3] & 1 ? 1 : 0) + (rr[3] & 2 ? 1 : 0);
     let fort = rr[1] > 0;
     for (const [kind] of this.pending(region)) {
       if (kind === 'fort') {
@@ -951,7 +961,7 @@ export class GameScreen {
       const poor = !wreck && !maxed && allowed && !afford(res, cost);
       // What one more of it yields: exact for the region under the cursor, else the plain rate.
       const gain = !wreck && ECON_KINDS.includes(kind as EconKind) ? econYield(kind as EconKind, mine >= 0 ? this.map.regions[mine] : PLAIN_REGION, mine >= 0 ? snap.regions[mine][2] : 0) : null;
-      return { kind, n: HOTKEYS.indexOf(kind) + 1, name, note, cost, seconds, gain, poor, off: wreck && fixed };
+      return { kind, n: HOTKEY_KEYS[HOTKEYS.indexOf(kind)] ?? '', name, note, cost, seconds, gain, poor, off: wreck && fixed };
     };
     const groups = BAR.map((g) => ({ group: g.group, cells: g.kinds.map(cell) }));
     const slots = mine >= 0 ? `${this.map.regions[mine].name}: slots ${this.slotsUsed(mine)}/${slotsOf(this.map.regions[mine], snap.regions[mine][2])}` : '';
@@ -994,7 +1004,7 @@ export class GameScreen {
               g.cells.map((c) =>
                 el('button', { class: `slot${this.placing === c.kind ? ' active' : ''}${c.poor ? ' poor' : ''}${c.off ? ' off' : ''}`, 'data-kind': c.kind }, [
                   el('img', { src: buildingIcon(c.kind), alt: '' }),
-                  el('span', { class: 'name' }, [el('b', {}, [String(c.n)]), ` ${c.name}`]),
+                  el('span', { class: 'name' }, [el('b', {}, [c.n]), ` ${c.name}`]),
                   c.note ? el('span', { class: 'price' }, [c.note]) : costChips(c.cost, res),
                   wreck ? '' : el('span', { class: 'gives' }, [...(c.gain ? [yieldChips(c.gain), ' · '] : []), `${c.seconds}s`]),
                 ]),
@@ -1085,10 +1095,13 @@ export class GameScreen {
     const parts: HTMLElement[] = RESOURCES.map((k, i) => {
       let rate = p.income[i];
       if (k === 'money') rate -= p.upkeep;
-      return el('span', { class: 'res' }, [
+      // A thin gauge under the number: how full the stores are (orange and FULL near the top).
+      const fill = p.cap[i] > 0 ? Math.min(1, p.res[i] / p.cap[i]) : 1;
+      const full = fill >= 0.95;
+      return el('span', { class: `res${full ? ' full' : ''}` }, [
         el('img', { src: hudIcon(k), alt: k }),
-        el('b', {}, [fmt(p.res[i])]),
-        el('small', { class: rate < 0 ? 'neg' : '' }, [`${rate >= 0 ? '+' : ''}${rate.toFixed(1)}/s`]),
+        el('span', { class: 'stock' }, [el('b', {}, [fmt(p.res[i])]), el('i', { class: 'gauge' }, [el('i', { style: `width:${Math.round(fill * 100)}%` })])]),
+        el('small', { class: rate < 0 ? 'neg' : '' }, [full && rate > 0 ? `FULL ${fmt(p.cap[i])}` : `${rate >= 0 ? '+' : ''}${rate.toFixed(1)}/s`]),
       ]);
     });
     if (p.broke) parts.push(el('span', { class: 'broke' }, ['BROKE: UNITS WITHERING']));
@@ -1186,6 +1199,12 @@ export class GameScreen {
           text = `${name(e.by)} took ${region(e.region)}${e.from >= 0 ? ` from ${name(e.from)}` : ''}`;
         }
         break;
+      case 'looted': {
+        const what = RESOURCES.filter((k) => e.got[k] >= 1).map((k) => `${Math.floor(e.got[k])} ${k}`).join(', ');
+        if (what && e.by === this.you) text = `Seized ${what} in ${region(e.region)}`;
+        else if (what && e.from === this.you) text = `Lost ${what} with ${region(e.region)}`;
+        break;
+      }
       case 'built':
         if (e.owner === this.you) text = `${BUILD_LABEL[e.building]}${e.level > 1 ? ` ${e.level}` : ''} finished at ${region(e.region)}`;
         break;
@@ -1376,11 +1395,12 @@ export class GameScreen {
     const here = snap.blobs.filter((b) => b[6] === region.id && b[8] === 0);
     // The stack cap counts every token in the region, moving out or waiting included.
     const myCount = snap.blobs.filter((b) => b[6] === region.id && b[1] === this.you).length;
-    const used = rr[9] + rr[10] + rr[11] + rr[12] + (rr[1] > 0 ? 1 : 0) + (rr[3] & 1 ? 1 : 0) + (rr[3] & 2 ? 1 : 0);
+    const used = rr[9] + rr[10] + rr[11] + rr[12] + rr[13] + (rr[1] > 0 ? 1 : 0) + (rr[3] & 1 ? 1 : 0) + (rr[3] & 2 ? 1 : 0);
     const info: Array<[string, string]> = [
       ['Owner', owner >= 0 ? (this.players[owner]?.name ?? '?') : 'Neutral'],
       ['City', rr[2] > 0 ? `level ${rr[2]} / ${MAX_CITY} · supplies ${supplyReach(rr[2])} regions out` : 'none'],
       ['Produces', this.yieldLine(region, rr)],
+      ...(rr[2] > 0 || rr[13] > 0 ? [['Stores', storeText(storeOf(rr[2], rr[13]))] as [string, string]] : []),
       ['Slots', `${used} / ${slotsOf(region, rr[2])} built`],
       ['Fort', `${rr[1]} / ${MAX_FORT}`],
       ['Supply', owner >= 0 ? this.supplyLine(region.id) : '—'],
@@ -1401,6 +1421,7 @@ export class GameScreen {
       if (rr[1] > 0) built.push(['fort', `Fort ${rr[1]}`]);
       if (rr[3] & 1) built.push(['barracks', 'Barracks']);
       if (rr[3] & 2) built.push(['factory', 'Factory']);
+      for (let i = 0; i < rr[13]; i++) built.push(['depot', 'Depot']);
       const knock = (kind: BuildingKind) =>
         el('button', { class: 'x', 'data-act': 'demolish', 'data-region': String(region.id), 'data-kind': kind }, ['Demolish']);
       if (built.length) {
@@ -1528,6 +1549,11 @@ function yieldChips(y: Partial<Resources>): HTMLElement {
     { class: 'cost gain' },
     RESOURCES.filter((k) => (y[k] ?? 0) > 0).map((k) => el('span', { class: 'chip' }, [el('img', { src: hudIcon(k), alt: k }), `+${round1(y[k] ?? 0)}/s`])),
   );
+}
+
+/** What a region stores, short: $1000 · 1000 manpower · 500 steel · 500 oil. */
+function storeText(s: Resources): string {
+  return `$${s.money} · ${s.manpower} manpower · ${s.steel} steel · ${s.oil} oil (taken with it)`;
 }
 
 function round1(n: number): string {

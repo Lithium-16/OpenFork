@@ -1,6 +1,6 @@
 // Small hand-made maps for the simulation tests.
 import type { Country, GameMap, Region, RegionSize, Terrain, Trait } from '../shared/map.ts';
-import type { BotDifficulty } from '../shared/rules.ts';
+import type { BotDifficulty, UnitType } from '../shared/rules.ts';
 import { type PlayerSetup, Sim } from '../server/core/sim.ts';
 import { World } from '../server/core/world.ts';
 
@@ -77,7 +77,7 @@ export function clearBlobs(s: Sim): void {
   s.state.blobs.clear();
 }
 
-export function place(s: Sim, owner: number, type: 'infantry' | 'tank', region: number, strength?: number) {
+export function place(s: Sim, owner: number, type: UnitType, region: number, strength?: number) {
   const b = s.spawn(owner, type, region);
   if (strength !== undefined) {
     b.size = Math.max(b.size, strength);

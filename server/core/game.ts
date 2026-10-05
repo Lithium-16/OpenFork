@@ -181,6 +181,7 @@ export class Game {
       res: [round(p.resources.money, 1), round(p.resources.manpower, 1), round(p.resources.steel, 1), round(p.resources.oil, 1)],
       income: [round(p.income.money, 2), round(p.income.manpower, 2), round(p.income.steel, 2), round(p.income.oil, 2)],
       upkeep: round(p.upkeep, 2),
+      cap: [Math.round(p.cap.money), Math.round(p.cap.manpower), Math.round(p.cap.steel), Math.round(p.cap.oil)],
       broke: p.broke,
       bot: p.control === 'bot',
     }));
@@ -198,6 +199,7 @@ export class Game {
       r.econ.mine,
       r.econ.well,
       r.econ.market,
+      r.depots,
     ]);
     const blobs: BlobRow[] = [];
     for (const b of st.blobs.values()) {

@@ -447,6 +447,34 @@ button.primary:hover:not(:disabled) {
   color: var(--bad);
 }
 
+/* The stock and, under it, how full the stores are. */
+.res .stock {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.res .gauge {
+  display: block;
+  height: 2px;
+  background: var(--line);
+}
+
+.res .gauge i {
+  display: block;
+  height: 100%;
+  background: var(--muted);
+}
+
+.res.full b,
+.res.full small {
+  color: var(--warn);
+}
+
+.res.full .gauge i {
+  background: var(--warn);
+}
+
 .clock {
   color: var(--accent);
 }

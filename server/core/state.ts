@@ -69,6 +69,8 @@ export interface RegionState {
   econ: Record<EconKind, number>;
   barracks: boolean;
   factory: boolean;
+  /** Depots: storage (see STORE_PER_DEPOT). */
+  depots: number;
   production: Record<ProductionBuilding, ProductionLine>;
   construction: Construction | null;
   /** Builds waiting behind the one under way (paid for already). */
@@ -95,6 +97,8 @@ export interface Player {
   broke: boolean;
   /** Per-second rates, for the HUD. */
   income: Resources;
+  /** Most it can stockpile (cities and depots; set each tick). */
+  cap: Resources;
   upkeep: number;
 }
 
@@ -105,6 +109,7 @@ export type SimEvent =
   | { kind: 'peaceRefused'; from: number; to: number }
   | { kind: 'battle'; region: number; sides: number[] }
   | { kind: 'captured'; region: number; by: number; from: number }
+  | { kind: 'looted'; region: number; by: number; from: number; got: Resources }
   | { kind: 'built'; region: number; owner: number; building: BuildingKind; level: number }
   | { kind: 'produced'; region: number; owner: number; type: UnitType }
   | { kind: 'eliminated'; player: number; by: number; surrendered?: boolean }
@@ -145,6 +150,7 @@ export function emptyRegion(): RegionState {
     fort: 0,
     city: 0,
     econ: { farm: 0, mine: 0, well: 0, market: 0 },
+    depots: 0,
     barracks: false,
     factory: false,
     production: { barracks: emptyLine(), factory: emptyLine() },
