@@ -88,7 +88,7 @@ export class MapView {
   /** The stack shown as single tokens after a click on it, or null. */
   expanded: string | null = null;
   /** Placement mode: where the building can go, and the region under the cursor. */
-  placement: { valid: Set<number>; hover: number; demolish?: boolean } | null = null;
+  placement: { valid: Set<number>; hover: number } | null = null;
   /** Orders sent but not yet in a snapshot, drawn at once so input feels instant. */
   readonly pending: {
     move: { ids: number[]; to: number; since: number } | null;
@@ -936,9 +936,8 @@ export class MapView {
     }
   }
 
-  /** Placement: valid regions tinted green (red when demolishing), everything else dimmed
-   * (changed regions only). */
-  private updatePlaceLayer(valid: Set<number>, demolish: boolean): void {
+  /** Placement: valid regions tinted green, everything else dimmed (changed regions only). */
+  private updatePlaceLayer(valid: Set<number>): void {
     const W = this.map.width;
     const ctx = this.placeLayer.getContext('2d') as CanvasRenderingContext2D;
     if (!this.placeImg) {
@@ -951,10 +950,10 @@ export class MapView {
     const d = this.placeImg.data;
     let [x0, y0, x1, y1] = [W, this.map.height, -1, -1];
     for (let r = 0; r < this.shownValid.length; r++) {
-      const on = valid.has(r) ? (demolish ? 2 : 1) : 0;
+      const on = valid.has(r) ? 1 : 0;
       if (on === this.shownValid[r]) continue;
       this.shownValid[r] = on;
-      const tint = on === 2 ? [230, 80, 70, 120] : on === 1 ? [70, 220, 100, 120] : [8, 11, 14, 140];
+      const tint = on ? [70, 220, 100, 120] : [8, 11, 14, 140];
       for (const p of this.regionPixels[r]) d.set(tint, p * 4);
       const o = r * 4;
       x0 = Math.min(x0, this.regionBox[o]);
@@ -1039,7 +1038,7 @@ export class MapView {
     if (this.fx.level === 'full') this.drawAmbient(snap);
     if (showSupply) ctx.drawImage(this.supplyLayer, 0, 0);
     if (place) {
-      this.updatePlaceLayer(place.valid, !!place.demolish);
+      this.updatePlaceLayer(place.valid);
       ctx.drawImage(this.placeLayer, 0, 0);
     }
     if (lit >= 0) ctx.drawImage(this.highlight, 0, 0);

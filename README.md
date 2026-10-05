@@ -44,7 +44,6 @@ to your friends, pick countries, and start. Bots fill the empty seats.
 | X / G / H | split in half / merge (any amounts, up to 100; not in a fight or below 25% strength) / halt the selected units; the unit panel splits off a batch or any number |
 | Del | disband the selected units (asks first; half the manpower of their strength back; not in a fight) |
 | 1–9, -, =, P or the build bar | placement mode: farm, mine, oil well, market, lab, city (found or expand), fort, barracks, factory, road (-), depot (=), port (P, on a coast). Click one of your regions (roads: drag across regions); Shift places more, Esc / right click stops; a busy region queues it. Your regions show their slots as boxes (hollow green = free) |
-| 0 | demolish mode: pick a building, click your regions that have one (red); no refund |
 | Q / E / R / F | queue infantry / tanks / artillery / warships at the selected region's barracks / factory / port |
 | T / Tech button | research screen: the tech tree with its lines and progress (one tech at a time; the button shows progress too) |
 | V | supply overlay: hubs, reach, cut-off regions, load per region |
