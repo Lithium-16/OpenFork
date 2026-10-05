@@ -53,12 +53,11 @@ const BAR: Array<{ group: string; kinds: BuildingKind[] }> = [
 const HOTKEYS: BuildingKind[] = BAR.flatMap((g) => g.kinds);
 /** Region row fields of the economic buildings. */
 const ECON_FIELD: Record<EconKind, number> = { farm: 9, mine: 10, well: 11, market: 12 };
-const RES_SHORT: Record<keyof Resources, string> = { money: '$', manpower: 'MP ', steel: 'ST ', oil: 'OIL ' };
 /** A region with no traits or city, for the plain yield of a building. */
 const PLAIN_REGION = { traits: [], terrain: 'plains', size: 'medium' } as unknown as Region;
 const gives = (kind: EconKind, traits: Region['traits'] = [], city = 0) =>
   Object.values(econYield(kind, { ...PLAIN_REGION, traits }, city))[0] ?? 0;
-/** What each building does, for the build bar's tooltips. */
+/** What each building does, shown in the build bar. */
 const BUILD_HELP: Record<BuildingKind, string> = {
   farm: `Farm: +${gives('farm')} manpower/s (+${gives('farm', ['farmland'])} on farmland). Farmland or plains, within ${HINTERLAND_HOPS} regions of your city.`,
   mine: `Mine: +${gives('mine')} steel/s (+${gives('mine', ['industry'])} on industry). Industry, hills or mountains, within ${HINTERLAND_HOPS} regions of your city.`,
@@ -86,6 +85,8 @@ export class GameScreen {
   /** The region under the cursor. */
   private hover = -1;
   private buildbarKey = '';
+  /** The build bar button under the pointer. */
+  private barHover: BuildingKind | null = null;
   /** Where the building being placed can go: worked out once per snapshot. */
   private valid: { snap: Snapshot; kind: BuildingKind; set: Set<number> } | null = null;
   private miniSnap: Snapshot | null = null;
@@ -296,6 +297,18 @@ export class GameScreen {
       });
     }
     // Build bar and the region panel's cancel buttons: also act on press (redrawn often).
+    // What a building does: shown in the bar for the one under the pointer.
+    on($('#buildbar'), 'pointerover', (e: PointerEvent) => {
+      const b = (e.target as HTMLElement).closest('[data-kind]') as HTMLElement | null;
+      const kind = (b?.dataset.kind as BuildingKind | undefined) ?? null;
+      if (kind === this.barHover) return;
+      this.barHover = kind;
+      this.renderBuildbar();
+    });
+    on($('#buildbar'), 'pointerleave', () => {
+      this.barHover = null;
+      this.renderBuildbar();
+    });
     on($('#buildbar'), 'pointerdown', (e: PointerEvent) => {
       const b = (e.target as HTMLElement).closest('[data-kind]') as HTMLElement | null;
       if (!b) return;
@@ -847,11 +860,13 @@ export class GameScreen {
     const hint = this.placing === 'road' ? 'drag across your regions · shift: more · esc' : this.placing ? 'click a region · shift: more · esc' : '1-9';
     // Redrawn only when something on it changed (what you can afford included).
     const can = RESOURCES.map((k) => groups.map((g) => g.cells.map((c) => res[k] >= c.cost[k])));
-    const key = `${this.placing}|${slots}|${JSON.stringify(groups)}|${JSON.stringify(can)}`;
+    const about = this.barHover ?? this.placing;
+    const key = `${this.placing}|${about}|${slots}|${JSON.stringify(groups)}|${JSON.stringify(can)}`;
     if (key === this.buildbarKey) return;
     this.buildbarKey = key;
     bar.replaceChildren(
       classbar(slots ? `Build // ${slots}` : 'Build', hint),
+      el('div', { class: 'about' }, [about ? BUILD_HELP[about] : 'Point at a building to see what it does.']),
       el(
         'div',
         { class: 'groups' },
@@ -862,7 +877,7 @@ export class GameScreen {
               'div',
               { class: 'slots' },
               g.cells.map((c) =>
-                el('button', { class: `slot${this.placing === c.kind ? ' active' : ''}${c.poor ? ' poor' : ''}`, 'data-kind': c.kind, title: BUILD_HELP[c.kind] }, [
+                el('button', { class: `slot${this.placing === c.kind ? ' active' : ''}${c.poor ? ' poor' : ''}`, 'data-kind': c.kind }, [
                   el('img', { src: buildingIcon(c.kind), alt: '' }),
                   el('span', { class: 'name' }, [el('b', {}, [String(c.n)]), ` ${c.name}`]),
                   c.note ? el('span', { class: 'price' }, [c.note]) : costChips(c.cost, res),
@@ -921,7 +936,7 @@ export class GameScreen {
     const snap = this.snap;
     if (!snap) return;
     const t = `T+${clock(snap.time)}`;
-    const menu = el('button', { class: 'toggle', title: 'Menu: surrender, leave (Esc)' }, ['Menu']);
+    const menu = el('button', { class: 'toggle' }, ['Menu', el('small', {}, ['Esc'])]);
     menu.onclick = () => this.toggleMenu(true);
     if (this.you === null) {
       $('#topbar').replaceChildren(el('span', { class: 'tag' }, ['[OBSERVER]']), menu, el('span', { class: 'clock' }, [t]));
@@ -931,7 +946,7 @@ export class GameScreen {
     const parts: HTMLElement[] = RESOURCES.map((k, i) => {
       let rate = p.income[i];
       if (k === 'money') rate -= p.upkeep;
-      return el('span', { class: 'res', title: k }, [
+      return el('span', { class: 'res' }, [
         el('img', { src: hudIcon(k), alt: k }),
         el('b', {}, [fmt(p.res[i])]),
         el('small', { class: rate < 0 ? 'neg' : '' }, [`${rate >= 0 ? '+' : ''}${rate.toFixed(1)}/s`]),
@@ -939,14 +954,14 @@ export class GameScreen {
     });
     if (p.broke) parts.push(el('span', { class: 'broke' }, ['BROKE: UNITS WITHERING']));
     if (!p.alive) parts.push(el('span', { class: 'broke' }, ['ELIMINATED // OBSERVING']));
-    const supply = el('button', { class: `toggle${this.view.overlay ? ' on' : ''}`, title: 'Supply overlay (V)' }, ['Supply']);
+    const supply = el('button', { class: `toggle${this.view.overlay ? ' on' : ''}` }, ['Supply', el('small', {}, ['V'])]);
     supply.onclick = () => this.setOverlay(!this.view.overlay);
-    const yields = el('button', { class: `toggle${this.view.yields ? ' on' : ''}`, title: 'Yield overlay: what each region makes (B)' }, ['Yield']);
+    const yields = el('button', { class: `toggle${this.view.yields ? ' on' : ''}` }, ['Yield', el('small', {}, ['B'])]);
     yields.onclick = () => this.setYields(!this.view.yields);
     parts.push(supply, yields);
-    const sound = el('button', { class: `toggle${this.sfx.muted ? '' : ' on'}`, title: 'Sound on/off (M)' }, [this.sfx.muted ? 'Muted' : 'Sound']);
+    const sound = el('button', { class: `toggle${this.sfx.muted ? '' : ' on'}` }, [this.sfx.muted ? 'Muted' : 'Sound', el('small', {}, ['M'])]);
     sound.onclick = () => this.setMuted(!this.sfx.muted);
-    const fx = el('button', { class: `toggle${this.view.fx.level === 'full' ? ' on' : ''}`, title: 'Effects: full / reduced' }, [this.view.fx.level === 'full' ? 'FX' : 'FX low']);
+    const fx = el('button', { class: `toggle${this.view.fx.level === 'full' ? ' on' : ''}` }, [this.view.fx.level === 'full' ? 'FX' : 'FX low']);
     fx.onclick = () => {
       this.fxChosen = true;
       this.setEffects(this.view.fx.level === 'full' ? 'reduced' : 'full');
@@ -964,7 +979,7 @@ export class GameScreen {
     const strength = new Map<number, number>();
     for (const b of snap.blobs) strength.set(b[1], (strength.get(b[1]) ?? 0) + b[3]);
     $('#players').replaceChildren(
-      classbar('ORBAT', 'Regions'),
+      classbar('ORBAT', 'Regions · Strength'),
       ...this.players.map((p) => {
         const row = snap.players[p.id];
         const tag = !row.alive ? '[KIA]' : p.id === this.you ? '[YOU]' : !p.human ? '[BOT]' : row.bot ? '[AWAY]' : '';
@@ -976,17 +991,18 @@ export class GameScreen {
         const pending = other && snap.offers.some(([f, t]) => f === me && t === p.id);
         let act: HTMLElement | string = '';
         if (other && war && !pending) {
-          act = el('button', { class: 'act peace', 'data-act': 'peace', 'data-player': String(p.id), title: offered ? 'Accept their offer of peace' : 'Offer peace' }, [offered ? 'Accept' : 'Peace']);
+          act = el('button', { class: 'act peace', 'data-act': 'peace', 'data-player': String(p.id) }, [offered ? 'Accept peace' : 'Offer peace']);
         } else if (other && !war && truce === 0) {
-          act = el('button', { class: 'act war', 'data-act': 'war', 'data-player': String(p.id), title: 'Declare war' }, ['War']);
+          act = el('button', { class: 'act war', 'data-act': 'war', 'data-player': String(p.id) }, ['Declare war']);
         }
         const rel = war ? el('span', { class: 'tag war' }, [pending ? '[WAR · OFFERED]' : '[WAR]']) : truce > 0 ? el('span', { class: 'tag truce' }, [`[TRUCE ${truce}s]`]) : '';
-        return el('div', { class: `p${row.alive ? '' : ' dead'}`, title: `${regions.get(p.id) ?? 0} regions, ${Math.round(strength.get(p.id) ?? 0)} strength` }, [
+        return el('div', { class: `p${row.alive ? '' : ' dead'}` }, [
           el('span', { class: 'swatch', style: `background:${p.color}` }),
           el('span', {}, [p.name.replace(/ \(bot\)$/, '')]),
           el('span', { class: 'tag' }, [tag]),
           rel,
           el('span', { class: 'num' }, [`${regions.get(p.id) ?? 0}`]),
+          el('span', { class: 'num str' }, [fmt(strength.get(p.id) ?? 0)]),
           act,
         ]);
       }),
@@ -1159,8 +1175,8 @@ export class GameScreen {
 
   private unitsPanel(sel: BlobRow[]): HTMLElement[] {
     const strength = sel.reduce((s, b) => s + b[3], 0);
-    const btn = (label: string, fn: () => void, title = '') => {
-      const b = el('button', { title }, [label]);
+    const btn = (label: string, fn: () => void) => {
+      const b = el('button', {}, [label]);
       b.onclick = () => {
         fn();
         this.renderPanel();
@@ -1170,9 +1186,10 @@ export class GameScreen {
     return [
       classbar('Units selected', `${sel.length}`),
       el('div', { class: 'sub' }, [`Strength ${Math.round(strength)} · right-click a region to send`]),
+      el('div', { class: 'sub' }, ['Split halves each unit (both keep their training) · merge joins one type in one region, for some training']),
       el('div', { class: 'buttons' }, [
-        btn('Split (X)', () => sel.forEach((b) => this.send({ o: 'split', blob: b[0] })), 'Halve each unit; both halves keep their training'),
-        btn('Merge (G)', () => this.mergeSelected(), 'Same type, same region; costs some training'),
+        btn('Split (X)', () => sel.forEach((b) => this.send({ o: 'split', blob: b[0] }))),
+        btn('Merge (G)', () => this.mergeSelected()),
         btn('Halt (H)', () => this.send({ o: 'stop', blobs: sel.map((b) => b[0]) })),
       ]),
       ...this.splitRow(sel, btn),
@@ -1181,7 +1198,7 @@ export class GameScreen {
   }
 
   /** One unit standing still: split off a batch, half, or any amount. */
-  private splitRow(sel: BlobRow[], btn: (label: string, fn: () => void, title?: string) => HTMLElement): HTMLElement[] {
+  private splitRow(sel: BlobRow[], btn: (label: string, fn: () => void) => HTMLElement): HTMLElement[] {
     if (sel.length !== 1 || sel[0][8] > 0 || sel[0][4] < 2) return [];
     const b = sel[0];
     const size = b[4];
@@ -1198,10 +1215,10 @@ export class GameScreen {
     return [
       el('div', { class: 'buttons split' }, [
         el('span', { class: 'label' }, ['Split off']),
-        ...(size > batch ? [btn(String(batch), () => split(batch), `Split off one batch (${batch})`)] : []),
-        btn('½', () => split(size / 2), 'Split off half'),
+        ...(size > batch ? [btn(String(batch), () => split(batch))] : []),
+        btn('½', () => split(size / 2)),
         field,
-        btn('Split', () => split(Number(field.value)), 'Split off this many'),
+        btn('Split', () => split(Number(field.value))),
       ]),
     ];
   }
@@ -1245,7 +1262,7 @@ export class GameScreen {
       if (rr[3] & 1) built.push(['barracks', 'Barracks']);
       if (rr[3] & 2) built.push(['factory', 'Factory']);
       const knock = (kind: BuildingKind) =>
-        el('button', { class: 'x', 'data-act': 'demolish', 'data-region': String(region.id), 'data-kind': kind, title: 'Demolish (no refund)' }, ['✕']);
+        el('button', { class: 'x', 'data-act': 'demolish', 'data-region': String(region.id), 'data-kind': kind }, ['Demolish']);
       if (built.length) {
         out.push(el('div', { class: 'line' }, ['Buildings']));
         for (const [kind, name] of built) out.push(el('div', { class: 'line build queued' }, [el('span', {}, [name]), knock(kind)]));
@@ -1262,7 +1279,7 @@ export class GameScreen {
           return kind === 'road' ? `Road → ${this.map.regions[target]?.name ?? '?'}` : BUILD_LABEL[kind];
         };
         const cancel = (index: number) =>
-          el('button', { class: 'x', 'data-act': 'unbuild', 'data-region': String(region.id), 'data-index': String(index), title: 'Cancel (full refund)' }, ['✕']);
+          el('button', { class: 'x', 'data-act': 'unbuild', 'data-region': String(region.id), 'data-index': String(index) }, ['Cancel']);
         pending.forEach((p, i) => {
           out.push(el('div', { class: `line build${i ? ' queued' : ''}` }, [el('span', {}, [`${i ? 'Next' : 'Building'}: ${label(p)}`]), cancel(i)]));
           if (i === 0) out.push(cellBar(rr[7]));
@@ -1293,14 +1310,14 @@ export class GameScreen {
     const type = line.building === 'barracks' ? 'infantry' : 'tank';
     const stats = UNITS[type];
     const label = type === 'tank' ? 'Tanks' : 'Infantry';
-    const add = el('button', { title: `Order ${stats.batch} ${label.toLowerCase()}: ${costText(stats.cost)}, ${stats.buildTime}s` }, [
+    const add = el('button', {}, [
       `${line.building === 'barracks' ? 'Q' : 'E'} + ${label}`,
     ]) as HTMLButtonElement;
     add.disabled = line.queue.length >= 5;
     add.onclick = () => this.send({ o: 'produce', region: line.region, building: line.building });
-    const repeat = el('button', { title: 'Keep producing' }, [line.repeat ? 'Repeat: on' : 'Repeat: off']);
+    const repeat = el('button', {}, [line.repeat ? 'Repeat: on' : 'Repeat: off']);
     repeat.onclick = () => this.send({ o: 'repeat', region: line.region, building: line.building, on: !line.repeat });
-    const cancel = el('button', { title: 'Cancel the last order' }, ['X']) as HTMLButtonElement;
+    const cancel = el('button', {}, ['Cancel last']) as HTMLButtonElement;
     cancel.disabled = line.queue.length === 0;
     cancel.onclick = () => this.send({ o: 'cancel', region: line.region, building: line.building });
     const status = line.queue.length
@@ -1340,7 +1357,7 @@ function costChips(cost: Partial<Resources>, have?: Resources): HTMLElement {
     'span',
     { class: 'cost' },
     RESOURCES.filter((k) => (cost[k] ?? 0) > 0).map((k) =>
-      el('span', { class: `chip${have && have[k] < (cost[k] ?? 0) ? ' short' : ''}`, title: k }, [el('img', { src: hudIcon(k), alt: k }), fmt(cost[k] ?? 0)]),
+      el('span', { class: `chip${have && have[k] < (cost[k] ?? 0) ? ' short' : ''}` }, [el('img', { src: hudIcon(k), alt: k }), fmt(cost[k] ?? 0)]),
     ),
   );
 }
@@ -1350,16 +1367,10 @@ function yieldChips(y: Partial<Resources>): HTMLElement {
   return el(
     'span',
     { class: 'cost gain' },
-    RESOURCES.filter((k) => (y[k] ?? 0) > 0).map((k) => el('span', { class: 'chip', title: `${k} per second` }, [el('img', { src: hudIcon(k), alt: k }), `+${round1(y[k] ?? 0)}/s`])),
+    RESOURCES.filter((k) => (y[k] ?? 0) > 0).map((k) => el('span', { class: 'chip' }, [el('img', { src: hudIcon(k), alt: k }), `+${round1(y[k] ?? 0)}/s`])),
   );
 }
 
 function round1(n: number): string {
   return String(Math.round(n * 100) / 100);
-}
-
-function costText(cost: Resources): string {
-  return RESOURCES.filter((k) => cost[k] > 0)
-    .map((k) => `${RES_SHORT[k]}${cost[k]}`)
-    .join(' ');
 }
