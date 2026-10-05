@@ -28,7 +28,7 @@ import {
   STORE_PER_DEPOT,
   storeOf,
   type Tech,
-  TECH_BRANCHES,
+  TECH_ROOT,
   type TechId,
   TECHS,
   techCost,
@@ -70,7 +70,6 @@ const HOTKEYS: BuildingKind[] = BAR.flatMap((g) => g.kinds);
 const HOTKEY_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '-'];
 /** Region row fields of the economic buildings. */
 const ECON_FIELD: Record<EconKind, number> = { farm: 9, mine: 10, well: 11, market: 12 };
-const ROMAN_TIER = ['', 'I', 'II', 'III', 'IV'];
 const tech = (id: TechId): Tech => TECHS.find((t) => t.id === id) as Tech;
 const UNIT_NAME: Record<UnitType, string> = { infantry: 'Infantry', tank: 'Tanks', artillery: 'Artillery' };
 const UNIT_SHORT: Record<UnitType, string> = { infantry: 'INF', tank: 'ARM', artillery: 'ART' };
@@ -316,45 +315,52 @@ export class GameScreen {
     const busy = me.research;
     const state = (id: TechId) =>
       me.techs.includes(id) ? 'done' : busy?.[0] === id ? 'active' : whyNotResearch(id, me.techs) ? 'locked' : busy ? 'wait' : 'open';
-    // Layout: a column per branch, a row per tier, in CSS pixels.
-    const W = 176;
-    const H = 104;
-    const GX = 36;
-    const GY = 76;
-    const TOP = 30;
-    const pos = (t: Tech) => ({ x: TECH_BRANCHES.indexOf(t.branch) * (W + GX), y: TOP + (t.tier - 1) * (H + GY) });
-    const width = TECH_BRANCHES.length * (W + GX) - GX;
-    const rows = Math.max(...TECHS.map((t) => t.tier));
-    const height = TOP + rows * (H + GY) - GY;
-
-    // Lines: straight down within a branch; across from another branch they leave the
-    // parent's bottom just left of centre, run along their own lane in the gap above the
-    // child's row, and come in just right of the child's centre.
-    const cross = TECHS.flatMap((t) => t.needs.filter((n) => tech(n).branch !== t.branch).map((n) => ({ from: tech(n), to: t })));
-    const paths: string[] = [];
-    const edge = (from: Tech, to: Tech) => {
-      const a = pos(from);
-      const b = pos(to);
-      const cls = me.techs.includes(from.id) ? (state(to.id) === 'active' ? 'live' : me.techs.includes(to.id) ? 'done' : 'ready') : 'off';
-      let d: string;
-      if (from.branch === to.branch) d = `M${a.x + W / 2},${a.y + H} V${b.y}`;
-      else {
-        const lane = cross.findIndex((c) => c.from === from && c.to === to);
-        const ly = b.y - GY + (GY * (lane + 1)) / (cross.length + 1);
-        const sx = a.x + W / 2 + (b.x < a.x ? -18 : 18);
-        const ex = b.x + W / 2 + (a.x > b.x ? 18 : -18);
-        d = `M${sx},${a.y + H} V${ly} H${ex} V${b.y}`;
-      }
-      paths.push(`<path class="${cls}" d="${d}"/>`);
+    // Layout: a tree growing down from the root, each parent centred over its children,
+    // leaves side by side, a row per depth. In CSS pixels.
+    const W = 150;
+    const H = 92;
+    const GX = 20;
+    const GY = 58;
+    const kids = (id: TechId | null) => TECHS.filter((t) => (t.needs[0] ?? null) === id);
+    const centre = new Map<TechId | 'root', number>();
+    let leaf = 0;
+    const place = (id: TechId | null): number => {
+      const xs = kids(id).map((c) => place(c.id));
+      const x = xs.length ? (xs[0] + xs[xs.length - 1]) / 2 : leaf++ * (W + GX) + W / 2;
+      centre.set(id ?? 'root', x);
+      return x;
     };
-    for (const t of TECHS) for (const n of t.needs) edge(tech(n), t);
+    place(null);
+    const depth = Math.max(...TECHS.map((t) => t.tier));
+    const width = leaf * (W + GX) - GX;
+    const height = (depth + 1) * (H + GY) - GY;
+    const at = (id: TechId | 'root', tier: number) => ({ x: (centre.get(id) as number) - W / 2, y: tier * (H + GY) });
+
+    // Lines, org-chart style: down from the parent, across under it, down into each child.
+    const paths: string[] = [];
+    for (const t of TECHS) {
+      const parent = t.needs[0] ?? null;
+      const a = at(parent ?? 'root', t.tier - 1);
+      const b = at(t.id, t.tier);
+      const parentDone = parent === null || me.techs.includes(parent);
+      const st = state(t.id);
+      const cls = !parentDone ? 'off' : st === 'done' ? 'done' : st === 'active' ? 'live' : 'ready';
+      const mid = a.y + H + GY / 2;
+      paths.push(`<path class="${cls}" d="M${a.x + W / 2},${a.y + H} V${mid} H${b.x + W / 2} V${b.y}"/>`);
+    }
+    // Lit lines last, so they sit on top where lines share a stretch.
+    const rank = (p: string) => ['off', 'ready', 'live', 'done'].findIndex((c) => p.includes(`"${c}"`));
+    paths.sort((x, y) => rank(x) - rank(y));
     const svg = el('div', { class: 'wires' });
     svg.innerHTML = `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">${paths.join('')}</svg>`;
 
+    const box2 = (x: number, y: number) => `left:${x}px;top:${y}px;width:${W}px;height:${H}px`;
+    const r = at('root', 0);
+    const root = el('div', { class: 'node root done', style: box2(r.x, r.y) }, [el('b', {}, [TECH_ROOT.name]), el('span', { class: 'effect' }, [TECH_ROOT.effect]), el('span', { class: 'foot' }, ['✓ Start'])]);
     const nodes = TECHS.map((t) => {
       const st = state(t.id);
       const { cost, seconds } = techCost(t.tier);
-      const p = pos(t);
+      const p = at(t.id, t.tier);
       const foot: Array<Node | string> =
         st === 'done'
           ? ['✓ Researched']
@@ -363,15 +369,14 @@ export class GameScreen {
             : st === 'locked'
               ? [whyNotResearch(t.id, me.techs) ?? '']
               : [costChips(cost, res), ` · ${seconds}s`];
-      return el('div', { class: `node ${st}`, style: `left:${p.x}px;top:${p.y}px;width:${W}px;height:${H}px`, ...(st === 'open' ? { 'data-tech': t.id } : {}) }, [
-        el('span', { class: 'tier' }, [ROMAN_TIER[t.tier]]),
+      return el('div', { class: `node ${st} b-${t.branch.toLowerCase()}`, style: box2(p.x, p.y), ...(st === 'open' ? { 'data-tech': t.id } : {}) }, [
+        el('span', { class: 'tier' }, [t.branch]),
         el('b', {}, [t.name]),
         el('span', { class: 'effect' }, [t.effect]),
         el('span', { class: 'foot' }, foot),
         st === 'active' && busy ? el('i', { class: 'fill', style: `width:${Math.round(busy[1] * 100)}%` }) : '',
       ]);
     });
-    const heads = TECH_BRANCHES.map((b, i) => el('div', { class: 'bhead', style: `left:${i * (W + GX)}px;width:${W}px` }, [b]));
 
     const done = me.techs.length;
     const current = busy
@@ -390,7 +395,7 @@ export class GameScreen {
           el('div', { class: 'current' }, current),
           el('button', { 'data-act': 'close' }, ['Close (T / Esc)']),
         ]),
-        el('div', { class: 'tscroll' }, [el('div', { class: 'tplane', style: `width:${width}px;height:${height}px` }, [svg, ...heads, ...nodes])]),
+        el('div', { class: 'tscroll' }, [el('div', { class: 'tplane', style: `width:${width}px;height:${height}px` }, [svg, root, ...nodes])]),
         el('div', { class: 'tlegend' }, [
           el('span', { class: 'k done' }, ['researched']),
           el('span', { class: 'k active' }, ['under way']),

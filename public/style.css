@@ -1109,14 +1109,28 @@ button.primary:hover:not(:disabled) {
   }
 }
 
-.techtree .bhead {
-  position: absolute;
-  top: 0;
+/* Each line of the tree has its colour along the top of its techs. */
+.techtree .node.b-army {
+  border-top: 3px solid #c0504d;
+}
+
+.techtree .node.b-armour {
+  border-top: 3px solid #e0a33a;
+}
+
+.techtree .node.b-economy {
+  border-top: 3px solid #9bbb59;
+}
+
+.techtree .node.b-logistics {
+  border-top: 3px solid #4f81bd;
+}
+
+.techtree .node.root {
   text-align: center;
-  font-size: 11px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--muted);
+  justify-items: center;
+  box-shadow: 0 0 0 2px var(--good);
+  background: var(--raised);
 }
 
 .techtree .node {
@@ -1124,8 +1138,8 @@ button.primary:hover:not(:disabled) {
   box-sizing: border-box;
   display: grid;
   grid-template-rows: auto auto 1fr auto;
-  gap: 2px;
-  padding: 7px 10px 8px;
+  gap: 1px;
+  padding: 5px 9px 7px;
   overflow: hidden;
   background: var(--panel-solid);
   box-shadow: 0 0 0 2px var(--line);
@@ -1133,10 +1147,9 @@ button.primary:hover:not(:disabled) {
 }
 
 .techtree .node .tier {
-  position: absolute;
-  top: 6px;
-  right: 8px;
-  font-size: 10px;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   color: var(--muted);
 }
 
