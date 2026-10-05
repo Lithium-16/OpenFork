@@ -446,27 +446,28 @@ export interface Tech {
   needs: TechId[];
 }
 
-/** The tech tree: five branches of three, researched one at a time. Most top-tier techs
- * also need a middle-tier tech from another branch, so the branches join up. */
+/** The tech tree: one root (what every country starts with) splits into four lines, and
+ * each tech opens one or two more. Every tech has a single parent; `tier` is its depth. */
 export const TECHS: readonly Tech[] = [
-  { id: 'rifles', branch: 'Infantry', tier: 1, name: 'Rifles', effect: 'Infantry +20% attack', needs: [] },
-  { id: 'trenches', branch: 'Infantry', tier: 2, name: 'Trenches', effect: 'Dig in twice as fast; dug in +50% stronger', needs: ['rifles'] },
-  { id: 'conscription', branch: 'Infantry', tier: 3, name: 'Conscription', effect: 'Infantry −30% manpower', needs: ['trenches', 'industry'] },
+  { id: 'rifles', branch: 'Army', tier: 1, name: 'Rifles', effect: 'Infantry +20% attack', needs: [] },
+  { id: 'trenches', branch: 'Army', tier: 2, name: 'Trenches', effect: 'Dig in twice as fast; dug in +50% stronger', needs: ['rifles'] },
+  { id: 'shells', branch: 'Army', tier: 2, name: 'Heavy shells', effect: 'Artillery +30% shelling', needs: ['rifles'] },
+  { id: 'rangefinders', branch: 'Army', tier: 3, name: 'Rangefinders', effect: 'Forts no help against shells', needs: ['shells'] },
+  { id: 'longGuns', branch: 'Army', tier: 3, name: 'Long guns', effect: 'Artillery range 3', needs: ['shells'] },
   { id: 'tanks', branch: 'Armour', tier: 1, name: 'Tanks', effect: 'Factories can build tanks', needs: [] },
   { id: 'engines', branch: 'Armour', tier: 2, name: 'Engines', effect: 'Tanks +20% speed', needs: ['tanks'] },
-  { id: 'armour', branch: 'Armour', tier: 3, name: 'Armour plate', effect: 'Tanks +30% defence', needs: ['engines'] },
-  { id: 'fuel', branch: 'Armour', tier: 4, name: 'Synthetic fuel', effect: 'Tanks −50% oil', needs: ['armour'] },
-  { id: 'shells', branch: 'Artillery', tier: 1, name: 'Heavy shells', effect: 'Artillery +30% shelling', needs: [] },
-  { id: 'rangefinders', branch: 'Artillery', tier: 2, name: 'Rangefinders', effect: 'Forts no help against shells', needs: ['shells'] },
-  { id: 'longGuns', branch: 'Artillery', tier: 3, name: 'Long guns', effect: 'Artillery range 3', needs: ['rangefinders', 'railways'] },
+  { id: 'armour', branch: 'Armour', tier: 2, name: 'Armour plate', effect: 'Tanks +30% defence', needs: ['tanks'] },
+  { id: 'fuel', branch: 'Armour', tier: 3, name: 'Synthetic fuel', effect: 'Tanks −50% oil', needs: ['armour'] },
   { id: 'farming', branch: 'Economy', tier: 1, name: 'Farming', effect: 'Farms +30%', needs: [] },
+  { id: 'conscription', branch: 'Economy', tier: 2, name: 'Conscription', effect: 'Infantry −30% manpower', needs: ['farming'] },
   { id: 'industry', branch: 'Economy', tier: 2, name: 'Industry', effect: 'Mines and oil wells +30%', needs: ['farming'] },
-  { id: 'banking', branch: 'Economy', tier: 3, name: 'Banking', effect: 'Markets and city tax +25%', needs: ['industry', 'railways'] },
+  { id: 'banking', branch: 'Economy', tier: 3, name: 'Banking', effect: 'Markets and city tax +25%', needs: ['industry'] },
   { id: 'warehouses', branch: 'Logistics', tier: 1, name: 'Warehouses', effect: 'Storage +50%', needs: [] },
   { id: 'railways', branch: 'Logistics', tier: 2, name: 'Railways', effect: 'Supply reaches 1 region further', needs: ['warehouses'] },
   { id: 'kitchens', branch: 'Logistics', tier: 3, name: 'Field kitchens', effect: 'Regions feed +30% troops', needs: ['railways'] },
 ];
-export const TECH_BRANCHES = ['Infantry', 'Armour', 'Artillery', 'Economy', 'Logistics'];
+/** What every country starts with: the root of the tree. */
+export const TECH_ROOT = { name: 'Modern State', effect: 'Where every country starts' };
 
 /** What researching a tier costs, paid when it starts (refunded if cancelled). */
 export function techCost(tier: number): { cost: Resources; seconds: number } {

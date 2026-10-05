@@ -60,23 +60,20 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
   (a slot, $120 + 20 steel, 45 s) for any region you hold in supply. **Taking a region with
   a city or depots takes its share of the owner's stock**: what it stores out of all their
   storage, up to the captor's own room.
-- **Research** (T, its own screen): a tech tree of five branches, three tiers each, one tech
-  at a time. Each needs the one before it in its branch, and most top-tier techs also need a
-  middle-tier one from another branch: Conscription needs Industry, Long guns and Banking
-  need Railways. The screen draws the tree with its lines (green once
-  researched, moving along the line into the tech under way), the tech under way filling up,
-  and how much of the tree is done. Tiers cost $250 / 500 / 900 and 30 / 80 / 150 steel and take
-  60 / 90 / 120 s, paid up front (refunded if cancelled).
-  - Infantry: Rifles (+20% attack), Trenches (dig in twice as fast, dug in +50%),
-    Conscription (−30% manpower).
-  - Armour (four tiers): **Tanks (factories can build tanks: nobody can before it)**,
-    Engines (+20% speed), Armour plate (+30% defence), Synthetic fuel (−50% oil; tier IV,
-    $1200 + 200 steel, 150 s).
-  - Artillery: Heavy shells (+30%), Rangefinders (forts no help against shells), Long guns
+- **Research** (T, its own screen): a tech tree, one tech at a time. Every country starts at
+  the root (Modern State), which splits into four lines, and each tech opens one or two more;
+  a tech needs only its parent. Cost goes by depth: $250 / 500 / 900 and 30 / 80 / 150 steel,
+  60 / 90 / 120 s, paid up front (refunded if cancelled). The screen draws it as a tree
+  growing down, lines green once researched and moving into the tech under way, which fills
+  up; the header shows how much of the tree is done.
+  - Army: Rifles (+20% infantry attack) → Trenches (dig in twice as fast, dug in +50%) and
+    Heavy shells (+30% shelling) → Rangefinders (forts no help against shells) and Long guns
     (range 3).
-  - Economy: Farming (farms +30%), Industry (mines and wells +30%), Banking (markets and
-    city tax +25%).
-  - Logistics: Warehouses (storage +50%), Railways (supply +1 region), Field kitchens
+  - Armour: **Tanks (factories can build tanks: nobody can before it)** → Engines (+20%
+    speed) and Armour plate (+30% defence) → Synthetic fuel (−50% oil).
+  - Economy: Farming (farms +30%) → Conscription (infantry −30% manpower) and Industry
+    (mines and wells +30%) → Banking (markets and city tax +25%).
+  - Logistics: Warehouses (storage +50%) → Railways (supply +1 region) → Field kitchens
     (regions feed +30% troops).
 - **Upkeep:** each blob costs money per minute, scaled by its size and type. If income goes
   below upkeep, **blobs wither**: they lose strength and training until you're back in the
