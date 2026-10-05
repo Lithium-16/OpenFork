@@ -3,7 +3,9 @@ import type {
   BotSetting,
   BuildingKind,
   ProductionBuilding,
+  Resources,
   StartingResources,
+  TechId,
   UnitType,
 } from './rules.ts';
 import { BUILDING_KINDS } from './rules.ts';
@@ -20,7 +22,7 @@ export type Order =
   | { o: 'build'; region: number; kind: BuildingKind; target?: number }
   /** Knock a building down (no refund). */
   | { o: 'demolish'; region: number; kind: BuildingKind }
-  | { o: 'produce'; region: number; building: ProductionBuilding }
+  | { o: 'produce'; region: number; building: ProductionBuilding; unit?: UnitType }
   | { o: 'repeat'; region: number; building: ProductionBuilding; on: boolean }
   | { o: 'cancel'; region: number; building: ProductionBuilding }
   /** Cancel a build (0: the one under way, 1+: waiting) and later ones of the same kind. */
@@ -32,7 +34,9 @@ export type Order =
   /** Turn down a country's offer of peace. */
   | { o: 'refuse'; player: number }
   /** Give up: your land goes neutral and your units disband, as if your capital fell. */
-  | { o: 'surrender' };
+  | { o: 'surrender' }
+  | { o: 'research'; tech: TechId }
+  | { o: 'unresearch' };
 
 export interface LobbySettings {
   map: string;
@@ -81,15 +85,16 @@ export interface GamePlayer {
   human: boolean;
 }
 
-/** One blob: [id, owner, type (0 infantry, 1 tank), strength, size, training, region,
- * next region or -1, progress 0..1, entrench 0..1, supply 0..1, flags (1 hold, 2 crossed river,
- * 4 attacking the next region from its own), the region it came into its region from or -1]. */
-export type BlobRow = [number, number, number, number, number, number, number, number, number, number, number, number, number];
+/** One blob: [id, owner, type (0 infantry, 1 tank, 2 artillery), strength, size, training,
+ * region, next region or -1, progress 0..1, entrench 0..1, supply 0..1, flags (1 hold, 2
+ * crossed river, 4 attacking the next region from its own), the region it came into its
+ * region from or -1, the region it shells or -1]. */
+export type BlobRow = [number, number, number, number, number, number, number, number, number, number, number, number, number, number];
 
 /** One region: [owner, fort, city level, flags (1 barracks, 2 factory, 4 supplied), capture
  * by or -1, capture progress 0..1, construction kind index or -1, construction progress 0..1,
- * construction target (a road's other end) or -1, farms, mines, oil wells, markets]. */
-export type RegionRow = [number, number, number, number, number, number, number, number, number, number, number, number, number];
+ * construction target (a road's other end) or -1, farms, mines, oil wells, markets, depots]. */
+export type RegionRow = [number, number, number, number, number, number, number, number, number, number, number, number, number, number];
 
 export interface PlayerRow {
   alive: boolean;
@@ -97,6 +102,11 @@ export interface PlayerRow {
   res: [number, number, number, number];
   income: [number, number, number, number];
   upkeep: number;
+  /** Most it can stockpile: money, manpower, steel, oil. */
+  cap: [number, number, number, number];
+  /** Techs researched, and the one under way with its progress 0..1. */
+  techs: TechId[];
+  research: [TechId, number] | null;
   broke: boolean;
   bot: boolean;
 }
@@ -118,6 +128,8 @@ export type GameEvent =
   | { kind: 'peaceRefused'; from: number; to: number }
   | { kind: 'battle'; region: number; sides: number[] }
   | { kind: 'captured'; region: number; by: number; from: number }
+  | { kind: 'looted'; region: number; by: number; from: number; got: Resources }
+  | { kind: 'researched'; player: number; tech: TechId }
   | { kind: 'built'; region: number; owner: number; building: BuildingKind; level: number }
   | { kind: 'produced'; region: number; owner: number; type: UnitType }
   | { kind: 'eliminated'; player: number; by: number; surrendered?: boolean }
@@ -153,4 +165,4 @@ export type ServerMessage =
   | { t: 'game.over'; winner: number | null };
 
 export const BUILDING_INDEX: readonly BuildingKind[] = BUILDING_KINDS;
-export const UNIT_INDEX: readonly UnitType[] = ['infantry', 'tank'];
+export const UNIT_INDEX: readonly UnitType[] = ['infantry', 'tank', 'artillery'];

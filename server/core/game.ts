@@ -128,7 +128,7 @@ export class Game {
       case 'demolish':
         return s.demolish(id, order.region, order.kind);
       case 'produce':
-        return s.produce(id, order.region, order.building);
+        return s.produce(id, order.region, order.building, order.unit);
       case 'repeat':
         return s.setRepeat(id, order.region, order.building, order.on);
       case 'cancel':
@@ -143,6 +143,10 @@ export class Game {
         return s.refusePeace(id, order.player);
       case 'surrender':
         return s.surrender(id);
+      case 'research':
+        return s.research(id, order.tech);
+      case 'unresearch':
+        return s.unresearch(id);
     }
   }
 
@@ -181,6 +185,9 @@ export class Game {
       res: [round(p.resources.money, 1), round(p.resources.manpower, 1), round(p.resources.steel, 1), round(p.resources.oil, 1)],
       income: [round(p.income.money, 2), round(p.income.manpower, 2), round(p.income.steel, 2), round(p.income.oil, 2)],
       upkeep: round(p.upkeep, 2),
+      cap: [Math.round(p.cap.money), Math.round(p.cap.manpower), Math.round(p.cap.steel), Math.round(p.cap.oil)],
+      techs: [...p.techs],
+      research: p.research ? [p.research.tech, round(p.research.progress / p.research.seconds, 2)] : null,
       broke: p.broke,
       bot: p.control === 'bot',
     }));
@@ -198,6 +205,7 @@ export class Game {
       r.econ.mine,
       r.econ.well,
       r.econ.market,
+      r.depots,
     ]);
     const blobs: BlobRow[] = [];
     for (const b of st.blobs.values()) {
@@ -215,6 +223,7 @@ export class Game {
         round(b.supply, 2),
         (b.hold ? 1 : 0) | (b.crossedRiver ? 2 : 0) | (b.attacking >= 0 ? 4 : 0),
         b.from,
+        b.bombarding,
       ]);
     }
     const pair = (key: string, sep: string) => key.split(sep).map(Number) as [number, number];

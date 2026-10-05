@@ -6,6 +6,7 @@ import {
   type BuildingKind,
   BROKE_LOSS,
   BROKE_TRAINING,
+  bombardFortShare,
   BUILD_NEEDS,
   BUILD_QUEUE,
   buildCost,
@@ -30,8 +31,8 @@ import {
   DRILL_CAP,
   DRILL_RATE,
   ENEMY_LAND_MOVE,
-  ENTRENCH_BONUS,
-  ENTRENCH_SECONDS,
+  entrenchBonus,
+  entrenchSeconds,
   FORT_BONUS,
   FORT_MOVE_PENALTY,
   MAX_TRAINING,
@@ -51,6 +52,7 @@ import {
   RIVER_BONUS,
   START_EXTRA_REGIONS,
   START_INFANTRY,
+  storeOf,
   STARTING,
   STARTING_MULTIPLIER,
   type StartingResources,
@@ -59,6 +61,14 @@ import {
   TRAINING_DAMAGE,
   TRAINING_PROTECTION,
   TRUCE_SECONDS,
+  unitsOf,
+  type TechId,
+  type Techs,
+  TECHS,
+  techCost,
+  whyNotResearch,
+  unitStats,
+  type UnitStats,
   type UnitType,
   UNITS,
   VETERANCY_RATE,
@@ -140,6 +150,9 @@ export class Sim {
         },
         broke: false,
         income: zero(),
+        cap: zero(),
+        techs: [],
+        research: null,
         upkeep: 0,
       };
       this.state.players.push(player);
@@ -352,7 +365,7 @@ export class Sim {
     const edge = this.world.edge(from, to);
     if (!edge) return Infinity;
     const dest = this.state.regions[to];
-    let speed = UNITS[type].speed * TERRAIN_MOVE[this.world.regions[to].terrain];
+    let speed = this.statsOf(type, owner).speed * TERRAIN_MOVE[this.world.regions[to].terrain];
     if (this.hasRoad(from, to)) speed /= ROAD_SPEED;
     if (dest.owner === owner) {
       // Home ground: no penalty.
@@ -523,6 +536,38 @@ export class Sim {
     return null;
   }
 
+  /** Starts researching a tech (one at a time), paying for it now. */
+  research(playerId: number, tech: TechId): string | null {
+    const p = this.player(playerId);
+    if (!p?.alive) return 'you are not in the game';
+    if (p.research) return 'already researching';
+    const why = whyNotResearch(tech, p.techs);
+    if (why) return why;
+    const { cost, seconds } = techCost(TECHS.find((t) => t.id === tech)?.tier ?? 1);
+    if (!this.pay(p, cost)) return 'not enough resources';
+    p.research = { tech, progress: 0, seconds, cost };
+    return null;
+  }
+
+  /** Stops the research under way, with a full refund. */
+  unresearch(playerId: number): string | null {
+    const p = this.player(playerId);
+    if (!p?.research) return 'nothing being researched';
+    this.refund(p, p.research.cost);
+    p.research = null;
+    return null;
+  }
+
+  /** A country's techs (none for neutral land). */
+  techsOf(owner: number): Techs {
+    return this.state.players[owner]?.techs ?? [];
+  }
+
+  /** A unit type's stats for its owner, techs counted. */
+  statsOf(type: UnitType, owner: number): UnitStats {
+    return unitStats(type, this.techsOf(owner));
+  }
+
   /** Disbands units, giving back part of the manpower their remaining strength cost. */
   disband(playerId: number, blobIds: number[]): string | null {
     const blobs = this.own(playerId, blobIds);
@@ -554,7 +599,7 @@ export class Sim {
 
   /** Slots taken in a region, counting builds under way and waiting. */
   slotsUsed(rs: RegionState): number {
-    let n = ECON_KINDS.reduce((sum, k) => sum + rs.econ[k], 0) + (rs.fort > 0 ? 1 : 0) + (rs.barracks ? 1 : 0) + (rs.factory ? 1 : 0);
+    let n = ECON_KINDS.reduce((sum, k) => sum + rs.econ[k], 0) + (rs.fort > 0 ? 1 : 0) + (rs.barracks ? 1 : 0) + (rs.factory ? 1 : 0) + rs.depots;
     let fortPending = rs.fort > 0;
     for (const c of this.pending(rs)) {
       if (c.kind === 'fort') {
@@ -691,18 +736,23 @@ export class Sim {
       if (!rs[kind]) return `no ${kind} here`;
       rs[kind] = false;
       rs.production[kind] = emptyLine();
+    } else if (kind === 'depot') {
+      if (rs.depots <= 0) return 'no depot here';
+      rs.depots--;
     } else return `a ${kind} can't be demolished`;
     return null;
   }
 
-  produce(playerId: number, region: number, building: ProductionBuilding): string | null {
+  produce(playerId: number, region: number, building: ProductionBuilding, unit?: UnitType): string | null {
     const rs = this.state.regions[region];
     if (!this.player(playerId)?.alive) return 'you are not in the game';
     if (!rs || rs.owner !== playerId) return 'not your region';
     if (!rs[building]) return `no ${building} here`;
     const line = rs.production[building];
     if (line.queue.length >= MAX_QUEUE) return 'queue is full';
-    line.queue.push(building === 'barracks' ? 'infantry' : 'tank');
+    const type = unit ?? unitsOf(building)[0];
+    if (UNITS[type].producedAt !== building) return `a ${building} can't make ${type}`;
+    line.queue.push(type);
     return null;
   }
 
@@ -721,7 +771,7 @@ export class Sim {
     const type = line.queue.pop();
     if (!type) return 'nothing queued';
     if (line.queue.length === 0 && line.progress >= 0) {
-      this.refund(this.state.players[playerId], UNITS[type].cost);
+      this.refund(this.state.players[playerId], this.statsOf(type, playerId).cost);
       line.progress = -1;
     }
     return null;
@@ -736,6 +786,7 @@ export class Sim {
     this.updateSupply();
     this.moveBlobs(dt);
     const fighting = this.battles(dt);
+    this.bombard(dt, fighting);
     this.fighting = fighting;
     this.captures(dt);
     this.economy(dt);
@@ -754,7 +805,7 @@ export class Sim {
     const buckets: number[][] = [];
     regions.forEach((rs, i) => {
       if (rs.owner === NEUTRAL || rs.city <= 0 || !this.state.players[rs.owner]?.alive) return;
-      const reach = supplyReach(rs.city) * 2;
+      const reach = supplyReach(rs.city, this.techsOf(rs.owner)) * 2;
       if (reach > left[i]) {
         left[i] = reach;
         (buckets[reach] ??= []).push(i);
@@ -785,7 +836,7 @@ export class Sim {
       const rs = regions[r];
       if (rs.owner !== owner || !rs.supplied) return 0;
       const n = need.get(`${owner}:${r}`) ?? 0;
-      return n <= 0 ? 1 : Math.min(1, this.world.supplyCapacity(r, rs.city) / n);
+      return n <= 0 ? 1 : Math.min(1, this.world.supplyCapacity(r, rs.city, this.techsOf(rs.owner)) / n);
     };
     for (const b of this.state.blobs.values()) {
       if (regions[b.region].owner === b.owner) {
@@ -906,7 +957,8 @@ export class Sim {
     const attackersOf = new Map<number, Blob[]>();
     const started = new Set<number>();
     for (const b of this.state.blobs.values()) {
-      const t = b.progress === 0 && !b.hold && b.path.length > 0 && this.hostileIn(b.path[0], b.owner) ? b.path[0] : -1;
+      // Artillery never storms a region: it waits at the border and shells it (see bombard).
+      const t = b.progress === 0 && !b.hold && b.path.length > 0 && !UNITS[b.type].range && this.hostileIn(b.path[0], b.owner) ? b.path[0] : -1;
       if (t >= 0 && b.attacking !== t) started.add(t);
       b.attacking = t;
       if (t >= 0) attackersOf.set(t, [...(attackersOf.get(t) ?? []), b]);
@@ -939,7 +991,7 @@ export class Sim {
             (sum, b) =>
               sum +
               b.strength *
-                UNITS[b.type].attack *
+                this.statsOf(b.type, b.owner).attack *
                 UNITS[b.type].terrainAttack[terrain] *
                 (1 + (TRAINING_DAMAGE * b.training) / MAX_TRAINING) *
                 (0.5 + 0.5 * b.supply),
@@ -956,10 +1008,10 @@ export class Sim {
           const st = strengthOf(targets);
           const share = (power * dt * st) / enemies;
           for (const d of targets) {
-            let taken = (share * d.strength) / st / UNITS[d.type].defense;
+            let taken = (share * d.strength) / st / this.statsOf(d.type, d.owner).defense;
             taken *= 1 - (TRAINING_PROTECTION * d.training) / MAX_TRAINING;
             // The region's owner, standing in it, defends with its fort, dug in, behind the river.
-            if (rs.owner === t && d.region === region) taken /= 1 + FORT_BONUS * rs.fort + ENTRENCH_BONUS * d.entrench + RIVER_BONUS * riverShare;
+            if (rs.owner === t && d.region === region) taken /= 1 + FORT_BONUS * rs.fort + entrenchBonus(this.techsOf(t)) * d.entrench + RIVER_BONUS * riverShare;
             damage.set(d, (damage.get(d) ?? 0) + taken);
           }
         }
@@ -972,6 +1024,69 @@ export class Sim {
       b.training = Math.min(MAX_TRAINING, b.training + VETERANCY_RATE * dt);
     }
     return fighting;
+  }
+
+  /**
+   * Artillery standing still, in supply and not in a fight itself shells enemy units up to
+   * its range away: where its own side is fighting first, else the strongest enemy force.
+   * Shells ignore digging in and count forts half; whoever is hit counts as in a fight.
+   */
+  private bombard(dt: number, fighting: Set<number>): void {
+    const standing = this.standing();
+    const damage = new Map<Blob, number>();
+    for (const b of this.state.blobs.values()) {
+      b.bombarding = -1;
+      const stats = this.statsOf(b.type, b.owner);
+      if (!stats.range || !stats.bombard || b.progress > 0 || b.supply <= 0 || fighting.has(b.id)) continue;
+      const target = this.bombardTarget(b, stats.range, standing);
+      if (target < 0) continue;
+      b.bombarding = target;
+      const enemies = (standing.get(target) ?? []).filter((x) => this.atWar(b.owner, x.owner));
+      const total = enemies.reduce((s, x) => s + x.strength, 0);
+      const power = DAMAGE_RATE * dt * b.strength * stats.bombard * (1 + (TRAINING_DAMAGE * b.training) / MAX_TRAINING) * (0.5 + 0.5 * b.supply);
+      const rs = this.state.regions[target];
+      for (const x of enemies) {
+        let taken = (power * x.strength) / total / this.statsOf(x.type, x.owner).defense;
+        taken *= 1 - (TRAINING_PROTECTION * x.training) / MAX_TRAINING;
+        if (rs.owner === x.owner) taken /= 1 + FORT_BONUS * bombardFortShare(this.techsOf(b.owner)) * rs.fort;
+        damage.set(x, (damage.get(x) ?? 0) + taken);
+      }
+    }
+    for (const [x, d] of damage) {
+      x.strength -= d;
+      fighting.add(x.id);
+    }
+  }
+
+  /** Where a gun shells: an enemy-held spot within range, own fights first, then the
+   * strongest enemy force, then the nearest. -1 if there's nothing to hit. */
+  private bombardTarget(b: Blob, range: number, standing: Map<number, Blob[]>): number {
+    const dist = new Map([[b.region, 0]]);
+    const queue = [b.region];
+    for (let q = 0; q < queue.length; q++) {
+      const d = dist.get(queue[q]) as number;
+      if (d >= range) continue;
+      for (const e of this.world.neighbors(queue[q])) {
+        if (!dist.has(e.id)) {
+          dist.set(e.id, d + 1);
+          queue.push(e.id);
+        }
+      }
+    }
+    let best = -1;
+    let bestScore = -Infinity;
+    for (const [r, d] of dist) {
+      const here = standing.get(r) ?? [];
+      const enemy = here.filter((x) => this.atWar(b.owner, x.owner)).reduce((s, x) => s + x.strength, 0);
+      if (enemy <= 0) continue;
+      const ours = here.some((x) => x.owner === b.owner) || (this.attackers.get(r) ?? []).some((x) => x.owner === b.owner);
+      const score = (ours ? 1e6 : 0) + enemy - d;
+      if (score > bestScore) {
+        bestScore = score;
+        best = r;
+      }
+    }
+    return best;
   }
 
   /** Units attacking each region from next door, as of the last battle pass. */
@@ -1012,12 +1127,49 @@ export class Sim {
       if (rs.capture.progress >= 1) {
         const from = rs.owner;
         if (from !== NEUTRAL) this.state.warActivity.set(pairKey(by, from), this.state.time);
+        // A city or depot: its share of the loser's stock goes with it.
+        const got = from !== NEUTRAL ? this.loot(i, from) : null;
         this.setOwner(i, by);
         this.events.push({ kind: 'captured', region: i, by, from });
+        if (got) {
+          const p = this.state.players[by];
+          this.updateCaps();
+          for (const k of RESOURCES) {
+            got[k] = Math.max(0, Math.min(got[k], p.cap[k] - p.resources[k]));
+            p.resources[k] += got[k];
+          }
+          this.events.push({ kind: 'looted', region: i, by, from, got });
+        }
         const lost = this.state.players.find((p) => p.alive && p.capital === i && p.id !== by);
         if (lost) this.eliminate(lost.id, by);
       }
     });
+  }
+
+  /** Sets every player's storage size from the cities and depots they hold. */
+  private updateCaps(): void {
+    for (const p of this.state.players) p.cap = zero();
+    this.state.regions.forEach((rs) => {
+      if (rs.owner === NEUTRAL || (!rs.city && !rs.depots)) return;
+      add(this.state.players[rs.owner].cap, storeOf(rs.city, rs.depots, this.techsOf(rs.owner)));
+    });
+  }
+
+  /** Takes a region's share of its owner's stock (what its city and depots hold, out of all
+   * their storage), or null if it stores nothing. */
+  private loot(region: number, from: number): Resources | null {
+    const rs = this.state.regions[region];
+    if (!rs.city && !rs.depots) return null;
+    this.updateCaps();
+    const p = this.state.players[from];
+    const here = storeOf(rs.city, rs.depots, p.techs);
+    const got = zero();
+    for (const k of RESOURCES) {
+      if (p.cap[k] <= 0) continue;
+      got[k] = p.resources[k] * Math.min(1, here[k] / p.cap[k]);
+      p.resources[k] -= got[k];
+    }
+    return got;
   }
 
   /** Hands a region over. Buildings stay; queued work belonged to the old owner. */
@@ -1067,12 +1219,23 @@ export class Sim {
     }
     this.state.regions.forEach((rs, i) => {
       if (rs.owner === NEUTRAL || !rs.supplied || this.hostileIn(i, rs.owner)) return;
-      add(players[rs.owner].income, regionYield(this.world.regions[i], rs.city, rs.econ));
+      add(players[rs.owner].income, regionYield(this.world.regions[i], rs.city, rs.econ, players[rs.owner].techs));
     });
     for (const b of this.state.blobs.values()) players[b.owner].upkeep += b.size * UNITS[b.type].upkeep;
+    this.updateCaps();
     for (const p of players) {
       if (!p.alive) continue;
-      for (const k of RESOURCES) p.resources[k] += p.income[k] * dt;
+      if (p.research) {
+        p.research.progress += dt;
+        if (p.research.progress >= p.research.seconds) {
+          p.techs.push(p.research.tech);
+          this.events.push({ kind: 'researched', player: p.id, tech: p.research.tech });
+          p.research = null;
+        }
+      }
+      // Income fills the stores up to their size; the rest is lost (a stock already over the
+      // size, after losing a depot, stays but doesn't grow).
+      for (const k of RESOURCES) p.resources[k] = Math.max(p.resources[k], Math.min(p.cap[k], p.resources[k] + p.income[k] * dt));
       p.resources.money -= p.upkeep * dt;
       p.broke = p.resources.money < 0;
       if (p.broke) p.resources.money = 0;
@@ -1094,6 +1257,7 @@ export class Sim {
     if (c.kind === 'fort') rs.fort = c.level;
     else if (c.kind === 'city') rs.city = c.level;
     else if (c.kind === 'barracks' || c.kind === 'factory') rs[c.kind] = true;
+    else if (c.kind === 'depot') rs.depots++;
     else if (c.kind === 'road') {
       // The other end changed hands meanwhile: give the money back instead.
       if (this.state.regions[c.target].owner !== rs.owner) {
@@ -1111,7 +1275,7 @@ export class Sim {
     const type = line.queue[0];
     const p = this.state.players[rs.owner];
     if (line.progress < 0) {
-      if (!this.pay(p, UNITS[type].cost)) return;
+      if (!this.pay(p, this.statsOf(type, rs.owner).cost)) return;
       line.progress = 0;
     }
     line.progress = Math.min(UNITS[type].buildTime, line.progress + dt);
@@ -1132,7 +1296,7 @@ export class Sim {
       const still = b.progress === 0 && b.path.length === 0;
       const inBattle = fighting.has(b.id);
       if (b.progress === 0 && this.state.regions[b.region].owner === b.owner && (still || b.hold)) {
-        b.entrench = Math.min(1, b.entrench + dt / ENTRENCH_SECONDS);
+        b.entrench = Math.min(1, b.entrench + dt / entrenchSeconds(p.techs));
       }
       if (!inBattle && b.supply > 0) {
         if (still && b.training < DRILL_CAP) b.training = Math.min(DRILL_CAP, b.training + DRILL_RATE * dt * b.supply);
@@ -1175,6 +1339,7 @@ export class Sim {
       supply: 1,
       hold: false,
       attacking: -1,
+      bombarding: -1,
     };
     this.state.blobs.set(b.id, b);
     this.touch();

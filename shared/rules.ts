@@ -8,8 +8,8 @@ export const SNAPSHOT_EVERY_TICKS = 2;
 
 // -- units ------------------------------------------------------------------------------------
 
-export type UnitType = 'infantry' | 'tank';
-export const UNIT_TYPES: readonly UnitType[] = ['infantry', 'tank'];
+export type UnitType = 'infantry' | 'tank' | 'artillery';
+export const UNIT_TYPES: readonly UnitType[] = ['infantry', 'tank', 'artillery'];
 
 export interface Resources {
   money: number;
@@ -42,6 +42,10 @@ export interface UnitStats {
   supplyNeed: number;
   /** Building that produces it. */
   producedAt: ProductionBuilding;
+  /** Artillery: shells enemies this many regions away while standing still, at this attack
+   * (its `attack` is only for close combat). It never joins an assault from the border. */
+  range?: number;
+  bombard?: number;
 }
 
 export const UNITS: Record<UnitType, UnitStats> = {
@@ -73,7 +77,32 @@ export const UNITS: Record<UnitType, UnitStats> = {
     supplyNeed: 2,
     producedAt: 'factory',
   },
+  artillery: {
+    maxSize: 100,
+    batch: 5,
+    speed: 0.7,
+    // Guns, not riflemen: next to useless up close, and it breaks fast.
+    attack: 0.2,
+    defense: 0.35,
+    terrainAttack: { plains: 1, forest: 1, hills: 1, mountains: 1 },
+    cost: { money: 80, manpower: 30, steel: 30, oil: 0 },
+    buildTime: 30,
+    upkeep: 0.04,
+    refillCost: { money: 2, manpower: 3, steel: 2, oil: 0 },
+    supplyNeed: 1.5,
+    producedAt: 'factory',
+    range: 2,
+    bombard: 2,
+  },
 };
+
+/** Shells hit dug-in units as hard as any (no digging-in bonus), and forts count this share. */
+export const BOMBARD_FORT_SHARE = 0.5;
+
+/** What a production building makes: the first is what it makes unless told otherwise. */
+export function unitsOf(building: ProductionBuilding): UnitType[] {
+  return UNIT_TYPES.filter((t) => UNITS[t].producedAt === building);
+}
 
 // -- movement ---------------------------------------------------------------------------------
 
@@ -173,8 +202,8 @@ export type ProductionBuilding = 'barracks' | 'factory';
 export type EconKind = 'farm' | 'mine' | 'well' | 'market';
 export const ECON_KINDS: readonly EconKind[] = ['farm', 'mine', 'well', 'market'];
 /** 'city' founds a city, or expands one that's there; 'road' is built across a border. */
-export type BuildingKind = EconKind | 'city' | 'fort' | ProductionBuilding | 'road';
-export const BUILDING_KINDS: readonly BuildingKind[] = ['farm', 'mine', 'well', 'market', 'city', 'fort', 'barracks', 'factory', 'road'];
+export type BuildingKind = EconKind | 'city' | 'fort' | ProductionBuilding | 'road' | 'depot';
+export const BUILDING_KINDS: readonly BuildingKind[] = ['farm', 'mine', 'well', 'market', 'city', 'fort', 'barracks', 'factory', 'road', 'depot'];
 export const MAX_FORT = 3;
 export const MAX_CITY = 5;
 /** Builds a region can have waiting behind the one under way. */
@@ -192,6 +221,21 @@ export const CITY_YIELD: Resources = { money: 0.8, manpower: 0.25, steel: 0, oil
 /** Your capital starts at least this big; cities of countries nobody plays start at 1. */
 export const START_CAPITAL_LEVEL = 3;
 export const NEUTRAL_CITY_LEVEL = 1;
+
+// -- storage ----------------------------------------------------------------------------------
+
+/** What a country can stockpile: each city level stores this much, each depot this much more.
+ * Income beyond it is lost. Taking a city or depot takes its share of the owner's stock. */
+export const STORE_PER_CITY_LEVEL: Resources = { money: 250, manpower: 250, steel: 120, oil: 120 };
+export const STORE_PER_DEPOT: Resources = { money: 1000, manpower: 1000, steel: 500, oil: 500 };
+
+/** What one region stores. */
+export function storeOf(city: number, depots: number, techs: Techs = []): Resources {
+  const out = { money: 0, manpower: 0, steel: 0, oil: 0 };
+  const more = techs.includes('warehouses') ? 1.5 : 1;
+  for (const k of RESOURCES) out[k] = (STORE_PER_CITY_LEVEL[k] * city + STORE_PER_DEPOT[k] * depots) * more;
+  return out;
+}
 
 export function usesSlot(kind: BuildingKind): boolean {
   return kind !== 'city' && kind !== 'road';
@@ -218,12 +262,20 @@ export function econYield(kind: EconKind, region: Region, city = 0): Partial<Res
 
 /** Everything a region yields per second while it's supplied and not fought over: its city's
  * tax plus its economic buildings. */
-export function regionYield(region: Region, city: number, econ: Record<EconKind, number>): Resources {
+export function regionYield(region: Region, city: number, econ: Record<EconKind, number>, techs: Techs = []): Resources {
   const out: Resources = { money: 0, manpower: 0, steel: 0, oil: 0 };
-  for (const k of RESOURCES) out[k] += CITY_YIELD[k] * city;
+  const bank = techs.includes('banking') ? 1.25 : 1;
+  out.money += CITY_YIELD.money * city * bank;
+  out.manpower += CITY_YIELD.manpower * city;
+  const boost: Record<EconKind, number> = {
+    farm: techs.includes('farming') ? 1.3 : 1,
+    mine: techs.includes('industry') ? 1.3 : 1,
+    well: techs.includes('industry') ? 1.3 : 1,
+    market: bank,
+  };
   for (const kind of ECON_KINDS) {
     const y = econYield(kind, region, city);
-    for (const k of RESOURCES) out[k] += (y[k] ?? 0) * econ[kind];
+    for (const k of RESOURCES) out[k] += (y[k] ?? 0) * econ[kind] * boost[kind];
   }
   return out;
 }
@@ -278,6 +330,8 @@ export function buildCost(kind: BuildingKind, level = 1): { cost: Resources; sec
       return { cost: res(150, 40), seconds: 120 };
     case 'road':
       return { cost: res(30, 5), seconds: 30 };
+    case 'depot':
+      return { cost: res(120, 20), seconds: 45 };
   }
 }
 
@@ -361,13 +415,106 @@ export function stackCap(region: Region, city: number, fort: number): number {
   return Math.max(STACK_MIN, STACK_SIZE[region.size] + STACK_TERRAIN[region.terrain]) + city + fort;
 }
 
-export function supplyCapacity(region: Region, city: number): number {
-  return SUPPLY_BASE * SUPPLY_TERRAIN[region.terrain] * (1 + SUPPLY_PER_CITY_LEVEL * city);
+export function supplyCapacity(region: Region, city: number, techs: Techs = []): number {
+  return SUPPLY_BASE * SUPPLY_TERRAIN[region.terrain] * (1 + SUPPLY_PER_CITY_LEVEL * city) * (techs.includes('kitchens') ? 1.3 : 1);
 }
 
 /** How many hops a city of this level supplies. */
-export function supplyReach(city: number): number {
-  return SUPPLY_REACH_BASE + city;
+export function supplyReach(city: number, techs: Techs = []): number {
+  return SUPPLY_REACH_BASE + city + (techs.includes('railways') ? 1 : 0);
+}
+
+// -- research -------------------------------------------------------------------------------
+
+export type TechId =
+  | 'rifles' | 'trenches' | 'conscription'
+  | 'engines' | 'armour' | 'fuel'
+  | 'shells' | 'rangefinders' | 'longGuns'
+  | 'farming' | 'industry' | 'banking'
+  | 'warehouses' | 'railways' | 'kitchens';
+/** A country's researched techs. */
+export type Techs = readonly TechId[];
+
+export interface Tech {
+  id: TechId;
+  branch: string;
+  /** 1-3: its row in the tree. */
+  tier: number;
+  name: string;
+  effect: string;
+  /** Techs it needs first (its own branch's tier before, and sometimes another branch's). */
+  needs: TechId[];
+}
+
+/** The tech tree: five branches of three, researched one at a time. Most top-tier techs
+ * also need a middle-tier tech from another branch, so the branches join up. */
+export const TECHS: readonly Tech[] = [
+  { id: 'rifles', branch: 'Infantry', tier: 1, name: 'Rifles', effect: 'Infantry +20% attack', needs: [] },
+  { id: 'trenches', branch: 'Infantry', tier: 2, name: 'Trenches', effect: 'Dig in twice as fast; dug in +50% stronger', needs: ['rifles'] },
+  { id: 'conscription', branch: 'Infantry', tier: 3, name: 'Conscription', effect: 'Infantry −30% manpower', needs: ['trenches', 'industry'] },
+  { id: 'engines', branch: 'Armour', tier: 1, name: 'Engines', effect: 'Tanks +20% speed', needs: [] },
+  { id: 'armour', branch: 'Armour', tier: 2, name: 'Armour plate', effect: 'Tanks +30% defence', needs: ['engines'] },
+  { id: 'fuel', branch: 'Armour', tier: 3, name: 'Synthetic fuel', effect: 'Tanks −50% oil', needs: ['armour', 'industry'] },
+  { id: 'shells', branch: 'Artillery', tier: 1, name: 'Heavy shells', effect: 'Artillery +30% shelling', needs: [] },
+  { id: 'rangefinders', branch: 'Artillery', tier: 2, name: 'Rangefinders', effect: 'Forts no help against shells', needs: ['shells'] },
+  { id: 'longGuns', branch: 'Artillery', tier: 3, name: 'Long guns', effect: 'Artillery range 3', needs: ['rangefinders', 'railways'] },
+  { id: 'farming', branch: 'Economy', tier: 1, name: 'Farming', effect: 'Farms +30%', needs: [] },
+  { id: 'industry', branch: 'Economy', tier: 2, name: 'Industry', effect: 'Mines and oil wells +30%', needs: ['farming'] },
+  { id: 'banking', branch: 'Economy', tier: 3, name: 'Banking', effect: 'Markets and city tax +25%', needs: ['industry', 'railways'] },
+  { id: 'warehouses', branch: 'Logistics', tier: 1, name: 'Warehouses', effect: 'Storage +50%', needs: [] },
+  { id: 'railways', branch: 'Logistics', tier: 2, name: 'Railways', effect: 'Supply reaches 1 region further', needs: ['warehouses'] },
+  { id: 'kitchens', branch: 'Logistics', tier: 3, name: 'Field kitchens', effect: 'Regions feed +30% troops', needs: ['railways'] },
+];
+export const TECH_BRANCHES = ['Infantry', 'Armour', 'Artillery', 'Economy', 'Logistics'];
+
+/** What researching a tier costs, paid when it starts (refunded if cancelled). */
+export function techCost(tier: number): { cost: Resources; seconds: number } {
+  if (tier <= 1) return { cost: res(250, 30), seconds: 60 };
+  if (tier === 2) return { cost: res(500, 80), seconds: 90 };
+  return { cost: res(900, 150), seconds: 120 };
+}
+
+/** Why a tech can't be researched (given what's done), or null. */
+export function whyNotResearch(id: TechId, techs: Techs): string | null {
+  const t = TECHS.find((x) => x.id === id);
+  if (!t) return 'no such tech';
+  if (techs.includes(id)) return 'already researched';
+  const missing = t.needs.filter((n) => !techs.includes(n)).map((n) => TECHS.find((x) => x.id === n)?.name ?? n);
+  if (missing.length) return `needs ${missing.join(' and ')} first`;
+  return null;
+}
+
+/** A unit type's stats for a country, its techs counted. */
+export function unitStats(type: UnitType, techs: Techs = []): UnitStats {
+  const base = UNITS[type];
+  if (!techs.length) return base;
+  const s = { ...base, cost: { ...base.cost } };
+  if (type === 'infantry') {
+    if (techs.includes('rifles')) s.attack *= 1.2;
+    if (techs.includes('conscription')) s.cost.manpower = Math.round(s.cost.manpower * 0.7);
+  }
+  if (type === 'tank') {
+    if (techs.includes('engines')) s.speed *= 1.2;
+    if (techs.includes('armour')) s.defense *= 1.3;
+    if (techs.includes('fuel')) s.cost.oil = Math.round(s.cost.oil * 0.5);
+  }
+  if (type === 'artillery') {
+    if (techs.includes('shells') && s.bombard) s.bombard *= 1.3;
+    if (techs.includes('longGuns') && s.range) s.range += 1;
+  }
+  return s;
+}
+
+/** How long digging in fully takes, and what being fully dug in is worth. */
+export function entrenchSeconds(techs: Techs = []): number {
+  return techs.includes('trenches') ? ENTRENCH_SECONDS / 2 : ENTRENCH_SECONDS;
+}
+export function entrenchBonus(techs: Techs = []): number {
+  return techs.includes('trenches') ? ENTRENCH_BONUS * 1.5 : ENTRENCH_BONUS;
+}
+/** The share of a fort's bonus that counts against a country's shells. */
+export function bombardFortShare(techs: Techs = []): number {
+  return techs.includes('rangefinders') ? 0 : BOMBARD_FORT_SHARE;
 }
 
 /** Seconds to capture a region with blobs of the given (best) training. */
