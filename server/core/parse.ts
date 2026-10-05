@@ -7,7 +7,7 @@ const MAX_IDS = 64;
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const isInt = (v: unknown): v is number => Number.isInteger(v) && (v as number) >= 0 && (v as number) < 1e9;
 const isIds = (v: unknown): v is number[] => Array.isArray(v) && v.length > 0 && v.length <= MAX_IDS && v.every(isInt);
-const isProd = (v: unknown): v is 'barracks' | 'factory' => v === 'barracks' || v === 'factory';
+const isProd = (v: unknown): v is 'barracks' | 'factory' | 'port' => v === 'barracks' || v === 'factory' || v === 'port';
 
 export function cleanName(v: unknown): string | null {
   if (typeof v !== 'string') return null;

@@ -27,11 +27,15 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
   no winner.
 
 ## 2. Map
-- v1 map: **Europe, modern countries, mainland only, Atlantic to the Urals** (no UK, Ireland,
-  Iceland or islands until naval exists). About 300 land regions built from **real provinces**, with admin borders merged or split to that count (denser in the west, coarser in Russia).
-- A map has **more start countries than lobby slots**: Europe has 18 (Austria, Belarus,
+- v1 map: **Europe, modern countries, Atlantic to the Urals**, with Britain, Ireland and the
+  bigger islands (Sicily, Sardinia, Corsica, Crete, the Baltic islands...; not Iceland, the
+  Atlantic islands or the Arctic). About 350 land regions built from **real provinces**, with
+  admin borders merged or split to that count (denser in the west, coarser in Russia).
+- **The sea** is split into about 50 named **sea regions** (North Sea, English Channel,
+  Tyrrhenian Sea, ...). Nobody owns them. See §4a.
+- A map has **more start countries than lobby slots**: Europe has 19 (Austria, Belarus,
   Bulgaria, Czech Republic, Finland, France, Germany, Greece, Hungary, Italy, Norway,
-  Poland, Portugal, Romania, Russia, Spain, Sweden, Ukraine). Humans pick, bots fill up to
+  Poland, Portugal, Romania, Russia, Spain, Sweden, Ukraine, United Kingdom). Humans pick, bots fill up to
   the lobby size, and the other countries start as empty neutral land.
 - **Spawn spacing** can't keep 15 capitals 600 km apart; past that, each new country goes
   as far as it can from the ones already taken.
@@ -98,8 +102,8 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
   building but cities and roads takes one (a fort takes one for all its levels). Choosing
   what a region is for is the trade-off; demolishing frees a slot at once, with no refund.
   Your regions show their slots as boxes (filled = used, hollow green = free) while you place
-  or demolish, and with the yield overlay. **Demolish mode** (0 or the build bar): pick a
-  building and click your regions that have one (tinted red).
+  and with the yield overlay. To demolish, click the region and use Demolish next to the
+  building in its panel.
 - **Economic buildings** go only within 2 regions of one of your cities:
   - Farm (+0.4 manpower/s, +0.6 on farmland): farmland or plains.
   - Mine (+0.6 steel/s on industry, +0.3 on hills or mountains).
@@ -125,8 +129,8 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
 
 ## 4. Units (blobs)
 - A blob is a token with a **type**, a **strength** (a small number, capped per type: infantry
-  20, tanks 10) and a **training** level. Types: **infantry, tanks and artillery**. Naval and
-  air come later.
+  20, tanks 10) and a **training** level. Types: **infantry, tanks, artillery and warships** (§4a). Air
+  comes later.
 - **Stat-based:** each type has attack, defense, speed, cost and upkeep. **Terrain matters
   a lot:** tanks are strong on plains and weak in forest and mountains.
 - **Production:** you order a blob at a barracks (infantry) or factory (artillery, and tanks
@@ -157,6 +161,31 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
   counts:** standing, leaving, or waiting at the edge of the next region. A route that meets
   a full region waits on its border; two full regions swapping units trade places, so they
   can't jam each other. Merge to make room.
+
+## 4a. The sea
+- **Sea regions** belong to nobody and are never captured. Land regions touching one are
+  **coastal**; only they can have a **port** (a building: a slot, 150 money and 40 steel, 90 s).
+- **Warships** are built at a port (5 per order: 120 money, 20 manpower, 60 steel, 15 oil,
+  40 s). They sail sea regions and into their own country's ports, never onto land, and
+  hold up to 12 tokens per side per sea region.
+  - **Fighting:** ships fight enemy ships and troops at sea, at full strength. In port they
+    don't fight (they mend there).
+  - **Shelling:** a ship standing still in supply shells enemies on the coasts of its sea
+    region and in the neighbouring sea regions (so transports waiting next to a fleet get
+    sunk), like artillery with a range of 1.
+  - **Supply:** full within 3 sea regions of one of its country's supplied ports, none
+    beyond (it slowly wastes away). Ships refill only in port.
+- **Troops cross the sea on their own:** send land units to a region across the water and
+  they march to the nearest of your ports, **board** (8 s), sail (slower than ships), and
+  **land** on the far coast. There are no transport units to manage. Without a port of your
+  own there is no way across.
+  - At sea they are **easy to hurt** (half defence) and hit back at a quarter.
+  - **Blockade:** troops never sail into a sea region with enemy ships in it; they wait in
+    the sea region before it (and the enemy fleet shells them there). Bots turn back.
+  - **Landing:** attacking a defended coast straight from the sea hits at half strength.
+  - Troops can't be sent to a sea region itself, and ships and troops are ordered apart.
+- **On screen:** sea names in blue, a hull symbol for warships, a boat beside troops that are
+  at sea, an anchor icon on ports; clicking a sea shows its coasts and who's there.
 
 ## 5. Movement
 - **RTS controls:** click or box-select blobs, right-click a region to send them, and use keys
@@ -249,7 +278,11 @@ The others:
 - expand into neutral land;
 - guard their borders and dig in with forts, also in peacetime;
 - produce blobs;
-- fight only countries they're at war with, and defend their capital.
+- fight only countries they're at war with, and defend their capital;
+- build a port on the coast (early when there's no land left to take on foot), keep a small
+  fleet (more at war) that waits off their port in peacetime and at war hunts enemy ships it
+  outguns or shells enemy coasts within supply reach, and ship idle troops to the nearest
+  neutral coast, or all together to an enemy coast they can take (up to 10 hops away).
 
 **When bots go to war:** when they're attacked, or by difficulty against a bordering
 country much weaker than them:
@@ -262,13 +295,11 @@ Bots offer peace when a war goes badly or stalls, and accept offers when the war
 going their way. A bot playing for a disconnected person never starts a war.
 
 ## Later (not in v1)
-- **Naval:** ports, sea lanes between ports (no sea zones), transports that carry land blobs,
-  and warship blobs that fight on lanes and sink transports.
 - **Air:** air blobs that are fast, ignore terrain and ZoC, and return to airfields.
   Bombers hit forts, buildings and supply; fighters and AA defenses counter them.
 - **Alliances** (shared win; peace and war exist already) and **fog of war** (see your own regions and their neighbours,
   last-known state elsewhere).
-- Procedural maps, other real-world maps, islands.
+- Procedural maps, other real-world maps.
 - The Kernel module (copy of flowrace: install/update from GitHub, kernel-host.ts,
   `/kernel/status`, Tailscale share, `openfork.match.*` events).
 
@@ -293,6 +324,8 @@ going their way. A bot playing for a disconnected person never starts a war.
 | Capture time, empty plains, medium size | 6.5 s (× terrain/size/fort, ÷ training) |
 | Infantry / tank production | 20 s / 30 s |
 | Infantry / tank batch cost | $50 + 100 manpower (10 strength) / $90 + 30 manpower + 38 steel + 18 oil (5 strength) |
+| Warships | 5 per order: $120 + 20 manpower + 60 steel + 15 oil, 40 s, at a port; speed 1.6, attack 2, defense 1.5 |
+| Sea | troops board 8 s, sail at speed 1.4, hit at ×0.25 at sea (×0.5 landing), defend at ×0.5; ships supplied 3 sea regions from a port; 12 tokens per side per sea region |
 | Truce after peace / peace offer stands | 180 s / 30 s |
 | Supply reach from a city | 3 + its level (roads: half a hop) |
 | Supply capacity of a region | 90 × terrain × (1 + 0.25 × city level); infantry needs 1 per point, tanks 2 |

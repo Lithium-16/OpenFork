@@ -51,6 +51,8 @@ export class MapView {
   private readonly ctx: CanvasRenderingContext2D;
   readonly map: GameMap;
   readonly grid: Uint16Array;
+  /** Sea region per pixel of open sea, WATER elsewhere. */
+  readonly seaGrid: Uint16Array;
   private readonly terrain: HTMLImageElement;
   private readonly territory: HTMLCanvasElement;
   private readonly highlight: HTMLCanvasElement;
@@ -86,7 +88,7 @@ export class MapView {
   /** The stack shown as single tokens after a click on it, or null. */
   expanded: string | null = null;
   /** Placement mode: where the building can go, and the region under the cursor. */
-  placement: { valid: Set<number>; hover: number; demolish?: boolean } | null = null;
+  placement: { valid: Set<number>; hover: number } | null = null;
   /** Orders sent but not yet in a snapshot, drawn at once so input feels instant. */
   readonly pending: {
     move: { ids: number[]; to: number; since: number } | null;
@@ -127,6 +129,7 @@ export class MapView {
     this.map = map;
     this.terrain = terrain;
     this.grid = decodeGrid(map.grid, map.width * map.height);
+    this.seaGrid = map.seaGrid ? decodeGrid(map.seaGrid, map.width * map.height) : new Uint16Array(map.width * map.height).fill(WATER);
     this.territory = offscreen(map.width, map.height);
     this.highlight = offscreen(map.width, map.height);
     this.supplyLayer = offscreen(map.width, map.height);
@@ -245,7 +248,8 @@ export class MapView {
     const x = Math.floor(mx);
     const y = Math.floor(my);
     if (x < 0 || y < 0 || x >= this.map.width || y >= this.map.height) return -1;
-    const r = this.grid[y * this.map.width + x];
+    const i = y * this.map.width + x;
+    const r = this.grid[i] === WATER ? this.seaGrid[i] : this.grid[i];
     return r === WATER ? -1 : r;
   }
 
@@ -539,8 +543,12 @@ export class MapView {
       const c = COLORS[state];
       for (const p of this.regionPixels[i]) {
         const x = p % W;
-        if (!c || (x + (p - x) / W) % 2) {
-          d[p * 4 + 3] = 0; // dithered
+        const y = (p - x) / W;
+        // Each state has its own pattern, not just a colour: checker (in supply), dots (edge of
+        // reach), diagonal stripes (cut off), horizontal stripes (overloaded).
+        const on = state === 1 ? (x + y) % 2 === 0 : state === 2 ? x % 2 === 0 && y % 2 === 0 : state === 3 ? (x + y) % 4 < 2 : y % 3 === 0;
+        if (!c || !on) {
+          d[p * 4 + 3] = 0;
           continue;
         }
         d[p * 4] = c[0];
@@ -932,9 +940,8 @@ export class MapView {
     }
   }
 
-  /** Placement: valid regions tinted green (red when demolishing), everything else dimmed
-   * (changed regions only). */
-  private updatePlaceLayer(valid: Set<number>, demolish: boolean): void {
+  /** Placement: valid regions tinted green, everything else dimmed (changed regions only). */
+  private updatePlaceLayer(valid: Set<number>): void {
     const W = this.map.width;
     const ctx = this.placeLayer.getContext('2d') as CanvasRenderingContext2D;
     if (!this.placeImg) {
@@ -947,10 +954,10 @@ export class MapView {
     const d = this.placeImg.data;
     let [x0, y0, x1, y1] = [W, this.map.height, -1, -1];
     for (let r = 0; r < this.shownValid.length; r++) {
-      const on = valid.has(r) ? (demolish ? 2 : 1) : 0;
+      const on = valid.has(r) ? 1 : 0;
       if (on === this.shownValid[r]) continue;
       this.shownValid[r] = on;
-      const tint = on === 2 ? [230, 80, 70, 120] : on === 1 ? [70, 220, 100, 120] : [8, 11, 14, 140];
+      const tint = on ? [70, 220, 100, 120] : [8, 11, 14, 140];
       for (const p of this.regionPixels[r]) d.set(tint, p * 4);
       const o = r * 4;
       x0 = Math.min(x0, this.regionBox[o]);
@@ -970,8 +977,9 @@ export class MapView {
     if (region < 0) return;
     const img = ctx.createImageData(W, this.map.height);
     // A dithered checkerboard, the pixel-art way to show a selection.
-    for (let i = 0; i < this.grid.length; i++) {
-      if (this.grid[i] !== region) continue;
+    const grid = this.map.regions[region]?.sea ? this.seaGrid : this.grid;
+    for (let i = 0; i < grid.length; i++) {
+      if (grid[i] !== region) continue;
       const x = i % W;
       if ((x + (i - x) / W) % 2) continue;
       img.data[i * 4] = 230;
@@ -1034,7 +1042,7 @@ export class MapView {
     if (this.fx.level === 'full') this.drawAmbient(snap);
     if (showSupply) ctx.drawImage(this.supplyLayer, 0, 0);
     if (place) {
-      this.updatePlaceLayer(place.valid, !!place.demolish);
+      this.updatePlaceLayer(place.valid);
       ctx.drawImage(this.placeLayer, 0, 0);
     }
     if (lit >= 0) ctx.drawImage(this.highlight, 0, 0);
@@ -1128,22 +1136,30 @@ export class MapView {
       if (x < -80 || y < -80 || x > this.canvas.clientWidth + 80 || y > this.canvas.clientHeight + 80) continue;
 
       // Icons in a row above the units: capital or city, and fort, each with its level as a
-      // roman numeral on its bottom-right corner; then barracks, factory.
+      // roman numeral on its bottom-right corner; the other buildings (barracks, factory,
+      // port, depots) count as "+N" (the region panel lists them). Without a city or fort,
+      // the first of them shows itself.
       const icons: Array<{ s: Sprite; level?: number }> = [];
       const city = rr[2];
       if (capitals.has(region.id)) icons.push({ s: ICONS.capital, level: city });
       else if (city > 0) icons.push({ s: ICONS.city, level: city });
       if (rr[1] > 0) icons.push({ s: ICONS.fort, level: rr[1] });
-      if (rr[3] & 1) icons.push({ s: ICONS.barracks });
-      if (rr[3] & 2) icons.push({ s: ICONS.factory });
-      if (rr[13] > 0) icons.push({ s: ICONS.depot, level: rr[13] > 1 ? rr[13] : undefined });
+      const others: Sprite[] = [];
+      if (rr[3] & 1) others.push(ICONS.barracks);
+      if (rr[3] & 2) others.push(ICONS.factory);
+      if (rr[3] & 8) others.push(ICONS.port);
+      for (let d = 0; d < rr[13]; d++) others.push(ICONS.depot);
+      if (!icons.length && others.length) icons.push({ s: others.shift() as Sprite });
+      const extra = others.length;
       const showIcons = icons.length > 0 && zoom >= 0.5;
       const iconBottom = y + tokenTop - 2;
       if (showIcons) {
         const gap = 2 * ipx;
         // The numeral hangs 2 art pixels past the icon's right edge and 2 below it.
         const width = (i: { s: Sprite; level?: number }) => i.s.width * ipx + (i.level ? 2 * ipx : 0);
-        const total = icons.reduce((sum, i) => sum + width(i), 0) + gap * (icons.length - 1);
+        const plus = `+${extra}`;
+        const plusW = extra ? digitsWidth(plus, ipx) + 2 * ipx : 0;
+        const total = icons.reduce((sum, i) => sum + width(i), 0) + gap * (icons.length - 1) + (extra ? gap + ipx + plusW : 0);
         let ix = Math.round(x - total / 2);
         for (const icon of icons) {
           blit(ctx, icon.s, ix, iconBottom - icon.s.height * ipx, ipx);
@@ -1153,6 +1169,14 @@ export class MapView {
           }
           ix += width(icon) + gap;
         }
+        if (extra) {
+          // "+N" on a dark plate, level with the icons' feet.
+          ix += ipx;
+          const h = 7 * ipx;
+          ctx.fillStyle = INK;
+          ctx.fillRect(ix, iconBottom - h, plusW, h);
+          pixelDigits(ctx, plus, ix + plusW / 2, iconBottom - h / 2, ipx, '#ffffff');
+        }
       } else if (capitals.has(region.id)) {
         blitCentred(ctx, ICONS.capital, x, y, 1);
       } else if (city > 0) {
@@ -1161,7 +1185,18 @@ export class MapView {
 
       // Name, in the pixel font, above everything else (not over a battle unless zoomed in).
       const busy = (owners.get(region.id)?.size ?? 0) > 1;
-      if (zoom >= 0.9 && (!busy || zoom >= 1.8)) {
+      if (region.sea) {
+        // Sea names in sea blue, without the number that tells same-named parts apart (the
+        // panel keeps it).
+        if (zoom >= 0.8 && (!busy || zoom >= 1.8)) {
+          const size = zoom >= 1.8 ? 16 : 12;
+          pixelText(ctx, region.name.replace(/ \d+$/, '').toUpperCase(), x, y + tokenTop - 3 - size / 2, size, '#8fb8d8');
+        }
+        continue;
+      }
+      // Names: your regions and capitals from further out; everyone else's once zoomed in.
+      const named = (you !== null && rr[0] === you) || capitals.has(region.id) || zoom >= 1.4;
+      if (named && zoom >= 0.9 && (!busy || zoom >= 1.8)) {
         const size = zoom >= 1.8 ? 16 : 12;
         const top = showIcons ? iconBottom - 10 * ipx : y + tokenTop;
         pixelText(ctx, region.name.toUpperCase(), x, top - 3 - size / 2, size, '#e6edf2');
@@ -1757,7 +1792,8 @@ export class MapView {
 
   /** Moves the camera so a minimap point is in the middle of the screen. */
   focusMinimap(mini: HTMLCanvasElement, mx: number, my: number): void {
-    const k = this.map.width / mini.clientWidth;
+    // On-screen size (the HUD may be zoomed by the UI scale).
+    const k = this.map.width / mini.getBoundingClientRect().width;
     this.focus(mx * k, my * k, this.cam.scale);
   }
 
@@ -1777,9 +1813,13 @@ export class MapView {
     const y0 = Math.round(p.y - h / 2);
     // Everything but the live bits comes from a cached bitmap: one drawImage per token.
     // Idle motion: the pennant flutters (and a supply warning blinks) on each unit's own beat.
-    const beat = Math.floor((now + rows[0][0] * 137) / 700) % 2;
+    const beat = this.fx.level === 'full' ? Math.floor((now + rows[0][0] * 137) / 700) % 2 : 0;
     const token = tokenSprite(rows, color, px, beat);
     ctx.drawImage(token, p.x - TOKEN_AX * px, p.y - TOKEN_AY * px);
+    // Troops at sea, aboard transports: a boat just right of the frame.
+    if (this.map.regions[rows[0][6]]?.sea && rows.some((b) => !UNITS[UNIT_INDEX[b[2]]].naval)) {
+      blit(ctx, ICONS.afloat, x0 + w + 3 * px, y0 + h - 6 * px, px);
+    }
     // On the move: a bar of 5 cells left of the frame fills up until the hop to the next region.
     if (it.moving) {
       const progress = Math.min(1, Math.max(...rows.map((b) => b[8])));
@@ -1915,11 +1955,19 @@ function tokenSprite(rows: BlobRow[], color: string, px: number, beat: number): 
   }
 
   // Supply: amber/red block in the top-right corner of the frame (blinking).
+  // Supply short: a square dot (partly supplied) or a cross (none), so the shape tells them
+  // apart as well as the colour.
   if (supplyMark) {
+    const none = supply <= 0;
+    const box = none ? 5 : 4;
     ctx.fillStyle = INK;
-    ctx.fillRect(x0 + w - 4 * px, y0 + 3 * px, 4 * px, 4 * px);
+    ctx.fillRect(x0 + w - box * px, y0 + 3 * px, box * px, box * px);
     ctx.fillStyle = beat ? shade(supplyMark, 0.55) : supplyMark;
-    ctx.fillRect(x0 + w - 3 * px, y0 + 4 * px, 2 * px, 2 * px);
+    if (none) {
+      for (const [dx, dy] of [[1, 1], [3, 1], [2, 2], [1, 3], [3, 3]]) ctx.fillRect(x0 + w - box * px + dx * px, y0 + 3 * px + dy * px, px, px);
+    } else {
+      ctx.fillRect(x0 + w - 3 * px, y0 + 4 * px, 2 * px, 2 * px);
+    }
   }
   // A small pennant on a staff at the top right, fluttering between two shapes.
   ctx.fillStyle = INK;
@@ -1960,7 +2008,7 @@ export interface SupplyInfo {
 const textCache = new Map<string, HTMLCanvasElement>();
 
 function pixelText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, size: number, color: string): void {
-  const font = `${size >= 12 ? 700 : 400} ${size}px "Pixelify Sans", monospace`;
+  const font = `${size}px "VT323", monospace`;
   const key = `${font}|${color}|${text}`;
   let c = textCache.get(key);
   if (!c) {

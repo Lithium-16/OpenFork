@@ -1,35 +1,23 @@
 /* NATO ops, in pixels: dark grey, cyan lines, one pixel font, square everything. Panels and
    buttons get pixel borders from box-shadows, which leaves the corners notched. */
 
+/* VT323: a terminal pixel font whose 5/S, 8/B and 0/O never mix up. Its glyphs are small for
+   their size, so size-adjust scales them up 140% and every font-size below keeps its look. */
 @font-face {
-  font-family: 'Pixelify Sans';
+  font-family: 'VT323';
   font-weight: 400;
   font-display: block;
-  src: url(fonts/pixelify-sans-latin-400-normal.woff2) format('woff2');
+  size-adjust: 140%;
+  src: url(fonts/vt323-latin-400-normal.woff2) format('woff2');
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
     U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 @font-face {
-  font-family: 'Pixelify Sans';
+  font-family: 'VT323';
   font-weight: 400;
   font-display: block;
-  src: url(fonts/pixelify-sans-latin-ext-400-normal.woff2) format('woff2');
-  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
-    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
-}
-@font-face {
-  font-family: 'Pixelify Sans';
-  font-weight: 700;
-  font-display: block;
-  src: url(fonts/pixelify-sans-latin-700-normal.woff2) format('woff2');
-  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
-    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-}
-@font-face {
-  font-family: 'Pixelify Sans';
-  font-weight: 700;
-  font-display: block;
-  src: url(fonts/pixelify-sans-latin-ext-700-normal.woff2) format('woff2');
+  size-adjust: 140%;
+  src: url(fonts/vt323-latin-ext-400-normal.woff2) format('woff2');
   unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
     U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
@@ -41,13 +29,15 @@
   --raised: #1d252d;
   --line: #2c3a44;
   --text: #e6edf2;
-  --muted: #8b9aa6;
+  --muted: #a9b6c1;
   --accent: #4fd1ff;
   --accent-ink: #06141a;
   --warn: #ffb347;
   --bad: #ff5a5a;
   --good: #7bd389;
   --ink: #0b0f13;
+  /* The menu's UI scale (1, 1.25 or 1.5); every HUD box zooms by it. */
+  --ui-scale: 1;
   color-scheme: dark;
 }
 
@@ -62,7 +52,9 @@ body {
   height: 100%;
   background: var(--bg);
   color: var(--text);
-  font: 16px/1.25 'Pixelify Sans', monospace;
+  font: 16px/1.25 'VT323', monospace;
+  /* One weight only: no smeared fake bold. */
+  font-synthesis: none;
   -webkit-font-smoothing: none;
   font-smooth: never;
   image-rendering: pixelated;
@@ -221,7 +213,7 @@ select:focus {
 }
 
 input::placeholder {
-  color: #4f5e69;
+  color: #7f8e9a;
 }
 
 button {
@@ -370,7 +362,7 @@ button.primary:hover:not(:disabled) {
 
 .countries small {
   display: block;
-  font-size: 12px;
+  font-size: 13px;
   opacity: 0.75;
   text-transform: none;
 }
@@ -405,7 +397,7 @@ button.primary:hover:not(:disabled) {
 
 .hud .classbar {
   margin: 0 0 6px;
-  font-size: 12px;
+  font-size: 13px;
   padding: 2px 8px;
 }
 
@@ -440,7 +432,7 @@ button.primary:hover:not(:disabled) {
 
 .res small {
   color: var(--good);
-  font-size: 10px;
+  font-size: 13px;
 }
 
 .res small.neg {
@@ -511,7 +503,7 @@ button.primary:hover:not(:disabled) {
 .players {
   padding: 0 0 6px;
   min-width: 210px;
-  max-height: 45vh;
+  max-height: 45%;
   overflow: auto;
 }
 
@@ -537,7 +529,7 @@ button.primary:hover:not(:disabled) {
 
 .tag {
   color: var(--warn);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .players .num {
@@ -556,7 +548,7 @@ button.primary:hover:not(:disabled) {
   left: 10px;
   bottom: 10px;
   width: min(380px, calc(100% - 20px));
-  max-height: 62vh;
+  max-height: 62%;
   overflow: auto;
   padding: 0 0 10px;
 }
@@ -575,21 +567,19 @@ button.primary:hover:not(:disabled) {
 .panel .sub {
   color: var(--muted);
   margin-bottom: 8px;
-  text-transform: uppercase;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .panel .grid2 {
   display: grid;
   grid-template-columns: auto 1fr;
-  gap: 1px 10px;
-  margin-bottom: 8px;
+  gap: 0 10px;
+  margin-bottom: 6px;
 }
 
 .panel .grid2 span:nth-child(odd) {
   color: var(--muted);
-  text-transform: uppercase;
-  font-size: 12px;
+  font-size: 13px;
   align-self: center;
 }
 
@@ -611,8 +601,7 @@ button.primary:hover:not(:disabled) {
 
 .panel .buttons.split .label {
   color: var(--muted);
-  text-transform: uppercase;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .panel .buttons.split input {
@@ -641,7 +630,7 @@ button.primary:hover:not(:disabled) {
 
 .unit .meta {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   margin-left: auto;
   text-align: right;
   font-variant-numeric: tabular-nums;
@@ -651,7 +640,7 @@ button.primary:hover:not(:disabled) {
   display: flex;
   gap: 2px;
   height: 6px;
-  margin: 3px 0 6px;
+  margin: 3px 0 4px;
 }
 
 .bar i {
@@ -665,9 +654,8 @@ button.primary:hover:not(:disabled) {
 
 .line {
   border-top: 2px dashed var(--line);
-  margin-top: 8px;
-  padding-top: 6px;
-  text-transform: uppercase;
+  margin-top: 6px;
+  padding-top: 4px;
   font-size: 13px;
   color: var(--accent);
 }
@@ -678,7 +666,7 @@ button.primary:hover:not(:disabled) {
   width: min(320px, calc(100% - 20px));
   padding: 0 0 6px;
   font-size: 13px;
-  max-height: 32vh;
+  max-height: 32%;
   overflow: hidden;
 }
 
@@ -715,7 +703,7 @@ button.primary:hover:not(:disabled) {
   left: 50%;
   transform: translateX(-50%);
   padding: 0 0 6px;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .legend div:not(.classbar) {
@@ -727,30 +715,31 @@ button.primary:hover:not(:disabled) {
 
 .legend .key {
   display: inline-block;
-  width: 10px;
-  height: 10px;
+  width: 14px;
+  height: 14px;
+  background-color: var(--ink);
   box-shadow: 0 0 0 2px var(--ink);
 }
 
 .legend .key.in {
-  background: var(--accent);
+  background: repeating-conic-gradient(var(--accent) 0 25%, transparent 0 50%) 0 0 / 4px 4px;
 }
 
 .legend .key.edge {
-  background: #e8e27a;
+  background: radial-gradient(#e8e27a 1px, transparent 1.5px) 0 0 / 4px 4px;
 }
 
 .legend .key.over {
-  background: var(--warn);
+  background: repeating-linear-gradient(0deg, var(--warn) 0 2px, transparent 2px 5px);
 }
 
 .legend .key.cut {
-  background: var(--bad);
+  background: repeating-linear-gradient(45deg, var(--bad) 0 2px, transparent 2px 5px);
 }
 
 .topbar .toggle {
   padding: 2px 5px;
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .topbar .toggle.on {
@@ -763,7 +752,7 @@ button.primary:hover:not(:disabled) {
   left: 10px;
   top: 52px;
   padding: 0 0 6px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   max-width: 360px;
 }
@@ -775,6 +764,19 @@ button.primary:hover:not(:disabled) {
 .help .fold {
   cursor: pointer;
   user-select: none;
+  width: 100%;
+  margin: 0 0 6px;
+  box-shadow: none;
+  text-align: left;
+}
+
+.help .fold:hover:not(:disabled) {
+  background: var(--text);
+  color: var(--ink);
+}
+
+.help.folded {
+  max-width: none;
 }
 
 .help.folded {
@@ -814,7 +816,7 @@ button.primary:hover:not(:disabled) {
 /* What the building under the pointer (or being placed) does. */
 .buildbar .about {
   padding: 0 10px 4px;
-  font-size: 11px;
+  font-size: 13px;
   color: var(--muted);
   min-height: 1.4em;
 }
@@ -823,7 +825,7 @@ button.primary:hover:not(:disabled) {
 .toggle small {
   margin-left: 3px;
   opacity: 0.6;
-  font-size: 10px;
+  font-size: 13px;
 }
 
 .buildbar .groups {
@@ -834,10 +836,8 @@ button.primary:hover:not(:disabled) {
 }
 
 .buildbar .gname {
-  font-size: 10px;
+  font-size: 13px;
   color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
   margin: 0 2px 1px;
 }
 
@@ -855,7 +855,7 @@ button.primary:hover:not(:disabled) {
   text-align: left;
   padding: 3px 6px 3px 4px;
   min-width: 104px;
-  font-size: 11px;
+  font-size: 13px;
   letter-spacing: 0.02em;
 }
 
@@ -880,7 +880,7 @@ button.primary:hover:not(:disabled) {
 }
 
 .buildbar .slot .price {
-  font-size: 9px;
+  font-size: 13px;
   color: var(--muted);
   text-transform: none;
   letter-spacing: 0;
@@ -916,7 +916,7 @@ button.primary:hover:not(:disabled) {
   display: inline-flex;
   flex-wrap: wrap;
   gap: 2px 7px;
-  font-size: 12px;
+  font-size: 13px;
   font-variant-numeric: tabular-nums;
   text-transform: none;
   letter-spacing: 0;
@@ -944,22 +944,7 @@ button.primary:hover:not(:disabled) {
   color: var(--bad);
 }
 
-.cost.gain {
-  color: var(--good);
-  font-size: 11px;
-}
-
-.buildbar .slot .gives {
-  font-size: 10px;
-  color: var(--muted);
-  text-transform: none;
-  letter-spacing: 0;
-  white-space: nowrap;
-}
-
 .buildbar .slot.active .cost,
-.buildbar .slot.active .gives,
-.buildbar .slot.active .cost.gain,
 .buildbar .slot.active .cost .chip.short {
   color: var(--accent-ink);
 }
@@ -970,44 +955,12 @@ button.primary:hover:not(:disabled) {
   align-items: center;
   gap: 4px 8px;
   margin: 4px 12px 0;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 
 .panel .costline .cost {
   color: var(--text);
-}
-
-/* The demolish tool, and the bar while it's on: red instead of cyan. */
-.buildbar .slot .glyph {
-  grid-row: span 3;
-  width: 18px;
-  text-align: center;
-  font-size: 14px;
-  color: var(--bad);
-}
-
-.buildbar .slot.off {
-  opacity: 0.45;
-}
-
-.buildbar.demolish .classbar,
-.buildbar .slot.tool.active,
-.buildbar.demolish .slot.active {
-  background: var(--bad);
-  color: var(--ink);
-  box-shadow:
-    0 -2px 0 0 var(--bad),
-    0 2px 0 0 var(--bad),
-    -2px 0 0 0 var(--bad),
-    2px 0 0 0 var(--bad);
-}
-
-.buildbar .slot.tool.active .glyph,
-.buildbar .slot.tool.active .price,
-.buildbar.demolish .slot.active .price,
-.buildbar.demolish .slot.active .name b {
-  color: var(--ink);
 }
 
 /* Research: its own screen over the game, the tech tree as nodes joined by lines. */
@@ -1147,14 +1100,14 @@ button.primary:hover:not(:disabled) {
 }
 
 .techtree .node .tier {
-  font-size: 9px;
+  font-size: 13px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--muted);
 }
 
 .techtree .node .effect {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--muted);
 }
 
@@ -1163,7 +1116,7 @@ button.primary:hover:not(:disabled) {
   flex-wrap: wrap;
   align-items: center;
   gap: 4px;
-  font-size: 11px;
+  font-size: 13px;
   position: relative;
 }
 
@@ -1210,7 +1163,7 @@ button.primary:hover:not(:disabled) {
   display: flex;
   flex-wrap: wrap;
   gap: 6px 18px;
-  font-size: 11px;
+  font-size: 13px;
   color: var(--muted);
 }
 
@@ -1256,11 +1209,56 @@ button.primary:hover:not(:disabled) {
 
 .panel button.x {
   padding: 0 6px;
-  font-size: 12px;
-  margin: 2px 0;
+  font-size: 13px;
+  margin: 2px 0 2px 4px;
 }
 
-@media (max-width: 900px) {
+.panel button.x.on {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+/* What's built: one wrapped row of names, each with × to demolish it. */
+.panel .built {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.panel .built .label {
+  color: var(--muted);
+  font-size: 13px;
+  margin-right: 2px;
+}
+
+.panel .chipx {
+  padding: 1px 6px;
+  font-size: 13px;
+  margin: 0;
+  text-transform: none;
+}
+
+.panel .chipx b {
+  color: var(--bad);
+  font-weight: 400;
+  margin-left: 5px;
+}
+
+.panel .chipx:hover b {
+  color: var(--ink);
+}
+
+/* One line per unit a building makes: the order button, then its cost. */
+.panel .costline button {
+  padding: 3px 8px;
+  font-size: 13px;
+  margin: 0;
+}
+
+/* Narrow screens (or a big UI size on a small one): the HUD layer's own width decides. */
+@container hud (max-width: 900px) {
   .help {
     display: none;
   }
@@ -1284,8 +1282,7 @@ button.primary:hover:not(:disabled) {
   .buildbar .slot {
     width: auto;
   }
-  .buildbar .slot .price,
-  .buildbar .slot .gives {
+  .buildbar .slot .price {
     display: none;
   }
 }
@@ -1398,7 +1395,7 @@ button.danger:hover:not(:disabled) {
 
 .players .act {
   padding: 0 4px;
-  font-size: 10px;
+  font-size: 13px;
   margin: 0 0 0 2px;
 }
 
@@ -1424,4 +1421,123 @@ button.danger:hover:not(:disabled) {
 .offers .offer .row button {
   padding: 2px 8px;
   font-size: 13px;
+}
+
+/* -- readability and accessibility ---------------------------------------------------------- */
+
+/* Everything on top of the map grows with the UI scale: the HUD layer covers the screen and
+   is zoomed, so its boxes lay out on a screen 1/scale the size, like browser zoom. */
+.hud-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  zoom: var(--ui-scale);
+  pointer-events: none;
+  container: hud / size;
+}
+
+/* A mid-size HUD (a laptop, or a bigger UI size): the top bar moves left of the country list
+   (wrapping if it must), and the build bar drops its group names and flows as one grid. */
+@container hud (max-width: 1400px) {
+  .topbar {
+    left: 10px;
+    transform: none;
+    max-width: calc(100% - 340px);
+    flex-wrap: wrap;
+  }
+  .help {
+    top: 92px;
+  }
+  .buildbar .gname {
+    display: none;
+  }
+  .buildbar .group,
+  .buildbar .slots {
+    display: contents;
+  }
+}
+
+/* The Controls box open: the selection panel stops short of it. */
+.hud-layer:has(.help:not(.folded)) .panel {
+  max-height: calc(100% - 270px);
+}
+
+.hud-layer > * {
+  pointer-events: auto;
+}
+
+.overlay .card,
+.toast {
+  zoom: var(--ui-scale);
+}
+
+/* Keyboard focus is always visible. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+/* Short of a resource: red and a dotted box, so it doesn't rest on colour alone. */
+.cost .chip.short {
+  outline: 1px dotted currentColor;
+  outline-offset: 1px;
+}
+
+/* Less motion when the system asks for it. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* The region panel's extra rows, folded under Details. */
+.panel details {
+  margin: 0 12px 4px;
+}
+
+.panel details summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-size: 13px;
+}
+
+.panel details .grid2 {
+  margin: 4px 0 0;
+}
+
+/* Settings in the menu: UI scale and effects. */
+.menu-card .opts {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.menu-card .opts span {
+  color: var(--muted);
+  font-size: 13px;
+  margin-right: 4px;
+}
+
+.menu-card .opts button {
+  padding: 4px 10px;
+  font-size: 13px;
+}
+
+.menu-card .opts button.on {
+  background: var(--accent);
+  color: var(--accent-ink);
 }

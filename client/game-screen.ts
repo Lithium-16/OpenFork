@@ -33,6 +33,7 @@ import {
   type TechId,
   TECHS,
   techCost,
+  SEA_SUPPLY_HOPS,
   UNITS,
   type UnitType,
   unitStats,
@@ -59,6 +60,7 @@ const BUILD_LABEL: Record<BuildingKind, string> = {
   road: 'Road',
   depot: 'Depot',
   lab: 'Lab',
+  port: 'Port',
 };
 /** The build bar, in groups; hotkeys 1-9 then - follow this order. */
 const BAR: Array<{ group: string; kinds: BuildingKind[] }> = [
@@ -66,17 +68,17 @@ const BAR: Array<{ group: string; kinds: BuildingKind[] }> = [
   { group: 'City', kinds: ['city'] },
   { group: 'Military', kinds: ['fort', 'barracks', 'factory'] },
   { group: 'Logistics', kinds: ['road', 'depot'] },
+  { group: 'Sea', kinds: ['port'] },
 ];
 const HOTKEYS: BuildingKind[] = BAR.flatMap((g) => g.kinds);
 /** The key for each of HOTKEYS. */
-const HOTKEY_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '-', '='];
+const HOTKEY_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '-', '=', 'p'];
 /** Region row fields of the economic buildings. */
 const ECON_FIELD: Record<EconKind, number> = { farm: 9, mine: 10, well: 11, market: 12, lab: 14 };
 const tech = (id: TechId): Tech => TECHS.find((t) => t.id === id) as Tech;
-const UNIT_NAME: Record<UnitType, string> = { infantry: 'Infantry', tank: 'Tanks', artillery: 'Artillery' };
-const UNIT_SHORT: Record<UnitType, string> = { infantry: 'INF', tank: 'ARM', artillery: 'ART' };
+const UNIT_NAME: Record<UnitType, string> = { infantry: 'Infantry', tank: 'Tanks', artillery: 'Artillery', warship: 'Warships' };
 /** The key that orders each unit at the selected region. */
-const UNIT_KEY: Record<UnitType, string> = { infantry: 'q', tank: 'e', artillery: 'r' };
+const UNIT_KEY: Record<UnitType, string> = { infantry: 'q', tank: 'e', artillery: 'r', warship: 'f' };
 /** A region with no traits or city, for the plain yield of a building. */
 const PLAIN_REGION = { traits: [], terrain: 'plains', size: 'medium' } as unknown as Region;
 const gives = (kind: EconKind, traits: Region['traits'] = [], city = 0) =>
@@ -90,7 +92,8 @@ const BUILD_HELP: Record<BuildingKind, string> = {
   city: `City: found one (a supply hub that pays tax) or expand one: more tax and manpower, a slot, +1 stack cap, supply reaches further.`,
   fort: `Fort: defenders get a bonus, enemies move and capture slower here. Up to ${MAX_FORT} levels.`,
   barracks: 'Barracks: trains infantry (Q). In a city.',
-  factory: 'Factory: builds tanks (E). In a city.',
+  factory: 'Factory: builds tanks (E) and artillery (R). In a city.',
+  port: 'Port: builds warships (F); your troops board here to cross the sea, and ships mend and resupply here. On a coast.',
   road: 'Road: drag across your regions. Crossing is faster and supply reaches further.',
   lab: `Lab: +${gives('lab')} research points/s for the tech tree (without labs a country makes ${BASE_RESEARCH}/s). In a city.`,
   depot: `Depot: stores ${STORE_PER_DEPOT.money} more money and manpower, ${STORE_PER_DEPOT.steel} more steel and oil (cities store ${STORE_PER_CITY_LEVEL.money} / ${STORE_PER_CITY_LEVEL.steel} per level). Anywhere you own; if it's taken, the enemy takes its share of your stock.`,
@@ -116,10 +119,10 @@ export class GameScreen {
   /** The build bar button under the pointer. */
   private barHover: BuildingKind | null = null;
   /** Where the building being placed can go: worked out once per snapshot. */
-  private valid: { snap: Snapshot; kind: BuildingKind; demolish: boolean; set: Set<number> } | null = null;
+  private valid: { snap: Snapshot; kind: BuildingKind; set: Set<number> } | null = null;
+  /** The region panel's Details fold is open. */
+  private detailsOpen = false;
   private slotCache: { snap: Snapshot; map: Map<number, [number, number]> } | null = null;
-  /** Demolish mode: picking a building and clicking a region knocks one down instead. */
-  private demolishing = false;
   private miniSnap: Snapshot | null = null;
   private miniCam = '';
   private miniAt = 0;
@@ -162,6 +165,31 @@ export class GameScreen {
     $('#menu-resume').onclick = () => this.toggleMenu(false);
     $('#menu-surrender').onclick = () => void this.surrender();
     $('#menu-leave').onclick = () => void this.leaveAsked();
+    // UI size: one scale for every box on the map, remembered on this browser.
+    this.setUiScale(Number(stored(UI_SCALE)) || 1);
+    for (const b of document.querySelectorAll<HTMLButtonElement>('#menu-scale button')) {
+      b.onclick = () => this.setUiScale(Number(b.dataset.scale));
+    }
+    // The system asks for less motion: start with effects reduced (the FX button still works).
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      this.view.fx.level = 'reduced';
+      this.fxChosen = true;
+    }
+  }
+
+  /** Sets the UI size; sizes that would leave the HUD less than 1050×600 to lay out on are
+   * off (and a remembered one falls back) until the window is big enough. */
+  private setUiScale(want: number, remember = true): void {
+    const fits = (s: number) => s === 1 || (window.innerWidth / s >= 1050 && window.innerHeight / s >= 600);
+    const scale = fits(want) ? want : [1.5, 1.25, 1].find(fits) ?? 1;
+    document.documentElement.style.setProperty('--ui-scale', String(scale));
+    for (const b of document.querySelectorAll<HTMLButtonElement>('#menu-scale button')) {
+      const s = Number(b.dataset.scale);
+      b.classList.toggle('on', s === scale);
+      b.setAttribute('aria-pressed', String(s === scale));
+      b.disabled = !fits(s);
+    }
+    if (remember) store(UI_SCALE, String(want));
   }
 
   /** Still in the game: alive, and it isn't over. */
@@ -171,7 +199,11 @@ export class GameScreen {
 
   private toggleMenu(open = $('#menu').classList.contains('hidden')): void {
     $('#menu').classList.toggle('hidden', !open);
-    if (!open) return;
+    if (!open) {
+      (document.activeElement as HTMLElement | null)?.blur();
+      return;
+    }
+    $('#menu-resume').focus();
     const id = this.you !== null ? this.players[this.you]?.country : '';
     const country = this.map.countries.find((c) => c.id === id)?.name ?? 'your country';
     ($('#menu-surrender') as HTMLButtonElement).classList.toggle('hidden', !this.playing);
@@ -230,8 +262,8 @@ export class GameScreen {
         toast('Effects reduced to keep the game smooth (FX in the top bar)', 'info');
       }
       if (this.snap) {
-        this.view.placement = this.placing ? { valid: this.validFor(this.placing), hover: this.hover, demolish: this.demolishing } : null;
-        this.view.slots = this.placing || this.demolishing || this.view.yields ? this.slotMap() : null;
+        this.view.placement = this.placing ? { valid: this.validFor(this.placing), hover: this.hover } : null;
+        this.view.slots = this.placing || this.view.yields ? this.slotMap() : null;
         this.view.draw(this.snap, this.players, this.you, this.selected, this.region, this.box);
         // The minimap: on news or a camera move, at most 5 times a second.
         const cam = `${this.view.cam.x}|${this.view.cam.y}|${this.view.cam.scale}`;
@@ -359,14 +391,14 @@ export class GameScreen {
 
     const box2 = (x: number, y: number) => `left:${x}px;top:${y}px;width:${W}px;height:${H}px`;
     const r = at('root', 0);
-    const root = el('div', { class: 'node root done', style: box2(r.x, r.y) }, [el('b', {}, [TECH_ROOT.name]), el('span', { class: 'effect' }, [TECH_ROOT.effect]), el('span', { class: 'foot' }, ['✓ Start'])]);
+    const root = el('div', { class: 'node root done', style: box2(r.x, r.y) }, [el('b', {}, [TECH_ROOT.name]), el('span', { class: 'effect' }, [TECH_ROOT.effect]), el('span', { class: 'foot' }, ['Start'])]);
     // How long a tech takes from here: research points still owed, less the stock, over
     // what labs and cities make.
     const rate = me.income[4];
     const eta = (owed: number) => {
       const left = owed - res.research;
       if (left <= 0) return 'ready now';
-      return rate > 0 ? `~${Math.ceil(left / rate)} s` : 'build labs';
+      return rate > 0 ? `${Math.ceil(left / rate)} s` : 'build labs';
     };
     const nodes = TECHS.map((t) => {
       const st = state(t.id);
@@ -374,7 +406,7 @@ export class GameScreen {
       const p = at(t.id, t.tier);
       const foot: Array<Node | string> =
         st === 'done'
-          ? ['✓ Researched']
+          ? ['Researched']
           : st === 'active' && busy
             ? [`${Math.round(busy[1] * 100)}% · ${eta(cost * (1 - busy[1]))}`]
             : st === 'locked'
@@ -457,7 +489,10 @@ export class GameScreen {
     }
     // The controls panel folds to its strip and back (remembered).
     on($('#help-fold'), 'click', () => this.foldHelp(!$('#help').classList.contains('folded')));
-    this.foldHelp(stored(HELP_FOLDED) === '1');
+    // Open for a first game; folded to its "? Keys" strip after that, unless you chose.
+    const chosen = stored(HELP_FOLDED);
+    this.foldHelp(chosen !== null ? chosen === '1' : stored(PLAYED) === '1', false);
+    store(PLAYED, '1');
     // Diplomacy buttons (ORBAT, peace offers): act on press, see diplomacyAction.
     for (const sel of ['#players', '#offers']) {
       on($(sel), 'pointerdown', (e: PointerEvent) => {
@@ -481,11 +516,6 @@ export class GameScreen {
       this.renderBuildbar();
     });
     on($('#buildbar'), 'pointerdown', (e: PointerEvent) => {
-      if ((e.target as HTMLElement).closest('[data-tool=demolish]')) {
-        e.preventDefault();
-        this.setDemolishing(!this.demolishing);
-        return;
-      }
       const b = (e.target as HTMLElement).closest('[data-kind]') as HTMLElement | null;
       if (!b) return;
       e.preventDefault();
@@ -604,13 +634,27 @@ export class GameScreen {
       },
       { passive: false },
     );
-    on(window, 'resize', () => this.view.resize());
+    on(window, 'resize', () => {
+      this.view.resize();
+      this.setUiScale(Number(stored(UI_SCALE)) || 1, false);
+    });
     on(window, 'keydown', (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT') return;
+      // A confirm box has the keyboard to itself; Enter and Space press the focused button.
+      if (!$('#confirm').classList.contains('hidden')) return;
+      // (only when it was reached by keyboard: a clicked button keeps no claim on Space).
+      const keyFocus = (e.target as HTMLElement).matches?.(':focus-visible');
+      if ((tag === 'BUTTON' || tag === 'SUMMARY') && keyFocus && (e.key === 'Enter' || e.key === ' ')) return;
       this.keys.add(e.key.toLowerCase());
       this.key(e);
     });
     on(window, 'keyup', (e: KeyboardEvent) => this.keys.delete(e.key.toLowerCase()));
+    // A button clicked with the mouse lets go of the focus, so Space and Enter stay game keys.
+    on(window, 'pointerup', () => {
+      const f = document.activeElement as HTMLElement | null;
+      if (f && (f.tagName === 'BUTTON' || f.tagName === 'SUMMARY') && !f.matches(':focus-visible') && !f.closest('.overlay')) f.blur();
+    });
     on(window, 'blur', () => this.keys.clear());
 
     // Touch: one finger taps/pans, two fingers zoom. Tap a unit, then tap a region to send it.
@@ -791,8 +835,6 @@ export class GameScreen {
       this.toggleMenu(false);
     } else if (k === 'escape' && this.placing) {
       this.setPlacing(null);
-    } else if (k === 'escape' && this.demolishing) {
-      this.setDemolishing(false);
     } else if (k === 'escape' && (this.selected.size || this.region >= 0 || this.view.expanded !== null)) {
       this.selected.clear();
       this.region = -1;
@@ -815,16 +857,16 @@ export class GameScreen {
       this.setOverlay(!this.view.overlay);
     } else if (k === 'b') {
       this.setYields(!this.view.yields);
+    } else if (k === '?' || k === '/') {
+      this.foldHelp(!$('#help').classList.contains('folded'));
     } else if (k === 't') {
       this.setResearchOpen(!this.researchOpen);
     } else if (k === ' ') {
       e.preventDefault();
       this.centreOnCapital();
-    } else if (k === '0') {
-      this.setDemolishing(!this.demolishing);
     } else if (k >= '1' && k <= '9' && k.length === 1) {
       this.setPlacing(HOTKEYS[Number(k) - 1]);
-    } else if (k === '-' || k === '=') {
+    } else if (k === '-' || k === '=' || k === 'p') {
       this.setPlacing(HOTKEYS[HOTKEY_KEYS.indexOf(k)]);
     } else if (k === 'q' && this.region >= 0) {
       this.send({ o: 'produce', region: this.region, building: 'barracks' });
@@ -832,6 +874,8 @@ export class GameScreen {
       this.send({ o: 'produce', region: this.region, building: 'factory', unit: 'tank' });
     } else if (k === 'r' && this.region >= 0) {
       this.send({ o: 'produce', region: this.region, building: 'factory', unit: 'artillery' });
+    } else if (k === 'f' && this.region >= 0) {
+      this.send({ o: 'produce', region: this.region, building: 'port', unit: 'warship' });
     } else return;
     this.renderPanel();
   }
@@ -855,11 +899,6 @@ export class GameScreen {
 
   /** Enters placement mode for a building, or leaves it (same building again, or null). */
   private setPlacing(kind: BuildingKind | null): void {
-    if (kind && this.demolishing && (kind === 'city' || kind === 'road')) {
-      toast(`a ${BUILD_LABEL[kind].toLowerCase()} can't be demolished`);
-      this.sfx.refuse();
-      return;
-    }
     this.placing = kind === this.placing ? null : kind;
     if (this.placing && this.you === null) this.placing = null;
     this.roadPath = null;
@@ -868,46 +907,11 @@ export class GameScreen {
     this.renderBuildbar();
   }
 
-  /** Demolish mode on or off; the building picked stays picked. */
-  private setDemolishing(on: boolean): void {
-    this.demolishing = on && this.you !== null;
-    if (this.demolishing && (this.placing === 'road' || this.placing === 'city')) this.setPlacing(null);
-    $('#buildbar').classList.toggle('demolish', this.demolishing);
-    this.buildbarKey = '';
-    this.renderBuildbar();
-  }
-
-  /** Why a building can't be knocked down in a region, or null if it can. */
-  private whyNotDemolish(kind: BuildingKind, region: number): string | null {
-    const rr = this.snap?.regions[region];
-    if (!rr || rr[0] !== this.you) return 'pick one of your regions';
-    const label = BUILD_LABEL[kind].toLowerCase();
-    if (ECON_KINDS.includes(kind as EconKind)) return rr[ECON_FIELD[kind as EconKind]] > 0 ? null : `no ${label} here`;
-    if (kind === 'fort') return rr[1] > 0 ? null : 'no fort here';
-    if (kind === 'barracks') return rr[3] & 1 ? null : 'no barracks here';
-    if (kind === 'factory') return rr[3] & 2 ? null : 'no factory here';
-    if (kind === 'depot') return rr[13] > 0 ? null : 'no depot here';
-    return `a ${label} can't be demolished`;
-  }
-
-  /** A click in placement mode: build there, or knock one down in demolish mode (Shift keeps
-   * the tool). */
+  /** A click in placement mode: build there (Shift keeps the tool). */
   private place(x: number, y: number, shift: boolean): void {
     const kind = this.placing;
     if (!kind) return;
     const region = this.view.regionAt(x, y);
-    if (this.demolishing) {
-      const why = this.whyNotDemolish(kind, region);
-      if (why) {
-        toast(why);
-        this.sfx.refuse();
-        return;
-      }
-      this.send({ o: 'demolish', region, kind });
-      this.sfx.place();
-      if (!shift) this.setPlacing(null);
-      return;
-    }
     if (kind === 'road') return;
     const why = this.whyNot(kind, region);
     if (why) {
@@ -1063,8 +1067,7 @@ export class GameScreen {
 
   private validFor(kind: BuildingKind): Set<number> {
     const snap = this.snap as Snapshot;
-    const demolish = this.demolishing;
-    if (this.valid?.snap !== snap || this.valid.kind !== kind || this.valid.demolish !== demolish) this.valid = { snap, kind, demolish, set: this.validRegions(kind) };
+    if (this.valid?.snap !== snap || this.valid.kind !== kind) this.valid = { snap, kind, set: this.validRegions(kind) };
     return this.valid.set;
   }
 
@@ -1073,9 +1076,7 @@ export class GameScreen {
     const regions = this.snap?.regions ?? [];
     for (let i = 0; i < regions.length; i++) {
       if (regions[i][0] !== this.you) continue;
-      const ok = this.demolishing
-        ? !this.whyNotDemolish(kind, i)
-        : kind === 'road' ? this.map.regions[i].neighbors.some((n) => !this.whyNot('road', i, n.id)) : !this.whyNot(kind, i);
+      const ok = kind === 'road' ? this.map.regions[i].neighbors.some((n) => !this.whyNot('road', i, n.id)) : !this.whyNot(kind, i);
       if (ok) out.add(i);
     }
     return out;
@@ -1083,7 +1084,6 @@ export class GameScreen {
 
   /** What a building is called on the bar, for the region under the cursor. */
   private barName(kind: BuildingKind, region: number): string {
-    if (this.demolishing) return BUILD_LABEL[kind];
     if (kind === 'city') {
       if (region < 0) return 'City';
       const level = this.nextLevel(kind, region);
@@ -1101,64 +1101,38 @@ export class GameScreen {
     if (!snap || this.you === null || !snap.players[this.you]?.alive) return;
     const res = this.resources();
     const mine = this.hover >= 0 && snap.regions[this.hover][0] === this.you ? this.hover : -1;
-    const wreck = this.demolishing;
     const cell = (kind: BuildingKind) => {
       const level = mine >= 0 ? this.nextLevel(kind, mine) : kind === 'city' ? 2 : 1;
       const maxed = (kind === 'fort' && level > MAX_FORT) || (kind === 'city' && level > MAX_CITY);
       const allowed = mine < 0 || canBuildOn(kind, this.map.regions[mine], snap.regions[mine][2]);
       const { cost, seconds } = buildCost(kind, level);
       const name = this.barName(kind, mine);
-      // Demolishing: whether there's one to knock down (in the region under the cursor).
-      const fixed = kind === 'city' || kind === 'road';
-      const note = wreck
-        ? fixed
-          ? "can't demolish"
-          : mine >= 0
-            ? this.whyNotDemolish(kind, mine)
-              ? 'none here'
-              : 'knock one down'
-            : 'no refund'
-        : maxed
-          ? 'MAX'
-          : !allowed
-            ? `needs ${BUILD_NEEDS[kind]}`
-            : '';
-      const poor = !wreck && !maxed && allowed && !afford(res, cost);
-      // What one more of it yields: exact for the region under the cursor, else the plain rate.
-      const gain = !wreck && ECON_KINDS.includes(kind as EconKind) ? econYield(kind as EconKind, mine >= 0 ? this.map.regions[mine] : PLAIN_REGION, mine >= 0 ? snap.regions[mine][2] : 0) : null;
-      return { kind, n: HOTKEY_KEYS[HOTKEYS.indexOf(kind)] ?? '', name, note, cost, seconds, gain, poor, off: wreck && fixed };
+      const note = maxed ? 'max' : !allowed ? 'not here' : '';
+      const poor = !maxed && allowed && !afford(res, cost);
+      return { kind, n: HOTKEY_KEYS[HOTKEYS.indexOf(kind)] ?? '', name, note, cost, seconds, poor };
     };
     const groups = BAR.map((g) => ({ group: g.group, cells: g.kinds.map(cell) }));
     const slots = mine >= 0 ? `${this.map.regions[mine].name}: slots ${this.slotsUsed(mine)}/${slotsOf(this.map.regions[mine], snap.regions[mine][2])}` : '';
-    const hint = wreck
-      ? this.placing
-        ? 'click a red region · shift: more · esc'
-        : 'pick a building · 0 / esc: stop'
-      : this.placing === 'road'
-        ? 'drag across your regions · shift: more · esc'
-        : this.placing
-          ? 'click a region · shift: more · esc'
-          : '1-9 · 0: demolish';
+    const hint =
+      this.placing === 'road' ? 'drag across your regions · shift: more · esc' : this.placing ? 'click a region · shift: more · esc' : '1-9 · -, =, P';
     // Redrawn only when something on it changed (what you can afford included).
     const can = RESOURCES.map((k) => groups.map((g) => g.cells.map((c) => res[k] >= c.cost[k])));
     const about = this.barHover ?? this.placing;
-    const key = `${wreck}|${this.placing}|${about}|${slots}|${JSON.stringify(groups)}|${JSON.stringify(can)}`;
+    const key = `${this.placing}|${about}|${slots}|${JSON.stringify(groups)}|${JSON.stringify(can)}`;
     if (key === this.buildbarKey) return;
     this.buildbarKey = key;
-    const head = wreck ? 'Demolish' : 'Build';
-    const aboutText = wreck
-      ? 'Demolish: pick a building, then click your regions that have one (red). Frees the slot at once; nothing is refunded.'
-      : about
-        ? BUILD_HELP[about]
-        : 'Point at a building to see what it does.';
-    const demolish = el('button', { class: `slot tool${wreck ? ' active' : ''}`, 'data-tool': 'demolish' }, [
-      el('span', { class: 'glyph' }, ['✕']),
-      el('span', { class: 'name' }, [el('b', {}, ['0']), ' Demolish']),
-      el('span', { class: 'price' }, [wreck ? 'on: click to stop' : 'frees a slot']),
-    ]);
+    const head = 'Build';
+    // What the building pointed at (or being placed) does, with its exact yield here.
+    let aboutText = about ? BUILD_HELP[about] : '';
+    if (about && mine >= 0 && !canBuildOn(about, this.map.regions[mine], snap.regions[mine][2])) aboutText += ` Not here: needs ${BUILD_NEEDS[about]}.`;
+    if (about && ECON_KINDS.includes(about as EconKind) && mine >= 0) {
+      const y = econYield(about as EconKind, this.map.regions[mine], snap.regions[mine][2]);
+      const here = RESOURCES.filter((k) => (y[k] ?? 0) > 0).map((k) => `+${round1(y[k] ?? 0)} ${k}/s`);
+      if (here.length) aboutText += ` Here: ${here.join(', ')}.`;
+    }
     bar.replaceChildren(
       classbar(slots ? `${head} // ${slots}` : head, hint),
-      el('div', { class: 'about' }, [aboutText]),
+      ...(aboutText ? [el('div', { class: 'about' }, [aboutText])] : []),
       el('div', { class: 'groups' }, [
         ...groups.map((g) =>
           el('div', { class: 'group' }, [
@@ -1167,17 +1141,15 @@ export class GameScreen {
               'div',
               { class: 'slots' },
               g.cells.map((c) =>
-                el('button', { class: `slot${this.placing === c.kind ? ' active' : ''}${c.poor ? ' poor' : ''}${c.off ? ' off' : ''}`, 'data-kind': c.kind }, [
+                el('button', { class: `slot${this.placing === c.kind ? ' active' : ''}${c.poor ? ' poor' : ''}`, 'data-kind': c.kind }, [
                   el('img', { src: buildingIcon(c.kind), alt: '' }),
                   el('span', { class: 'name' }, [el('b', {}, [c.n]), ` ${c.name}`]),
-                  c.note ? el('span', { class: 'price' }, [c.note]) : costChips(c.cost, res),
-                  wreck ? '' : el('span', { class: 'gives' }, [...(c.gain ? [yieldChips(c.gain), ' · '] : []), `${c.seconds}s`]),
+                  el('span', { class: 'price' }, [c.note || costChips(c.cost, res), ` · ${c.seconds}s`]),
                 ]),
               ),
             ),
           ]),
         ),
-        el('div', { class: 'group' }, [el('div', { class: 'gname' }, ['Remove']), el('div', { class: 'slots' }, [demolish])]),
       ]),
     );
   }
@@ -1197,10 +1169,12 @@ export class GameScreen {
     this.renderTopbar();
   }
 
-  private foldHelp(folded: boolean): void {
+  private foldHelp(folded: boolean, remember = true): void {
     $('#help').classList.toggle('folded', folded);
-    $('#help-fold-label').textContent = folded ? 'Show ▾' : 'Hide ▴';
-    store(HELP_FOLDED, folded ? '1' : '0');
+    $('#help-fold').setAttribute('aria-expanded', String(!folded));
+    $('#help-fold-title').textContent = folded ? '? Keys' : 'Controls';
+    $('#help-fold-label').textContent = folded ? '' : 'Hide';
+    if (remember) store(HELP_FOLDED, folded ? '1' : '0');
   }
 
   private setYields(on: boolean): void {
@@ -1253,7 +1227,7 @@ export class GameScreen {
     const menu = el('button', { class: 'toggle' }, ['Menu', el('small', {}, ['Esc'])]);
     menu.onclick = () => this.toggleMenu(true);
     if (this.you === null) {
-      $('#topbar').replaceChildren(el('span', { class: 'tag' }, ['[OBSERVER]']), menu, el('span', { class: 'clock' }, [t]));
+      $('#topbar').replaceChildren(el('span', { class: 'tag' }, ['Watching']), menu, el('span', { class: 'clock' }, [t]));
       return;
     }
     const p = snap.players[this.you];
@@ -1266,7 +1240,7 @@ export class GameScreen {
       return el('span', { class: `res${full ? ' full' : ''}` }, [
         el('img', { src: hudIcon(k), alt: k }),
         el('span', { class: 'stock' }, [el('b', {}, [fmt(p.res[i])]), el('i', { class: 'gauge' }, [el('i', { style: `width:${Math.round(fill * 100)}%` })])]),
-        el('small', { class: rate < 0 ? 'neg' : '' }, [full && rate > 0 ? `FULL ${fmt(p.cap[i])}` : `${rate >= 0 ? '+' : ''}${rate.toFixed(1)}/s`]),
+        el('small', { class: rate < 0 ? 'neg' : '' }, [full && rate > 0 ? 'FULL' : `${rate >= 0 ? '+' : ''}${rate.toFixed(1)}/s`]),
       ]);
     });
     if (p.broke) parts.push(el('span', { class: 'broke' }, ['BROKE: UNITS WITHERING']));
@@ -1299,10 +1273,10 @@ export class GameScreen {
     const strength = new Map<number, number>();
     for (const b of snap.blobs) strength.set(b[1], (strength.get(b[1]) ?? 0) + b[3]);
     $('#players').replaceChildren(
-      classbar('ORBAT', 'Regions · Strength'),
+      classbar('Countries', 'Regions · Strength'),
       ...this.players.map((p) => {
         const row = snap.players[p.id];
-        const tag = !row.alive ? '[KIA]' : p.id === this.you ? '[YOU]' : !p.human ? '[BOT]' : row.bot ? '[AWAY]' : '';
+        const tag = !row.alive ? 'out' : p.id === this.you ? 'you' : !p.human ? 'bot' : row.bot ? 'away' : '';
         const me = this.you;
         const other = me !== null && p.id !== me && row.alive && snap.players[me]?.alive;
         const war = other && this.atWar(me, p.id);
@@ -1315,7 +1289,7 @@ export class GameScreen {
         } else if (other && !war && truce === 0) {
           act = el('button', { class: 'act war', 'data-act': 'war', 'data-player': String(p.id) }, ['Declare war']);
         }
-        const rel = war ? el('span', { class: 'tag war' }, [pending ? '[WAR · OFFERED]' : '[WAR]']) : truce > 0 ? el('span', { class: 'tag truce' }, [`[TRUCE ${truce}s]`]) : '';
+        const rel = war ? el('span', { class: 'tag war' }, [pending ? 'war · peace offered' : 'at war']) : truce > 0 ? el('span', { class: 'tag truce' }, [`truce ${truce}s`]) : '';
         return el('div', { class: `p${row.alive ? '' : ' dead'}` }, [
           el('span', { class: 'swatch', style: `background:${p.color}` }),
           el('span', {}, [p.name.replace(/ \(bot\)$/, '')]),
@@ -1411,15 +1385,16 @@ export class GameScreen {
   /** The region panel's supply line: reach, and for your regions your load against capacity. */
   private supplyLine(region: number): string {
     const row = (this.snap as Snapshot).regions[region];
-    if (!(row[3] & 4)) return 'CUT OFF';
+    if (!(row[3] & 4)) return 'cut off';
     const { load, cap } = this.load(region);
-    if (row[0] !== this.you) return `in supply · feeds ${Math.round(cap)}`;
-    return `in supply · load ${Math.round(load)} / ${Math.round(cap)}${load > cap ? ' OVERLOADED' : ''}`;
+    if (row[0] !== this.you) return `feeds ${Math.round(cap)}`;
+    return `load ${Math.round(load)}/${Math.round(cap)}${load > cap ? ' (overloaded)' : ''}`;
   }
 
   /** Why a unit is short of supply ('' if it isn't). */
   private supplyWhy(b: BlobRow): string {
     if (b[10] >= 0.99 || !this.snap) return '';
+    if (this.map.regions[b[6]]?.sea) return `over ${SEA_SUPPLY_HOPS} seas from a port`;
     const row = this.snap.regions[b[6]];
     if (row[0] !== b[1]) return 'short in foreign land';
     if (!(row[3] & 4)) return 'cut off';
@@ -1476,18 +1451,21 @@ export class GameScreen {
     }
   }
 
-  private unitRow(b: BlobRow, selectable: boolean): HTMLElement {
+  /** One unit; `inRegion`: listed under that region, so standing there goes unsaid. */
+  private unitRow(b: BlobRow, selectable: boolean, inRegion = -1): HTMLElement {
     const type = UNIT_INDEX[b[2]];
     const where =
-      b[8] > 0 ? `→ ${this.map.regions[b[7]].name}` : b[11] & 4 && b[7] >= 0 ? `attacking ${this.map.regions[b[7]].name}` : this.map.regions[b[6]].name;
+      b[8] > 0 ? `to ${this.map.regions[b[7]].name}` : b[11] & 4 && b[7] >= 0 ? `attacking ${this.map.regions[b[7]].name}` : b[6] === inRegion ? '' : this.map.regions[b[6]].name;
+    // Only what's worth saying: full supply, no training and not dug in go unmentioned.
+    const status: string[] = [];
+    if (b[5] > 0) status.push(`trained ${b[5]}`);
+    if (b[10] < 0.99) status.push(`supply ${Math.round(b[10] * 100)}%${this.supplyWhy(b) ? ` (${this.supplyWhy(b)})` : ''}`);
+    if (!UNITS[type].naval && this.map.regions[b[6]]?.sea) status.push('at sea');
+    else if (!UNITS[type].naval && b[9] > 0) status.push(b[9] >= 0.99 ? 'dug in' : `digging in ${Math.round(b[9] * 100)}%`);
     const row = el('div', { class: `unit${this.selected.has(b[0]) ? ' sel' : ''}` }, [
       el('span', { class: 'swatch', style: `background:${colorOf(this.players, b[1])}` }),
-      el('span', {}, [`${UNIT_SHORT[type]} ${Math.ceil(b[3])}/${b[4]}`]),
-      el('span', { class: 'meta' }, [
-        `TRN ${b[5]} · SUP ${Math.round(b[10] * 100)}%${this.supplyWhy(b) ? ` (${this.supplyWhy(b).toUpperCase()})` : ''} · DUG ${Math.round(b[9] * 100)}%`,
-        el('br'),
-        where.toUpperCase(),
-      ]),
+      el('span', {}, [`${UNIT_NAME[type]} ${Math.ceil(b[3])}/${b[4]}`]),
+      el('span', { class: 'meta' }, [status.join(' · '), ...(status.length && where ? [el('br')] : []), where]),
     ]);
     if (selectable) {
       row.onclick = (e) => {
@@ -1561,21 +1539,53 @@ export class GameScreen {
       el('div', { class: 'sub' }, [`${country} · ${region.terrain} · ${region.size}${region.traits.length ? ` · ${region.traits.join(', ')}` : ''}`]),
     ];
     const here = snap.blobs.filter((b) => b[6] === region.id && b[8] === 0);
+    if (region.sea) {
+      // The sea: nobody's. Ships sail it and shell its coasts; troops cross it from a port.
+      const mine = snap.blobs.filter((b) => b[6] === region.id && b[1] === this.you).length;
+      out[0] = classbar('Intel // Sea', 'Open sea');
+      out[2] = el('div', { class: 'sub' }, ['Open sea: nobody owns it']);
+      const coasts = region.coast.map((c) => this.map.regions[c.id].name);
+      out.push(
+        el('div', { class: 'grid2' }, [
+          el('span', {}, ['Coasts']),
+          el('span', {}, [coasts.length > 6 ? `${coasts.slice(0, 6).join(', ')} +${coasts.length - 6}` : coasts.join(', ') || 'none']),
+          el('span', {}, ['Stack']),
+          el('span', {}, [`${mine} / ${stackCap(region, 0, 0)} of yours`]),
+        ]),
+        el('div', { class: 'sub' }, [
+          'Warships fight here and shell the coasts and seas next to it. Troops sent across the sea board at your port and land on the far coast; enemy warships in the way stop and sink them.',
+        ]),
+      );
+      if (here.length) {
+        out.push(el('div', { class: 'line' }, ['Units here']));
+        for (const b of here) out.push(this.unitRow(b, b[1] === this.you, region.id));
+      }
+      return out;
+    }
     // The stack cap counts every token in the region, moving out or waiting included.
     const myCount = snap.blobs.filter((b) => b[6] === region.id && b[1] === this.you).length;
-    const used = rr[9] + rr[10] + rr[11] + rr[12] + rr[13] + rr[14] + (rr[1] > 0 ? 1 : 0) + (rr[3] & 1 ? 1 : 0) + (rr[3] & 2 ? 1 : 0);
+    const used = rr[9] + rr[10] + rr[11] + rr[12] + rr[13] + rr[14] + (rr[1] > 0 ? 1 : 0) + (rr[3] & 1 ? 1 : 0) + (rr[3] & 2 ? 1 : 0) + (rr[3] & 8 ? 1 : 0);
+    // The essentials up front; the rest folds under Details (remembered while you play).
     const info: Array<[string, string]> = [
       ['Owner', owner >= 0 ? (this.players[owner]?.name ?? '?') : 'Neutral'],
-      ['City', rr[2] > 0 ? `level ${rr[2]} / ${MAX_CITY} · supplies ${supplyReach(rr[2], this.techsOf(owner))} regions out` : 'none'],
+      ['City', rr[2] > 0 ? `level ${rr[2]} / ${MAX_CITY}` : 'none'],
       ['Produces', this.yieldLine(region, rr)],
-      ...(rr[2] > 0 || rr[13] > 0 ? [['Stores', storeText(storeOf(rr[2], rr[13], this.techsOf(owner)))] as [string, string]] : []),
       ['Slots', `${used} / ${slotsOf(region, rr[2])} built`],
-      ['Fort', `${rr[1]} / ${MAX_FORT}`],
-      ['Supply', owner >= 0 ? this.supplyLine(region.id) : '—'],
-      ['Stack', `${myCount} / ${stackCap(region, rr[2], rr[1])} of yours`],
-      ['Capture', `~${Math.round(captureSeconds(region, rr[1], 0))} s untrained`],
+      ...(rr[1] > 0 ? [['Fort', `level ${rr[1]} / ${MAX_FORT}`] as [string, string]] : []),
     ];
-    out.push(el('div', { class: 'grid2' }, info.flatMap(([k, v]) => [el('span', {}, [k]), el('span', {}, [v])])));
+    // Details, three lines at most: supply (and how far a city's reaches), what it stores, and
+    // the stack (plus how long it takes to capture, for land that isn't yours).
+    const reach = rr[2] > 0 ? ` · reaches ${supplyReach(rr[2], this.techsOf(owner))} regions` : '';
+    const capture = owner !== this.you || this.you === null ? ` · capture ${Math.round(captureSeconds(region, rr[1], 0))} s` : '';
+    const more: Array<[string, string | Node]> = [
+      ['Supply', (owner >= 0 ? this.supplyLine(region.id) : 'none') + reach],
+      ...(rr[2] > 0 || rr[13] > 0 ? [['Stores', costChips(storeOf(rr[2], rr[13], this.techsOf(owner)))] as [string, Node]] : []),
+      ['Stack', `${myCount} / ${stackCap(region, rr[2], rr[1])} yours${capture}`],
+    ];
+    const grid = (rows: Array<[string, string | Node]>) => el('div', { class: 'grid2' }, rows.flatMap(([k, v]) => [el('span', {}, [k]), el('span', {}, [v])]));
+    const details = el('details', this.detailsOpen ? { open: '' } : {}, [el('summary', {}, ['Details']), grid(more)]);
+    details.addEventListener('toggle', () => (this.detailsOpen = (details as HTMLDetailsElement).open));
+    out.push(grid(info), details);
     if (rr[4] >= 0) {
       out.push(el('div', {}, [`Being captured by ${this.players[rr[4]]?.name ?? '?'}`]), cellBar(rr[5]));
     }
@@ -1588,12 +1598,21 @@ export class GameScreen {
       if (rr[1] > 0) built.push(['fort', `Fort ${rr[1]}`]);
       if (rr[3] & 1) built.push(['barracks', 'Barracks']);
       if (rr[3] & 2) built.push(['factory', 'Factory']);
+      if (rr[3] & 8) built.push(['port', 'Port']);
       for (let i = 0; i < rr[13]; i++) built.push(['depot', 'Depot']);
-      const knock = (kind: BuildingKind) =>
-        el('button', { class: 'x', 'data-act': 'demolish', 'data-region': String(region.id), 'data-kind': kind }, ['Demolish']);
+      // One wrapped row: each building's name with × to demolish it.
       if (built.length) {
-        out.push(el('div', { class: 'line' }, ['Buildings']));
-        for (const [kind, name] of built) out.push(el('div', { class: 'line build queued' }, [el('span', {}, [name]), knock(kind)]));
+        out.push(
+          el('div', { class: 'built' }, [
+            el('span', { class: 'label' }, ['Built']),
+            ...built.map(([kind, name]) =>
+              el('button', { class: 'chipx', 'data-act': 'demolish', 'data-region': String(region.id), 'data-kind': kind, 'aria-label': `Demolish ${name}` }, [
+                name,
+                el('b', {}, ['×']),
+              ]),
+            ),
+          ]),
+        );
       }
       const pending = this.pending(region.id);
       if (pending.length) {
@@ -1604,23 +1623,21 @@ export class GameScreen {
             levels[kind] += 1;
             return kind === 'city' && levels.city === 1 ? 'Found city' : `${BUILD_LABEL[kind]} ${levels[kind]}`;
           }
-          return kind === 'road' ? `Road → ${this.map.regions[target]?.name ?? '?'}` : BUILD_LABEL[kind];
+          return kind === 'road' ? `Road to ${this.map.regions[target]?.name ?? '?'}` : BUILD_LABEL[kind];
         };
         const cancel = (index: number) =>
-          el('button', { class: 'x', 'data-act': 'unbuild', 'data-region': String(region.id), 'data-index': String(index) }, ['Cancel']);
+          el('button', { class: 'x', 'data-act': 'unbuild', 'data-region': String(region.id), 'data-index': String(index), 'aria-label': 'Cancel' }, ['×']);
         pending.forEach((p, i) => {
           out.push(el('div', { class: `line build${i ? ' queued' : ''}` }, [el('span', {}, [`${i ? 'Next' : 'Building'}: ${label(p)}`]), cancel(i)]));
           if (i === 0) out.push(cellBar(rr[7]));
         });
-      } else {
-        out.push(el('div', { class: 'sub' }, ['Build: pick something in the build bar (1-9), then click here']));
       }
       for (const line of snap.production.filter((p) => p.region === region.id)) out.push(...this.productionLine(line, res));
     }
 
     if (here.length) {
       out.push(el('div', { class: 'line' }, ['Units here']));
-      for (const b of here) out.push(this.unitRow(b, b[1] === this.you));
+      for (const b of here) out.push(this.unitRow(b, b[1] === this.you, region.id));
     }
     return out;
   }
@@ -1635,38 +1652,39 @@ export class GameScreen {
   }
 
   private productionLine(line: ProductionView, res: Resources): HTMLElement[] {
-    // One order button and cost line per unit the building makes (factory: tanks, artillery).
-    const out: HTMLElement[] = [];
+    // A heading with the queue, Repeat and Cancel last; a bar; then one line per unit it makes:
+    // the order button with what an order costs beside it (short resources boxed in red).
     const status = line.queue.length
-      ? `${line.queue.map((t) => UNIT_NAME[t].toLowerCase()).join(', ')}${line.progress < 0 ? ' // awaiting resources' : ''}`
+      ? `${line.queue.map((t) => UNIT_NAME[t].toLowerCase()).join(', ')}${line.progress < 0 ? ' (awaiting resources)' : ''}`
       : 'idle';
-    out.push(el('div', { class: 'line' }, [`${line.building === 'barracks' ? 'Barracks' : 'Factory'}: ${status}`]), cellBar(Math.max(0, line.progress)));
-    const adds: HTMLElement[] = [];
+    const repeat = el('button', { class: `x${line.repeat ? ' on' : ''}`, 'aria-pressed': String(line.repeat) }, ['Repeat']);
+    repeat.onclick = () => this.send({ o: 'repeat', region: line.region, building: line.building, on: !line.repeat });
+    const cancel = el('button', { class: 'x', 'aria-label': 'Cancel last' }, ['×']) as HTMLButtonElement;
+    cancel.disabled = line.queue.length === 0;
+    cancel.onclick = () => this.send({ o: 'cancel', region: line.region, building: line.building });
+    const out: HTMLElement[] = [
+      el('div', { class: 'line build' }, [el('span', {}, [`${BUILD_LABEL[line.building]}: ${status}`]), el('span', {}, [repeat, cancel])]),
+      cellBar(Math.max(0, line.progress)),
+    ];
     for (const type of unitsOf(line.building)) {
       const stats = unitStats(type, this.myTechs());
       // Locked behind research: say which tech, and the button stays off.
       const needs = UNIT_TECH[type];
       const locked = needs !== undefined && !this.myTechs().includes(needs);
-      const add = el('button', {}, [
-        locked ? `${UNIT_NAME[type]}: research ${tech(needs as TechId).name} (T)` : `${UNIT_KEY[type].toUpperCase()} + ${UNIT_NAME[type]}`,
-      ]) as HTMLButtonElement;
+      const add = el('button', {}, [locked ? `${UNIT_NAME[type]}: research ${tech(needs as TechId).name} (T)` : `${UNIT_KEY[type].toUpperCase()} + ${stats.batch} ${UNIT_NAME[type].toLowerCase()}`]) as HTMLButtonElement;
       add.disabled = locked || line.queue.length >= 5;
       add.onclick = () => this.send({ o: 'produce', region: line.region, building: line.building, unit: type });
-      adds.push(add);
-      // What one order costs, in plain sight (short resources in red).
-      out.push(el('div', { class: 'costline' }, [`${stats.batch} ${UNIT_NAME[type].toLowerCase()}:`, costChips(stats.cost, res), `${stats.buildTime}s`]));
+      out.push(el('div', { class: 'costline' }, locked ? [add] : [add, costChips(stats.cost, res), `${stats.buildTime}s`]));
     }
-    const repeat = el('button', {}, [line.repeat ? 'Repeat: on' : 'Repeat: off']);
-    repeat.onclick = () => this.send({ o: 'repeat', region: line.region, building: line.building, on: !line.repeat });
-    const cancel = el('button', {}, ['Cancel last']) as HTMLButtonElement;
-    cancel.disabled = line.queue.length === 0;
-    cancel.onclick = () => this.send({ o: 'cancel', region: line.region, building: line.building });
-    out.push(el('div', { class: 'buttons' }, [...adds, repeat, cancel]));
     return out;
   }
+
 }
 
 const HELP_FOLDED = 'openfork.helpFolded';
+const UI_SCALE = 'openfork.uiScale';
+/** Set once a game has been played on this browser. */
+const PLAYED = 'openfork.played';
 
 /** localStorage, or nothing when it's blocked. */
 function stored(key: string): string | null {
@@ -1712,20 +1730,6 @@ function costChips(cost: Partial<Resources>, have?: Resources): HTMLElement {
       el('span', { class: `chip${have && have[k] < (cost[k] ?? 0) ? ' short' : ''}` }, [el('img', { src: hudIcon(k), alt: k }), fmt(cost[k] ?? 0)]),
     ),
   );
-}
-
-/** A yield per second as resource icons: +0.4 per kind. */
-function yieldChips(y: Partial<Resources>): HTMLElement {
-  return el(
-    'span',
-    { class: 'cost gain' },
-    RESOURCES.filter((k) => (y[k] ?? 0) > 0).map((k) => el('span', { class: 'chip' }, [el('img', { src: hudIcon(k), alt: k }), `+${round1(y[k] ?? 0)}/s`])),
-  );
-}
-
-/** What a region stores, short: $1000 · 1000 manpower · 500 steel · 500 oil. */
-function storeText(s: Resources): string {
-  return `$${s.money} · ${s.manpower} manpower · ${s.steel} steel · ${s.oil} oil (taken with it)`;
 }
 
 function round1(n: number): string {

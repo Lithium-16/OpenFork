@@ -11,6 +11,8 @@ export interface RegionSpec {
   country?: string;
   /** A city at the start, at this level. */
   city?: number;
+  /** A sea region (edges between land and sea become coasts). */
+  sea?: boolean;
 }
 
 /**
@@ -34,15 +36,22 @@ export function makeMap(
     x: id * 10,
     y: 0,
     neighbors: [],
+    coast: [],
+    ...(s.sea ? { sea: true, country: '' } : {}),
   }));
   for (const [a, b, opt] of edges) {
     const river = opt?.river ?? false;
     const dist = opt?.dist ?? 10;
+    if (!!regions[a].sea !== !!regions[b].sea) {
+      regions[a].coast.push({ id: b, border: 10, dist });
+      regions[b].coast.push({ id: a, border: 10, dist });
+      continue;
+    }
     regions[a].neighbors.push({ id: b, border: 10, river, dist });
     regions[b].neighbors.push({ id: a, border: 10, river, dist });
   }
   const cs: Country[] = countries.map((c) => ({ id: c.id, name: c.id, capital: c.capital, playable: c.playable ?? true }));
-  return { id: 'test', name: 'Test', width: 1, height: 1, kmPerPx: 3, regions, countries: cs, grid: '', attribution: '' };
+  return { id: 'test', name: 'Test', width: 1, height: 1, kmPerPx: 3, regions, countries: cs, grid: '', seaGrid: '', attribution: '' };
 }
 
 /** A chain 0 - 1 - 2 - ... - (n-1). */
