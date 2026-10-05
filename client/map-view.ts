@@ -2008,7 +2008,7 @@ export interface SupplyInfo {
 const textCache = new Map<string, HTMLCanvasElement>();
 
 function pixelText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, size: number, color: string): void {
-  const font = `${size >= 12 ? 700 : 400} ${size}px "Pixelify Sans", monospace`;
+  const font = `${size}px "VT323", monospace`;
   const key = `${font}|${color}|${text}`;
   let c = textCache.get(key);
   if (!c) {

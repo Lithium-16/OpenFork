@@ -9,8 +9,7 @@ import { $, el, toast } from './ui.ts';
 
 const net = new Net();
 // The map canvas uses the pixel font too; make sure it's loaded early.
-void document.fonts?.load('12px "Pixelify Sans"');
-void document.fonts?.load('700 12px "Pixelify Sans"');
+void document.fonts?.load('12px "VT323"');
 let me: { id: string; name: string } | null = null;
 let lobby: LobbyView | null = null;
 let game: GameScreen | null = null;
