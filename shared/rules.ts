@@ -8,8 +8,8 @@ export const SNAPSHOT_EVERY_TICKS = 2;
 
 // -- units ------------------------------------------------------------------------------------
 
-export type UnitType = 'infantry' | 'tank' | 'artillery';
-export const UNIT_TYPES: readonly UnitType[] = ['infantry', 'tank', 'artillery'];
+export type UnitType = 'infantry' | 'tank' | 'artillery' | 'warship';
+export const UNIT_TYPES: readonly UnitType[] = ['infantry', 'tank', 'artillery', 'warship'];
 
 export interface Resources {
   money: number;
@@ -48,6 +48,9 @@ export interface UnitStats {
    * (its `attack` is only for close combat). It never joins an assault from the border. */
   range?: number;
   bombard?: number;
+  /** A ship: it moves on sea regions and into its own ports, fights other ships and troops at
+   * sea, and shells coasts next to it; it never fights on land. */
+  naval?: boolean;
 }
 
 export const UNITS: Record<UnitType, UnitStats> = {
@@ -96,7 +99,41 @@ export const UNITS: Record<UnitType, UnitStats> = {
     range: 2,
     bombard: 2,
   },
+  warship: {
+    maxSize: 100,
+    batch: 5,
+    speed: 1.6,
+    attack: 2,
+    defense: 1.5,
+    terrainAttack: { plains: 1, forest: 1, hills: 1, mountains: 1 },
+    cost: { money: 120, manpower: 20, steel: 60, oil: 15, research: 0 },
+    buildTime: 40,
+    upkeep: 0.06,
+    refillCost: { money: 3, manpower: 1, steel: 3, oil: 1, research: 0 },
+    // Supplied from ports, not from the land (see SEA_SUPPLY_HOPS).
+    supplyNeed: 0,
+    producedAt: 'port',
+    naval: true,
+    range: 1,
+    bombard: 1,
+  },
 };
+
+// -- the sea ------------------------------------------------------------------------------------
+
+/** Troops board at their own ports: this long, on top of the trip. */
+export const EMBARK_SECONDS = 8;
+/** How fast troops are shipped (1 = infantry marching on plains). */
+export const TRANSPORT_SPEED = 1.4;
+/** Troops at sea: damage dealt and taken (they're packed in ships). */
+export const AT_SEA_ATTACK = 0.25;
+export const AT_SEA_DEFENSE = 0.5;
+/** Storming a coast from the sea: the landing troops' attack. */
+export const LANDING_ATTACK = 0.5;
+/** Ships are supplied this many sea regions out from their country's ports. */
+export const SEA_SUPPLY_HOPS = 3;
+/** How many tokens of one country a sea region holds. */
+export const SEA_STACK = 12;
 
 /** Shells hit dug-in units as hard as any (no digging-in bonus), and forts count this share. */
 export const BOMBARD_FORT_SHARE = 0.5;
@@ -199,13 +236,13 @@ export const STARTING_MULTIPLIER: Record<StartingResources, number> = { low: 0.5
 
 // -- buildings --------------------------------------------------------------------------------
 
-export type ProductionBuilding = 'barracks' | 'factory';
+export type ProductionBuilding = 'barracks' | 'factory' | 'port';
 /** Economic buildings: each takes a slot and raises one resource. */
 export type EconKind = 'farm' | 'mine' | 'well' | 'market' | 'lab';
 export const ECON_KINDS: readonly EconKind[] = ['farm', 'mine', 'well', 'market', 'lab'];
 /** 'city' founds a city, or expands one that's there; 'road' is built across a border. */
 export type BuildingKind = EconKind | 'city' | 'fort' | ProductionBuilding | 'road' | 'depot';
-export const BUILDING_KINDS: readonly BuildingKind[] = ['farm', 'mine', 'well', 'market', 'city', 'fort', 'barracks', 'factory', 'road', 'depot', 'lab'];
+export const BUILDING_KINDS: readonly BuildingKind[] = ['farm', 'mine', 'well', 'market', 'city', 'fort', 'barracks', 'factory', 'road', 'depot', 'lab', 'port'];
 export const MAX_FORT = 3;
 export const MAX_CITY = 5;
 /** Builds a region can have waiting behind the one under way. */
@@ -301,6 +338,8 @@ export function canBuildOn(kind: BuildingKind, region: Region, city: number): bo
     case 'factory':
     case 'lab':
       return city > 0;
+    case 'port':
+      return region.coast.length > 0;
     default:
       return true;
   }
@@ -314,6 +353,7 @@ export const BUILD_NEEDS: Partial<Record<BuildingKind, string>> = {
   barracks: 'a city',
   factory: 'a city',
   lab: 'a city',
+  port: 'a coast',
 };
 
 const res = (money: number, steel = 0): Resources => ({ money, manpower: 0, steel, oil: 0, research: 0 });
@@ -343,6 +383,8 @@ export function buildCost(kind: BuildingKind, level = 1): { cost: Resources; sec
       return { cost: res(120, 20), seconds: 45 };
     case 'lab':
       return { cost: res(150, 30), seconds: 60 };
+    case 'port':
+      return { cost: res(150, 40), seconds: 90 };
   }
 }
 
@@ -423,6 +465,7 @@ export const PLAYER_COLORS = [
 // -- per-region numbers -----------------------------------------------------------------------
 
 export function stackCap(region: Region, city: number, fort: number): number {
+  if (region.sea) return SEA_STACK;
   return Math.max(STACK_MIN, STACK_SIZE[region.size] + STACK_TERRAIN[region.terrain]) + city + fort;
 }
 

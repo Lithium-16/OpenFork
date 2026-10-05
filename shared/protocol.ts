@@ -85,13 +85,13 @@ export interface GamePlayer {
   human: boolean;
 }
 
-/** One blob: [id, owner, type (0 infantry, 1 tank, 2 artillery), strength, size, training,
+/** One blob: [id, owner, type (0 infantry, 1 tank, 2 artillery, 3 warship), strength, size, training,
  * region, next region or -1, progress 0..1, entrench 0..1, supply 0..1, flags (1 hold, 2
  * crossed river, 4 attacking the next region from its own), the region it came into its
  * region from or -1, the region it shells or -1]. */
 export type BlobRow = [number, number, number, number, number, number, number, number, number, number, number, number, number, number];
 
-/** One region: [owner, fort, city level, flags (1 barracks, 2 factory, 4 supplied), capture
+/** One region: [owner, fort, city level, flags (1 barracks, 2 factory, 4 supplied, 8 port), capture
  * by or -1, capture progress 0..1, construction kind index or -1, construction progress 0..1,
  * construction target (a road's other end) or -1, farms, mines, oil wells, markets, depots,
  * labs]. */
@@ -166,4 +166,4 @@ export type ServerMessage =
   | { t: 'game.over'; winner: number | null };
 
 export const BUILDING_INDEX: readonly BuildingKind[] = BUILDING_KINDS;
-export const UNIT_INDEX: readonly UnitType[] = ['infantry', 'tank', 'artillery'];
+export const UNIT_INDEX: readonly UnitType[] = ['infantry', 'tank', 'artillery', 'warship'];

@@ -381,7 +381,7 @@ export class Bot {
 
     // Units stuck at the edge of a full region count as free again.
     const busy = (b: Blob) => (b.path.length > 0 && b.progress < 1) || (b.progress === 0 && sim.besieged(b.region, b.owner));
-    let idle = blobs.filter((b) => sim.state.blobs.has(b.id) && !busy(b));
+    let idle = blobs.filter((b) => sim.state.blobs.has(b.id) && !busy(b) && !UNITS[b.type].naval);
     // Guns stay out of assaults and land grabs: they go one region behind the front.
     const guns = idle.filter((b) => UNITS[b.type].range);
     idle = idle.filter((b) => !UNITS[b.type].range);
