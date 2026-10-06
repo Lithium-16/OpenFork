@@ -14,6 +14,8 @@ const EMPTY_LOBBY_MS = 10 * 60_000;
 const ABANDONED_GAME_MS = 30_000;
 /** People in one lobby (players and watchers). */
 const MAX_MEMBERS = 16;
+/** Games running at once on this server (each costs CPU every tick). */
+const MAX_GAMES = 40;
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 interface Member {
@@ -85,6 +87,7 @@ export class GameServer {
     m.conns.delete(conn);
     if (m.conns.size === 0) {
       lobby.game?.setConnected(id, false);
+      this.ensureHost(lobby);
       this.broadcastLobby(lobby);
     }
   }
@@ -172,7 +175,8 @@ export class GameServer {
           if (lobby.game) this.sendGameStart(lobby, conn, me.id);
           return null;
         }
-        if (lobby.members.size >= MAX_MEMBERS) return 'lobby is full';
+        // Only people still connected take room (someone gone for good doesn't fill it).
+        if ([...lobby.members.values()].filter((m) => m.conns.size > 0).length >= MAX_MEMBERS) return 'lobby is full';
         this.leave(me.id);
         this.join(lobby, me, conn);
         if (lobby.game) this.sendGameStart(lobby, conn, me.id);
@@ -185,6 +189,7 @@ export class GameServer {
       case 'lobby.settings': {
         const lobby = this.lobbyOf(me.id);
         if (!lobby) return 'not in a lobby';
+        this.ensureHost(lobby);
         if (lobby.host !== me.id) return 'only the host can change settings';
         if (lobby.game && !lobby.game.over) return 'the game is running';
         const next = { ...lobby.settings, ...msg.settings };
@@ -201,7 +206,12 @@ export class GameServer {
         if (msg.country !== null) {
           const c = this.worlds.get(lobby.settings.map)?.map.countries.find((x) => x.id === msg.country);
           if (!c?.playable) return 'that country can\'t be played';
-          for (const m of lobby.members.values()) if (m !== member && m.country === msg.country) return 'someone else picked it';
+          for (const m of lobby.members.values()) {
+            if (m === member || m.country !== msg.country) continue;
+            // Someone who's gone loses the pick to someone who's here.
+            if (m.conns.size === 0) m.country = null;
+            else return 'someone else picked it';
+          }
         }
         member.country = msg.country;
         this.broadcastLobby(lobby);
@@ -210,6 +220,7 @@ export class GameServer {
       case 'lobby.start': {
         const lobby = this.lobbyOf(me.id);
         if (!lobby) return 'not in a lobby';
+        this.ensureHost(lobby);
         if (lobby.host !== me.id) return 'only the host can start';
         if (lobby.game && !lobby.game.over) return 'already playing';
         return this.start(lobby);
@@ -217,8 +228,10 @@ export class GameServer {
       case 'order': {
         const lobby = this.lobbyOf(me.id);
         if (!lobby?.game || lobby.game.over) return 'no game running';
-        lobby.urgent = true;
-        return lobby.game.order(me.id, msg.order);
+        const err = lobby.game.order(me.id, msg.order);
+        // Only an order that changed something makes snapshots go out early.
+        if (!err) lobby.urgent = true;
+        return err;
       }
     }
   }
@@ -248,16 +261,31 @@ export class GameServer {
   private leave(identity: string): void {
     const lobby = this.lobbyOf(identity);
     if (!lobby) return;
+    // Every tab of theirs goes back to the menu, not just the one that asked.
+    for (const c of lobby.members.get(identity)?.conns ?? []) this.send(c, { t: 'lobby', lobby: null });
     lobby.members.delete(identity);
     this.memberOf.delete(identity);
     lobby.game?.abandon(identity);
     if (lobby.members.size === 0) {
+      // The last one out: a game still running ends here (and is recorded).
+      if (lobby.game && !lobby.game.over) {
+        lobby.game.end();
+        this.finish(lobby, lobby.game);
+      }
       this.lobbies.delete(lobby.code);
       this.log(`lobby ${lobby.code} closed`);
       return;
     }
     if (lobby.host === identity) lobby.host = [...lobby.members.keys()][0];
+    this.ensureHost(lobby);
     this.broadcastLobby(lobby);
+  }
+
+  /** A host who's gone hands the lobby to someone still connected. */
+  private ensureHost(lobby: Lobby): void {
+    if ((lobby.members.get(lobby.host)?.conns.size ?? 0) > 0) return;
+    const here = [...lobby.members.values()].find((m) => m.conns.size > 0);
+    if (here) lobby.host = here.identity.id;
   }
 
   private view(lobby: Lobby): LobbyView {
@@ -284,7 +312,10 @@ export class GameServer {
     const pvp = s.difficulty === 'none';
     const here = [...lobby.members.values()].filter((m) => m.conns.size > 0);
     if (pvp && here.length < MIN_PVP_PLAYERS) return `pure PvP needs at least ${MIN_PVP_PLAYERS} people`;
-    const size = pvp ? Math.min(MAX_PLAYERS, here.length) : Math.min(MAX_PLAYERS, Math.max(MIN_PLAYERS, s.size));
+    const running = [...this.lobbies.values()].filter((l) => l.game && !l.game.over).length;
+    if (running >= MAX_GAMES) return 'the server is full right now: try again in a few minutes';
+    // Everyone here gets a country (the size only says how many countries in all).
+    const size = pvp ? Math.min(MAX_PLAYERS, here.length) : Math.min(MAX_PLAYERS, Math.max(MIN_PLAYERS, s.size, here.length));
     const botDifficulty: BotDifficulty = s.difficulty === 'none' ? 'defensive' : s.difficulty;
     const playable = world.map.countries.filter((c) => c.playable);
     const humans = here.slice(0, size);
@@ -359,8 +390,8 @@ export class GameServer {
     const game = lobby.game;
     if (!game) return;
     this.send(conn, { t: 'game.start', map: game.mapId, you: game.playerOf(identity), players: game.players });
-    const shared = game.sharedSnapshot([]);
     const you = game.playerOf(identity);
+    const shared = game.viewFor(game.sharedSnapshot([]), you);
     this.send(conn, { t: 'snap', snap: { ...shared, production: game.productionFor(you), routes: game.routesFor(you), builds: game.buildsFor(you) } });
     if (game.over) this.send(conn, { t: 'game.over', winner: game.sim.state.winner });
   }
@@ -387,7 +418,15 @@ export class GameServer {
         this.finish(lobby, game);
         continue;
       }
-      game.tick();
+      try {
+        game.tick();
+      } catch (e) {
+        // One broken game ends; the others play on.
+        this.log(`lobby ${lobby.code}: game crashed: ${(e as Error)?.stack ?? e}`);
+        game.end();
+        this.finish(lobby, game);
+        continue;
+      }
       lobby.ticks++;
       if (lobby.ticks % SNAPSHOT_EVERY_TICKS !== 0 && !game.over && !lobby.urgent) continue;
       lobby.urgent = false;
@@ -395,7 +434,7 @@ export class GameServer {
       for (const m of lobby.members.values()) {
         if (m.conns.size === 0) continue;
         const you = game.playerOf(m.identity.id);
-        const snap = { ...shared, production: game.productionFor(you), routes: game.routesFor(you), builds: game.buildsFor(you) };
+        const snap = { ...game.viewFor(shared, you), production: game.productionFor(you), routes: game.routesFor(you), builds: game.buildsFor(you) };
         for (const c of m.conns) this.send(c, { t: 'snap', snap });
       }
       if (game.over) this.finish(lobby, game);

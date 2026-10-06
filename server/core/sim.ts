@@ -330,6 +330,9 @@ export class Sim {
     return null;
   }
 
+  /** "from>to" → sim time until which `from` may not offer `to` peace again (refused). */
+  private readonly refusedUntil = new Map<string, number>();
+
   /** Offers peace, or accepts it if the other side already offered. */
   offerPeace(from: number, to: number): string | null {
     if (!this.player(from)?.alive || !this.player(to)?.alive) return 'no such country';
@@ -338,6 +341,9 @@ export class Sim {
       this.makePeace(from, to);
       return null;
     }
+    if (this.state.peaceOffers.has(`${from}>${to}`)) return 'peace already offered';
+    const wait = Math.ceil((this.refusedUntil.get(`${from}>${to}`) ?? 0) - this.state.time);
+    if (wait > 0) return `they just refused: wait ${wait} s`;
     this.state.peaceOffers.set(`${from}>${to}`, this.state.time + PEACE_OFFER_SECONDS);
     this.events.push({ kind: 'peaceOffer', from, to });
     return null;
@@ -346,6 +352,8 @@ export class Sim {
   /** Turns down an offer of peace. */
   refusePeace(by: number, from: number): string | null {
     if (!this.state.peaceOffers.delete(`${from}>${by}`)) return 'no offer to refuse';
+    // No asking again straight away.
+    this.refusedUntil.set(`${from}>${by}`, this.state.time + PEACE_OFFER_SECONDS);
     this.events.push({ kind: 'peaceRefused', from, to: by });
     return null;
   }
@@ -1583,7 +1591,7 @@ export class Sim {
     }
     this.state.regions.forEach((rs, i) => {
       if (rs.owner === NEUTRAL || !rs.supplied || this.hostileIn(i, rs.owner)) return;
-      add(players[rs.owner].income, regionYield(this.world.regions[i], rs.city, rs.econ, players[rs.owner].techs));
+      add(players[rs.owner].income, this.yieldOf(i, rs, players[rs.owner].techs));
     });
     // Upkeep on what's left of each unit, so an army withering for lack of money costs less.
     for (const b of this.state.blobs.values()) players[b.owner].upkeep += b.strength * UNITS[b.type].upkeep;
@@ -1615,6 +1623,19 @@ export class Sim {
       this.produceIn(rs, i, 'factory', dt);
       this.produceIn(rs, i, 'port', dt);
     });
+  }
+
+  /** A region's yield, worked out again only when its city, buildings or its owner's techs change. */
+  private readonly yields: Array<{ key: number; y: Resources } | undefined> = [];
+  private yieldOf(i: number, rs: RegionState, techs: Techs): Resources {
+    const e = rs.econ;
+    // Techs only ever grow, so the owner and how many they have pin them down.
+    const key = rs.city + 10 * (e.farm + 20 * (e.mine + 20 * (e.well + 20 * (e.market + 20 * (e.lab + 20 * (techs.length + 32 * (rs.owner + 1)))))));
+    const hit = this.yields[i];
+    if (hit && hit.key === key) return hit.y;
+    const y = regionYield(this.world.regions[i], rs.city, rs.econ, techs);
+    this.yields[i] = { key, y };
+    return y;
   }
 
   private construct(rs: RegionState, region: number, dt: number): void {

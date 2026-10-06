@@ -5,6 +5,7 @@
 // a war goes badly or stalls. Difficulty sets how often it thinks and how bold it is.
 import {
   BOT_DIPLOMACY_SECONDS,
+  BOT_LONG_WAR_SECONDS,
   BOT_MIN_WAR_SECONDS,
   BOT_PEACE_STALEMATE_SECONDS,
   BOT_PEACE_WHEN_WEAKER,
@@ -155,7 +156,10 @@ export class Bot {
       const theirs = this.strength(sim, from);
       const quiet = sim.state.time - (sim.state.warActivity.get(pairKey(from, to)) ?? 0) >= BOT_PEACE_STALEMATE_SECONDS;
       const fronts = this.enemies(sim).length;
-      if (mine < theirs * 1.2 || quiet || fronts > 1) sim.offerPeace(this.player, from);
+      // A long war is worth ending even when winning, now and then (wars needn't always be
+      // fought to the last region).
+      const long = sim.state.time - (this.warSince.get(from) ?? sim.state.time) >= BOT_LONG_WAR_SECONDS;
+      if (mine < theirs * 1.2 || quiet || fronts > 1 || (long && this.random() < 0.35)) sim.offerPeace(this.player, from);
       else sim.refusePeace(this.player, from);
     }
   }
@@ -200,8 +204,13 @@ export class Bot {
       if (tech) sim.research(this.player, tech);
     }
 
+    // At peace, an army only as big as the economy carries comfortably, and a reserve kept for
+    // building; at war, everything goes to the front.
+    const atWar = this.enemies(sim).length > 0;
+    const affordable = atWar || (me.resources.money >= this.style.reserve && me.upkeep < me.income.money * 0.6);
     for (const r of mine) {
       if (this.style.defensive) break; // no new units
+      if (!affordable) break;
       const rs = regions[r];
       if (rs.barracks && rs.production.barracks.queue.length === 0) sim.produce(this.player, r, 'barracks');
       if (this.style.tanks && rs.factory && rs.production.factory.queue.length === 0) {
@@ -228,7 +237,7 @@ export class Bot {
     // Forts where enemies stand next door.
     const threatened = mine
       .map((r) => ({ r, threat: this.threat(sim, r) }))
-      .filter((x) => x.threat > 0 && regions[x.r].fort < this.style.forts && regions[x.r].supplied && !regions[x.r].construction)
+      .filter((x) => x.threat > 0 && regions[x.r].fort < this.style.forts && !regions[x.r].construction && sim.whyNotBuild(this.player, x.r, 'fort') === null)
       .sort((a, b) => b.threat - a.threat);
     if (threatened.length && sim.build(this.player, threatened[0].r, 'fort') === null) return;
     // Coastal batteries at ports with enemy ships off them.
@@ -332,11 +341,11 @@ export class Bot {
     // (slots are scarce, so the economy comes first).
     if (me.resources.money > this.style.reserve * 3) {
       const border = mine
-        .filter((r) => regions[r].fort < Math.max(1, this.style.forts - 1) && regions[r].supplied && !regions[r].construction)
+        .filter((r) => regions[r].fort < Math.max(1, this.style.forts - 1) && !regions[r].construction && sim.whyNotBuild(this.player, r, 'fort') === null)
         .map((r) => ({ r, foreign: this.foreignNear(sim, r) }))
         .filter((x) => x.foreign > 0)
         .sort((a, b) => b.foreign - a.foreign)[0];
-      if (border) sim.build(this.player, border.r, 'fort');
+      if (border && sim.canAfford(me, buildCost('fort', sim.nextLevel(regions[border.r], 'fort')).cost)) sim.build(this.player, border.r, 'fort');
     }
   }
 
@@ -435,11 +444,10 @@ export class Bot {
     const guard = new Set(atCapital.slice(0, guards));
     idle = idle.filter((b) => !guard.has(b));
     if (atCapital.length < guards) {
-      const helper = [...idle].sort((a, b) => this.hops(sim, a.region, me.capital) - this.hops(sim, b.region, me.capital))[0];
-      if (helper) {
-        sim.move(this.player, [helper.id], me.capital);
-        idle = idle.filter((b) => b !== helper);
-      }
+      // The nearest unit that can get there (one search from the capital).
+      const dist = this.bfs(sim, me.capital);
+      const helper = idle.filter((b) => dist[b.region] >= 0).sort((a, b) => dist[a.region] - dist[b.region])[0];
+      if (helper && sim.move(this.player, [helper.id], me.capital) === null) idle = idle.filter((b) => b !== helper);
     }
 
     // Attacks: every idle unit next to a target joins in, if together they clearly win. A
