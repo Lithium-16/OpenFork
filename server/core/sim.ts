@@ -22,7 +22,6 @@ import {
   MAX_CITY,
   MAX_FORT,
   NEUTRAL_CITY_LEVEL,
-  ROAD_SPEED,
   ROAD_SUPPLY_HOP,
   slotsOf,
   START_CAPITAL_LEVEL,
@@ -37,7 +36,8 @@ import {
   TRANSPORT_SPEED,
   DISBAND_REFUND,
   DAMAGE_RATE,
-  DRILL_CAP,
+  roadSpeed,
+  drillCap,
   DRILL_RATE,
   ENEMY_LAND_MOVE,
   entrenchBonus,
@@ -422,11 +422,13 @@ export class Sim {
     if (this.world.isSea(from) || this.world.isSea(to)) {
       const naval = !!UNITS[type].naval;
       const t = (CROSS_SECONDS * (edge.dist / this.world.hop)) / (naval ? this.statsOf(type, owner).speed : TRANSPORT_SPEED);
-      return t + (!naval && !this.world.isSea(from) ? EMBARK_SECONDS : 0);
+      // Boarding: half as long with Amphibious assault.
+      const embark = EMBARK_SECONDS * (this.has(owner, 'amphibious') ? 0.5 : 1);
+      return t + (!naval && !this.world.isSea(from) ? embark : 0);
     }
     const dest = this.state.regions[to];
     let speed = this.statsOf(type, owner).speed * TERRAIN_MOVE[this.world.regions[to].terrain];
-    if (this.hasRoad(from, to)) speed /= ROAD_SPEED;
+    if (this.hasRoad(from, to)) speed /= roadSpeed(this.techsOf(owner));
     if (dest.owner === owner) {
       // Home ground: no penalty.
     } else if (this.atWar(dest.owner, owner)) speed *= Math.max(0.3, ENEMY_LAND_MOVE - FORT_MOVE_PENALTY * dest.fort);
@@ -501,7 +503,8 @@ export class Sim {
     return blobs.length ? blobs : 'no units';
   }
 
-  move(playerId: number, blobIds: number[], target: number): string | null {
+  /** Sends units to a region; `then`: after the route they're on (a waypoint), not instead. */
+  move(playerId: number, blobIds: number[], target: number, then = false): string | null {
     const all = this.own(playerId, blobIds);
     if (typeof all === 'string') return all;
     if (!this.world.regions[target]) return 'no such region';
@@ -522,10 +525,12 @@ export class Sim {
     for (const b of blobs) {
       // Units left in the land of a country at peace may go out through it.
       const through = this.closedTo(b.owner, b.region) ? this.state.regions[b.region].owner : -1;
-      const key = `${b.type}:${b.region}:${through}`;
-      if (!cache.has(key)) cache.set(key, this.route(b.type, b.owner, b.training, b.region, target, through, victim));
+      // A waypoint goes on from where the route it's on ends.
+      const start = then && b.path.length ? b.path[b.path.length - 1] : b.region;
+      const key = `${b.type}:${start}:${through}`;
+      if (!cache.has(key)) cache.set(key, this.route(b.type, b.owner, b.training, start, target, through, victim));
       const route = cache.get(key);
-      if (route) routes.set(b, [...route]);
+      if (route) routes.set(b, then && b.path.length ? [...b.path, ...route] : [...route]);
     }
     if (!routes.size) return 'no route';
     // Sending units into a country you're at peace with is an attack: war.
@@ -539,7 +544,9 @@ export class Sim {
       // keeps the hop's progress; any other route, or staying, turns it back at once.
       const leaving = b.progress > 0;
       b.through = this.closedTo(b.owner, b.region) ? this.state.regions[b.region].owner : -1;
-      if (leaving && route.length && route[0] === b.path[0]) {
+      // Going on the way it was already going (a hop under way, or a waypoint added on):
+      // nothing about the current step changes.
+      if ((leaving || then) && route.length && route[0] === b.path[0]) {
         b.path = route;
         continue;
       }
@@ -656,6 +663,11 @@ export class Sim {
   }
 
   /** A country's techs (none for neutral land). */
+  /** `owner` has researched `tech`. */
+  private has(owner: number, tech: TechId): boolean {
+    return owner >= 0 && this.techsOf(owner).includes(tech);
+  }
+
   techsOf(owner: number): Techs {
     return this.state.players[owner]?.techs ?? [];
   }
@@ -987,7 +999,7 @@ export class Sim {
       for (let q = 0; q < queue.length; q++) {
         const d = dist.get(queue[q]) as number;
         set.add(queue[q]);
-        if (d >= SEA_SUPPLY_HOPS) continue;
+        if (d >= SEA_SUPPLY_HOPS + (this.has(owner, 'fleetTrain') ? 2 : 0)) continue;
         for (const n of this.world.neighbors(queue[q])) if (!dist.has(n.id)) {
           dist.set(n.id, d + 1);
           queue.push(n.id);
@@ -1219,7 +1231,7 @@ export class Sim {
               let bonus = TERRAIN_DEFENSE[terrain];
               if (rs.owner === t) {
                 bonus += FORT_BONUS * rs.fort + entrenchBonus(this.techsOf(t)) * d.entrench + RIVER_BONUS * riverShare;
-                if (rs.battery) bonus += BATTERY_LANDING_BONUS * landingShare;
+                if (rs.battery) bonus += (BATTERY_LANDING_BONUS + (this.has(t, 'coastalDefence') ? 0.25 : 0)) * landingShare;
               }
               taken /= 1 + bonus;
             }
@@ -1357,7 +1369,7 @@ export class Sim {
       }
       if (best < 0) return;
       this.batteryTargets.set(i, best);
-      shell(rs.owner, best, DAMAGE_RATE * dt * BATTERY_BOMBARD, 0);
+      shell(rs.owner, best, DAMAGE_RATE * dt * BATTERY_BOMBARD * (this.has(rs.owner, 'coastalDefence') ? 1.5 : 1), 0);
     });
     for (const [x, d] of damage) {
       x.strength -= d;
@@ -1413,7 +1425,8 @@ export class Sim {
     const atSea = this.world.isSea(b.region);
     if (UNITS[b.type].naval) return atSea || (b.attacking >= 0 && this.world.isSea(b.attacking)) ? 1 : 0;
     if (!atSea) return 1;
-    return b.attacking >= 0 && !this.world.isSea(b.attacking) ? LANDING_ATTACK : AT_SEA_ATTACK;
+    if (b.attacking >= 0 && !this.world.isSea(b.attacking)) return this.has(b.owner, 'amphibious') ? 0.8 : LANDING_ATTACK;
+    return AT_SEA_ATTACK;
   }
 
   /** Troops being shipped (packed in transports: easy to hurt). */
@@ -1468,7 +1481,9 @@ export class Sim {
       }
       if (!rs.capture || rs.capture.by !== by) rs.capture = { by, progress: 0 };
       const training = Math.max(...capturers.filter((b) => b.owner === by).map((b) => b.training));
-      rs.capture.progress += dt / this.world.captureSeconds(i, rs.fort, training, rs.owner === NEUTRAL);
+      // Storm troops take land a quarter faster.
+      const storm = this.has(by, 'stormtroops') ? 1.25 : 1;
+      rs.capture.progress += (dt * storm) / this.world.captureSeconds(i, rs.fort, training, rs.owner === NEUTRAL);
       if (rs.capture.progress >= 1) this.take(i, by);
     });
   }
@@ -1670,8 +1685,9 @@ export class Sim {
       line.paid = { ...cost };
       line.progress = 0;
     }
-    line.progress = Math.min(UNITS[type].buildTime, line.progress + dt);
-    if (line.progress < UNITS[type].buildTime) return;
+    const buildTime = this.statsOf(type, rs.owner).buildTime;
+    line.progress = Math.min(buildTime, line.progress + dt);
+    if (line.progress < buildTime) return;
     if (this.count(rs.owner, region) >= this.stackCap(region)) return; // done, waiting for room
     this.spawn(rs.owner, type, region);
     this.events.push({ kind: 'produced', region, owner: rs.owner, type });
@@ -1692,10 +1708,15 @@ export class Sim {
       if (b.progress === 0 && b.attacking < 0 && this.state.regions[b.region].owner === b.owner) {
         b.entrench = Math.min(1, b.entrench + dt / entrenchSeconds(p.techs));
       }
-      // Ships repair only in port; troops at sea can't refill or drill.
-      if (!inBattle && b.supply > 0 && !this.world.isSea(b.region)) {
-        if (still && b.training < DRILL_CAP) b.training = Math.min(DRILL_CAP, b.training + DRILL_RATE * dt * b.supply);
-        const want = Math.min(b.size - b.strength, REFILL_RATE * dt * b.supply);
+      // Ships repair only in port (at sea too, slowly, with a fleet train); troops at sea can't
+      // refill or drill.
+      const atSea = this.world.isSea(b.region);
+      const mendAtSea = atSea && !!UNITS[b.type].naval && p.techs.includes('fleetTrain');
+      if (!inBattle && b.supply > 0 && (!atSea || mendAtSea)) {
+        const cap = drillCap(p.techs);
+        if (still && !atSea && b.training < cap) b.training = Math.min(cap, b.training + DRILL_RATE * dt * b.supply);
+        const rate = REFILL_RATE * (p.techs.includes('hospitals') ? 2 : 1) * (mendAtSea ? 0.5 : 1);
+        const want = Math.min(b.size - b.strength, rate * dt * b.supply);
         if (want > 0) {
           const cost = this.statsOf(b.type, b.owner).refillCost;
           if (this.pay(p, { money: cost.money * want, manpower: cost.manpower * want, steel: cost.steel * want, oil: cost.oil * want, research: 0 })) {
@@ -1704,7 +1725,7 @@ export class Sim {
         }
       }
       if (b.supply < 1) {
-        b.strength -= (1 - b.supply) * OUT_OF_SUPPLY_LOSS * b.size * dt;
+        b.strength -= (1 - b.supply) * OUT_OF_SUPPLY_LOSS * (p.techs.includes('supplyCorps') ? 0.5 : 1) * b.size * dt;
         b.training = Math.max(0, b.training - (1 - b.supply) * OUT_OF_SUPPLY_TRAINING * dt);
       }
       if (p.broke) {

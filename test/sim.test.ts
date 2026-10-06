@@ -18,6 +18,7 @@ import {
   START_CAPITAL_LEVEL,
   supplyReach,
   techCost,
+  TECHS,
   type TechId,
   UNITS,
   unitStats,
@@ -107,6 +108,24 @@ describe('movement', () => {
     assert.equal(b.region, 4);
     assert.equal(s.state.regions[3].owner, 0);
     assert.equal(s.state.regions[4].owner, 0);
+  });
+
+  it('waypoints: a move "then" goes on from the end of the route it is on, taking land region by region', () => {
+    const s = duel();
+    clearBlobs(s);
+    for (const r of [1, 2]) s.state.regions[r].owner = 0;
+    const b = place(s, 0, 'infantry', 0);
+    assert.equal(s.move(0, [b.id], 2), null);
+    assert.deepEqual(b.path, [1, 2]);
+    assert.equal(s.move(0, [b.id], 4, true), null);
+    assert.deepEqual(b.path, [1, 2, 3, 4], 'queued after the first leg');
+    run(s, 80);
+    assert.equal(s.state.regions[3].owner, 0, 'took 3 on the way');
+    assert.equal(s.state.regions[4].owner, 0);
+    assert.equal(b.region, 4);
+    // With no route under way, a waypoint is just a move.
+    assert.equal(s.move(0, [b.id], 3, true), null);
+    assert.deepEqual(b.path, [3]);
   });
 
   it('turns back mid-hop at once instead of finishing the hop', () => {
@@ -1138,6 +1157,47 @@ describe('research', () => {
     s.tick(0.1);
     assert.equal(s.state.players[0].cap.money, cap * 1.5);
     assert.equal(unitStats('artillery', ['shells', 'rangefinders', 'longGuns']).range, 3);
+  });
+});
+
+describe('the longer tree', () => {
+  it('has five lines, five tiers deep, each tech after its parent', () => {
+    assert.equal(new Set(TECHS.map((t) => t.branch)).size, 5);
+    assert.equal(Math.max(...TECHS.map((t) => t.tier)), 5);
+    for (const t of TECHS) for (const n of t.needs) assert.equal(TECHS.find((x) => x.id === n)?.tier, t.tier - 1, `${t.id} needs ${n}`);
+    assert.ok(techCost(5) > techCost(4) && techCost(4) > techCost(3));
+  });
+
+  it('naval and later techs change the numbers', () => {
+    assert.ok(unitStats('warship', ['shipyards']).buildTime < UNITS.warship.buildTime);
+    assert.ok(unitStats('warship', ['shipyards', 'navalGuns']).attack > UNITS.warship.attack);
+    assert.equal(unitStats('warship', ['navalAviation']).range, (UNITS.warship.range ?? 0) + 1);
+    assert.ok(unitStats('infantry', ['mountaineers']).terrainAttack.hills > UNITS.infantry.terrainAttack.hills);
+    assert.ok(unitStats('tank', ['heavyTanks']).terrainAttack.mountains > UNITS.tank.terrainAttack.mountains);
+    assert.ok(unitStats('infantry', ['massProduction']).buildTime < UNITS.infantry.buildTime);
+    const s = duel();
+    clearBlobs(s);
+    s.state.players[0].techs.push('massProduction');
+    rich(s);
+    s.produce(0, 0, 'barracks');
+    run(s, UNITS.infantry.buildTime * 0.8);
+    assert.equal([...s.state.blobs.values()].filter((b) => b.owner === 0).length, 1, 'made a quarter faster');
+  });
+
+  it('coastal defence makes batteries hit harder', () => {
+    const lost = (tech: boolean) => {
+      const map = makeMap([{ country: 'A' }, { sea: true }, { country: 'B' }], [[0, 1], [1, 2]], [{ id: 'A', capital: 0 }, { id: 'B', capital: 2 }]);
+      const s = sim(map, ['A', 'B']);
+      clearBlobs(s);
+      s.declareWar(0, 1);
+      if (tech) s.state.players[0].techs.push('coastalDefence');
+      s.state.regions[0].battery = true;
+      const ship = place(s, 1, 'warship', 1, 50);
+      s.tick(0.1);
+      return 50 - ship.strength;
+    };
+    // (Both include the same small loss from the ship being out of supply.)
+    assert.ok(lost(true) > lost(false) * 1.3);
   });
 });
 

@@ -13,7 +13,8 @@ import { BUILDING_KINDS } from './rules.ts';
 // -- client → server --------------------------------------------------------------------------
 
 export type Order =
-  | { o: 'move'; blobs: number[]; to: number }
+  /** `then`: after the route they're on (a waypoint; Shift + right-click), not instead of it. */
+  | { o: 'move'; blobs: number[]; to: number; then?: boolean }
   | { o: 'stop'; blobs: number[] }
   | { o: 'split'; blob: number; amount?: number }
   | { o: 'merge'; blobs: number[] }
@@ -36,7 +37,9 @@ export type Order =
   /** Give up: your land goes neutral and your units disband, as if your capital fell. */
   | { o: 'surrender' }
   | { o: 'research'; tech: TechId }
-  | { o: 'unresearch' };
+  | { o: 'unresearch' }
+  /** Pause or resume (a game with one person in it only). */
+  | { o: 'pause'; on: boolean };
 
 export interface LobbySettings {
   map: string;
@@ -158,6 +161,8 @@ export interface Snapshot {
   truces: Array<[number, number, number]>;
   /** Coastal batteries firing: [battery region, the sea it shells]. */
   shelling: Array<[number, number]>;
+  /** The game is paused (by its one player, or nobody's connected). */
+  paused: boolean;
 }
 
 export type ServerMessage =
