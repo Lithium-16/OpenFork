@@ -344,6 +344,9 @@ export const MAP_ART = {
   well: art(['.K.', '.K.', 'KKK', 'K.K', 'KKK'], LAND),
   market: art(['AHAH', 'AHAH', 'HHHH', 'HdHH'], LAND),
   lab: art(['.SS.', 'SSSS', 'HHHH', 'HdHH'], LAND),
+  /** A port's warehouse on the quay, and a boat moored at the end of its pier. */
+  warehouse: art(['.rrr.', 'rrrrr', 'HdHdH'], LAND),
+  boat: art(['..H..', '..HH.', '..HHH', 'ddddd', '.ddd.'], LAND),
   /** Construction: scaffolding with a crane whose arm swings between two frames. */
   scaffold: [
     art(['KKKKK.', '..K...', 'Y.K...', 'YYKYY.', 'Y.K.Y.', 'YYYYY.'], { ...LAND, Y: '#d9a441' }),
@@ -352,6 +355,8 @@ export const MAP_ART = {
 };
 export const ROAD_COLOR = '#c9b38a';
 export const ROAD_SHADE = '#6e5f48';
+export const PIER_COLOR = '#8a6a48';
+export const PIER_SHADE = '#5a4632';
 
 // -- HUD icons ----------------------------------------------------------------------------------
 

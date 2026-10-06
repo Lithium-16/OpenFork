@@ -5,7 +5,7 @@ import type { BlobRow, GamePlayer, Snapshot } from '../shared/protocol.ts';
 import { UNIT_INDEX } from '../shared/protocol.ts';
 import { BUILDING_KINDS, type BuildingKind, regionYield, RESOURCES, ROAD_SUPPLY_HOP, supplyCapacity, supplyReach, UNITS, type UnitType } from '../shared/rules.ts';
 import { Fx } from './fx.ts';
-import { art, blit, blitCentred, digitsWidth, FRAME_H, FRAME_W, HUD, ICONS, INK, MAP_ART, pixelDigits, ROAD_COLOR, ROAD_SHADE, romanSprite, shade, type Sprite, unitFrame } from './sprites.ts';
+import { art, blit, blitCentred, digitsWidth, FRAME_H, FRAME_W, HUD, ICONS, INK, MAP_ART, PIER_COLOR, PIER_SHADE, pixelDigits, ROAD_COLOR, ROAD_SHADE, romanSprite, shade, type Sprite, unitFrame } from './sprites.ts';
 
 export interface Camera {
   x: number;
@@ -659,6 +659,163 @@ export class MapView {
     return r.cityAt ?? [r.x, r.y];
   }
 
+  /** Where a town's houses go, in order: [x, y, variant]. Spots are picked by a seeded
+   * scatter that's densest in the middle, plus spots along the roads leaving the town; houses
+   * may touch side by side, rows keep a pixel apart, and all stay on the region's land. */
+  private townLots(region: number, snap: Snapshot): Array<[number, number, number]> {
+    const roads = snap.roads.filter(([a, b]) => a === region || b === region).map(([a, b]) => (a === region ? b : a));
+    const key = `${region}|${roads.join(',')}`;
+    const cached = this.lotCache.get(region);
+    if (cached && cached.key === key) return cached.lots;
+    const [cx, cy] = this.townAt(region);
+    const rand = seeded(region * 9973 + 17);
+    const taken: Array<[number, number, number, number]> = [];
+    const lots: Array<[number, number, number]> = [];
+    const tryAt = (x: number, y: number) => {
+      x = Math.round(x);
+      y = Math.round(y);
+      // Room for a tower (3×5 from y - 2) or a house (3×3), with a pixel between neighbours.
+      if (!this.within(region, x, y - 2, 3, 5)) return;
+      // Houses may touch side by side (a street), with a pixel between rows.
+      if (taken.some(([tx, ty, tw, th]) => x < tx + tw && x + 3 > tx && y - 2 < ty + th + 1 && y + 3 + 1 > ty)) return;
+      taken.push([x, y - 2, 3, 5]);
+      lots.push([x - 1, y - 1, Math.floor(rand() * 3)]);
+    };
+    // Along the roads: a few spots on the way out of town.
+    const ribbons = roads.map((o) => this.roadPixels(region, o).filter(([x, y]) => this.landOf(x, y) === region));
+    for (let n = 0; n < 140; n++) {
+      // The core: a scatter densest in the middle, growing outward with n.
+      const reach = 2 + Math.sqrt(n) * 1.5;
+      const a = rand() * Math.PI * 2;
+      const d = Math.sqrt(rand()) * reach;
+      tryAt(cx + Math.cos(a) * d, cy + Math.sin(a) * d * 0.8);
+      // Every few, one beside a road, nearest the town first.
+      if (n % 4 === 3) {
+        const road = ribbons[n % Math.max(1, ribbons.length)];
+        const step = 4 + Math.floor(n / 4) * 2;
+        const p = road?.[Math.min(road.length - 1, step)];
+        if (p) tryAt(p[0] + (rand() < 0.5 ? -4 : 2), p[1] - 1);
+      }
+    }
+    this.lotCache.set(region, { key, lots });
+    return lots;
+  }
+
+  private readonly lotCache = new Map<number, { key: string; lots: Array<[number, number, number]> }>();
+  private readonly roadCache = new Map<string, Array<[number, number]>>();
+
+  /** The pixels of the road between two regions' towns, through the middle of their border. */
+  private roadPixels(a: number, b: number): Array<[number, number]> {
+    const key = a < b ? `${a}:${b}` : `${b}:${a}`;
+    let pts = this.roadCache.get(key);
+    if (!pts) {
+      const [lo, hi] = a < b ? [a, b] : [b, a];
+      const mid = this.borderPoint(lo, hi);
+      pts = [...this.winding(this.townAt(lo), mid, lo * 131 + hi), ...this.winding(mid, this.townAt(hi), hi * 131 + lo).slice(1)].filter(
+        ([x, y]) => this.landOf(x, y) !== WATER,
+      );
+      this.roadCache.set(key, pts);
+    }
+    return a < b ? pts : [...pts].reverse();
+  }
+
+  /** A gently winding pixel line from p to q (midpoint displacement, seeded). */
+  private winding(p: [number, number], q: [number, number], seed: number): Array<[number, number]> {
+    const rand = seeded(seed);
+    let pts: Array<[number, number]> = [p, q];
+    for (let depth = 0; depth < 4; depth++) {
+      const next: Array<[number, number]> = [pts[0]];
+      for (let k = 0; k + 1 < pts.length; k++) {
+        const [x0, y0] = pts[k];
+        const [x1, y1] = pts[k + 1];
+        const len = Math.hypot(x1 - x0, y1 - y0);
+        const off = (rand() - 0.5) * len * 0.35;
+        next.push([(x0 + x1) / 2 + ((y0 - y1) / (len || 1)) * off, (y0 + y1) / 2 + ((x1 - x0) / (len || 1)) * off], pts[k + 1]);
+      }
+      pts = next;
+    }
+    // Rasterise: 4-connected pixels, no doubles.
+    const out: Array<[number, number]> = [];
+    for (let k = 0; k + 1 < pts.length; k++) {
+      const [x0, y0] = pts[k];
+      const [x1, y1] = pts[k + 1];
+      const n = Math.max(1, Math.ceil(Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0))));
+      for (let s = 0; s <= n; s++) {
+        const x = Math.round(x0 + ((x1 - x0) * s) / n);
+        const y = Math.round(y0 + ((y1 - y0) * s) / n);
+        const last = out[out.length - 1];
+        if (last && last[0] === x && last[1] === y) continue;
+        if (last && last[0] !== x && last[1] !== y) out.push([x, last[1]]);
+        out.push([x, y]);
+      }
+    }
+    return out;
+  }
+
+  /** A port's quay: the region's land pixel on the open sea nearest its town, and which way
+   * the sea lies from it (a unit step). Null for a region without open sea next to it. */
+  private quayOf(region: number): { x: number; y: number; dx: number; dy: number } | null {
+    if (this.quays.has(region)) return this.quays.get(region) ?? null;
+    const W = this.map.width;
+    const [tx, ty] = this.townAt(region);
+    let best = -1;
+    let bestD = Infinity;
+    for (const i of this.regionPixels[region]) {
+      const x = i % W;
+      const y = (i - x) / W;
+      const sea = [i - 1, i + 1, i - W, i + W].some((j) => j >= 0 && j < this.seaGrid.length && this.seaGrid[j] !== WATER);
+      if (!sea) continue;
+      const d = (x - tx) ** 2 + (y - ty) ** 2;
+      if (d < bestD) [best, bestD] = [i, d];
+    }
+    let quay: { x: number; y: number; dx: number; dy: number } | null = null;
+    if (best >= 0) {
+      const x = best % W;
+      const y = (best - x) / W;
+      // The sea's direction: the average of open-sea pixels within 4.
+      let sx = 0;
+      let sy = 0;
+      for (let dy = -4; dy <= 4; dy++) {
+        for (let dx = -4; dx <= 4; dx++) {
+          const j = (y + dy) * W + x + dx;
+          if (j >= 0 && j < this.seaGrid.length && this.seaGrid[j] !== WATER) [sx, sy] = [sx + dx, sy + dy];
+        }
+      }
+      const d = Math.hypot(sx, sy) || 1;
+      quay = { x, y, dx: sx / d, dy: sy / d };
+    }
+    this.quays.set(region, quay);
+    return quay;
+  }
+
+  private readonly quays = new Map<number, { x: number; y: number; dx: number; dy: number } | null>();
+
+  /** A port: warehouse on the land behind the quay, a plank pier out to sea, a boat at its end. */
+  private drawPort(ctx: CanvasRenderingContext2D, region: number): void {
+    const q = this.quayOf(region);
+    if (!q) return;
+    const W = this.map.width;
+    // The pier: up to 9 pixels out over open sea, a darker plank edge beside it.
+    let end: [number, number] = [q.x, q.y];
+    for (let s = 1; s <= 9; s++) {
+      const x = Math.round(q.x + q.dx * s);
+      const y = Math.round(q.y + q.dy * s);
+      const j = y * W + x;
+      if (j < 0 || j >= this.seaGrid.length || this.seaGrid[j] === WATER) break;
+      ctx.fillStyle = PIER_SHADE;
+      ctx.fillRect(x + (Math.abs(q.dx) > Math.abs(q.dy) ? 0 : 1), y + (Math.abs(q.dx) > Math.abs(q.dy) ? 1 : 0), 1, 1);
+      ctx.fillStyle = PIER_COLOR;
+      ctx.fillRect(x, y, 1, 1);
+      end = [x, y];
+    }
+    // The boat, moored beside the pier's end; the warehouse inland, behind the quay.
+    const side: [number, number] = Math.abs(q.dx) > Math.abs(q.dy) ? [-2, 2] : [2, -2];
+    ctx.drawImage(MAP_ART.boat, end[0] + side[0], end[1] + side[1] - 2);
+    const wx = Math.round(q.x - q.dx * 4) - 2;
+    const wy = Math.round(q.y - q.dy * 4) - 1;
+    if (this.within(region, wx, wy, MAP_ART.warehouse.width, MAP_ART.warehouse.height)) ctx.drawImage(MAP_ART.warehouse, wx, wy);
+  }
+
   private landOf(x: number, y: number): number {
     if (x < 0 || y < 0 || x >= this.map.width || y >= this.map.height) return WATER;
     return this.grid[y * this.map.width + x];
@@ -703,28 +860,31 @@ export class MapView {
     if (snap === this.developSnap) return;
     this.developSnap = snap;
     let key = `${snap.roads.length}|`;
-    for (const r of snap.regions) key += `${r[2]}${r[9]}${r[10]}${r[11]}${r[12]}${r[14]},`;
+    for (const r of snap.regions) key += `${r[2]}${r[9]}${r[10]}${r[11]}${r[12]}${r[14]}${r[3] & 8},`;
     if (key === this.developKey) return;
     this.developKey = key;
     const ctx = this.developLayer.getContext('2d') as CanvasRenderingContext2D;
     ctx.clearRect(0, 0, this.map.width, this.map.height);
     ctx.imageSmoothingEnabled = false;
 
-    // Roads: a pixel line between the two towns, with a darker edge under it.
-    for (const [a, b] of snap.roads) {
-      const [x0, y0] = this.townAt(a);
-      const [x1, y1] = this.townAt(b);
-      const n = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0));
-      for (let i = 0; i <= n; i++) {
-        const x = Math.round(x0 + ((x1 - x0) * i) / n);
-        const y = Math.round(y0 + ((y1 - y0) * i) / n);
-        if (this.landOf(x, y) === WATER) continue;
-        ctx.fillStyle = ROAD_SHADE;
-        if (this.landOf(x, y + 1) !== WATER) ctx.fillRect(x, y + 1, 1, 1);
-        ctx.fillStyle = ROAD_COLOR;
-        ctx.fillRect(x, y, 1, 1);
+    // Roads: winding from town to town through the middle of their shared border, with a
+    // darker edge under them. Ports get a lane from their town down to the quay.
+    const lane = (pts: Array<[number, number]>) => {
+      for (const [x, y] of pts) {
+        if (this.landOf(x, y + 1) !== WATER) {
+          ctx.fillStyle = ROAD_SHADE;
+          ctx.fillRect(x, y + 1, 1, 1);
+        }
       }
-    }
+      ctx.fillStyle = ROAD_COLOR;
+      for (const [x, y] of pts) ctx.fillRect(x, y, 1, 1);
+    };
+    for (const [a, b] of snap.roads) lane(this.roadPixels(a, b));
+    snap.regions.forEach((r, i) => {
+      if (!(r[3] & 8)) return;
+      const quay = this.quayOf(i);
+      if (quay) lane(this.winding(this.townAt(i), [quay.x, quay.y], i * 31 + 7).filter(([x, y]) => this.landOf(x, y) === i));
+    });
 
     snap.regions.forEach((r, i) => {
       // Economic buildings, nearest the middle of the region first.
@@ -741,31 +901,20 @@ export class MapView {
           if (spot) ctx.drawImage(sprite, spot[0], spot[1]);
         });
       }
-      // The town: houses spiralling out from the real city, towers in the middle of big ones.
+      // A port: a warehouse on the quay and a pier out into the sea, a boat at its end.
+      if (r[3] & 8) this.drawPort(ctx, i);
+      // The town: a loose cluster around the real city, thinning out at the edges and
+      // stretching along its roads; towers in the middle of big ones. The same spots in the
+      // same order every time, so a growing town only adds houses.
       const level = r[2];
       if (level <= 0) return;
-      const [cx, cy] = this.townAt(i);
       const houses = 2 + 3 * level;
-      let placed = 0;
-      let [gx, gy, dx, dy, leg, steps, turns] = [0, 0, 1, 0, 1, 0, 0];
-      for (let guard = 0; placed < houses && guard < 400; guard++) {
-        const x = cx + gx * 4 - 1;
-        const y = cy + gy * 4 - 1;
-        const tall = level >= 3 && placed < level - 1;
-        const sprite = tall ? MAP_ART.tower : MAP_ART.houses[(gx * 7 + gy * 3 + 99) % MAP_ART.houses.length];
-        const top = tall ? y - 2 : y;
-        // Every pixel of it on this region's land: nothing out on the sea or over a border.
-        if (this.within(i, x, top, sprite.width, sprite.height)) {
-          ctx.drawImage(sprite, x, top);
-          placed++;
-        }
-        gx += dx;
-        gy += dy;
-        if (++steps === leg) {
-          steps = 0;
-          [dx, dy] = [-dy, dx];
-          if (++turns % 2 === 0) leg++;
-        }
+      const lots = this.townLots(i, snap);
+      for (let k = 0; k < Math.min(houses, lots.length); k++) {
+        const [x, y, v] = lots[k];
+        const tall = level >= 3 && k < level - 1;
+        const sprite = tall ? MAP_ART.tower : MAP_ART.houses[v % MAP_ART.houses.length];
+        ctx.drawImage(sprite, x, tall ? y - 2 : y);
       }
     });
   }
@@ -931,17 +1080,17 @@ export class MapView {
     // Traffic: little carts shuttling along supplied roads.
     for (const [a, b] of snap.roads) {
       if (!(snap.regions[a][3] & 4) || !(snap.regions[b][3] & 4)) continue;
-      const [x0, y0] = this.townAt(a);
-      const [x1, y1] = this.townAt(b);
-      if (!seen((x0 + x1) / 2, (y0 + y1) / 2, 60)) continue;
-      const len = Math.hypot(x1 - x0, y1 - y0);
+      // Along the road's own winding pixels.
+      const road = this.roadPixels(a, b);
+      if (road.length < 2) continue;
+      const [mx, my] = road[road.length >> 1];
+      if (!seen(mx, my, 60)) continue;
+      const len = road.length;
       const carts = snap.regions[a][2] > 0 && snap.regions[b][2] > 0 ? 3 : 1 + ((a + b) % 2);
       for (let k = 0; k < carts; k++) {
         const t = ((now / 1000) * (5 / len) + k / carts + (a * 0.37 + b * 0.11)) % 2;
         const f = t < 1 ? t : 2 - t;
-        const x = Math.round(x0 + (x1 - x0) * f);
-        const y = Math.round(y0 + (y1 - y0) * f);
-        if (this.landOf(x, y) === WATER) continue;
+        const [x, y] = road[Math.min(len - 1, Math.floor(f * len))];
         ctx.fillStyle = '#2f2a24';
         ctx.fillRect(x - 1, y - 1, 2, 1);
         ctx.fillStyle = k % 2 ? '#d9a441' : '#e8e1d0';
@@ -2328,4 +2477,15 @@ function borderLines(grid: Uint16Array, W: number, H: number): Path2D {
     }
   }
   return path;
+}
+
+/** A small seeded random number generator (mulberry32). */
+function seeded(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
 }
