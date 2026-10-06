@@ -663,7 +663,7 @@ export class MapView {
    * A city's buildings at its level, as [sprite, x, y] back to front. From the middle out:
    * skyscrapers (a landmark tower at level 5), office towers, apartment blocks, then houses,
    * which also line the roads out of town. Each level adds a ring and builds higher:
-   *   1: 3 houses · 2: + 2 blocks · 3: + an office · 4: + a skyscraper · 5: a landmark tower.
+   *   1: 5 houses · 2: + 2 blocks · 3: + 2 offices · 4: + 2 skyscrapers · 5: + a landmark tower.
    * Spots come from a seeded scatter densest in the middle; buildings may touch side by side,
    * keep a pixel between rows (their bases; tall ones rise over what's behind), and stand on
    * the region's land.
@@ -675,11 +675,11 @@ export class MapView {
     if (cached && cached.key === key) return cached.lots;
     const plan: Record<number, [number, number, number, number, number]> = {
       // landmark, skyscrapers, offices, blocks, houses
-      1: [0, 0, 0, 0, 3],
-      2: [0, 0, 0, 2, 3],
-      3: [0, 0, 1, 3, 4],
-      4: [0, 1, 2, 3, 4],
-      5: [1, 2, 2, 3, 5],
+      1: [0, 0, 0, 0, 5],
+      2: [0, 0, 0, 2, 6],
+      3: [0, 0, 2, 3, 6],
+      4: [0, 2, 2, 4, 7],
+      5: [1, 2, 3, 5, 8],
     };
     const [nl, ns, no, nb, nh] = plan[Math.min(5, Math.max(1, level))];
     const want: Sprite[] = [];
@@ -708,7 +708,7 @@ export class MapView {
     let n = 0;
     for (const sprite of want) {
       for (let tries = 0; tries < 60; tries++, n++) {
-        const reach = 2 + Math.sqrt(n) * 2.6;
+        const reach = 1 + Math.sqrt(n) * 1.4;
         const a = rand() * Math.PI * 2;
         const d = Math.sqrt(rand()) * reach;
         if (tryAt(sprite, cx + Math.cos(a) * d, cy + Math.sin(a) * d * 0.8)) break;
@@ -722,9 +722,9 @@ export class MapView {
       let ok: boolean;
       if (road) {
         const p = road[Math.min(road.length - 1, 6 + tries)];
-        ok = !!p && tryAt(houses[h], p[0] + (rand() < 0.5 ? -5 : 5), p[1]);
+        ok = !!p && tryAt(houses[h], p[0] + (rand() < 0.5 ? -3 : 3), p[1]);
       } else {
-        const reach = 2 + Math.sqrt(n) * 2.6;
+        const reach = 1 + Math.sqrt(n) * 1.4;
         const a = rand() * Math.PI * 2;
         const d = Math.sqrt(rand()) * reach;
         ok = tryAt(houses[h], cx + Math.cos(a) * d, cy + Math.sin(a) * d * 0.8);
