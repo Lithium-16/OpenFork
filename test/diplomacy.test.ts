@@ -71,16 +71,21 @@ describe('diplomacy', () => {
     s.state.regions[2].owner = 1; // B's region 1 stays connected to its capital
     const a = place(s, 0, 'infantry', 0);
     s.move(0, [a.id], 1);
-    run(s, 9); // arrived, still capturing
-    assert.equal(a.region, 1);
+    run(s, 2);
+    assert.equal(a.region, 0, 'takes it from its own border');
+    assert.equal(a.attacking, 1);
+    // A unit left inside their land (say, from an earlier war) is sent home too.
+    const inside = place(s, 0, 'infantry', 1);
     assert.equal(s.state.regions[1].owner, 1);
     assert.equal(s.offerPeace(1, 0), null);
     assert.ok(s.drainEvents().some((e) => e.kind === 'peaceOffer'));
     assert.equal(s.offerPeace(0, 1), null); // accepting
     assert.equal(s.atWar(0, 1), false);
-    assert.ok(a.path.length > 0, 'heading home');
+    assert.deepEqual(a.path, [], 'calls the attack off');
+    assert.ok(inside.path.length > 0, 'heading home');
     run(s, 30);
-    assert.equal(s.state.regions[a.region].owner, 0, 'back on its own land');
+    assert.equal(s.state.regions[inside.region].owner, 0, 'back on its own land');
+    assert.equal(s.state.regions[1].owner, 1);
     assert.match(s.declareWar(0, 1) ?? '', /truce/);
     run(s, TRUCE_SECONDS);
     assert.equal(s.declareWar(0, 1), null);
