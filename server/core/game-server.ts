@@ -5,6 +5,7 @@ import type { ClientMessage, LobbyMember, LobbySettings, LobbyView, ServerMessag
 import { type BotDifficulty, MAX_PLAYERS, MIN_CAPITAL_KM, MIN_PLAYERS, MIN_PVP_PLAYERS, PLAYER_COLORS, SNAPSHOT_EVERY_TICKS } from '../../shared/rules.ts';
 import { Game, type Seat } from './game.ts';
 import { parseClientMessage } from './parse.ts';
+import { readSave } from './save.ts';
 import type { Auth, Clock, ConnId, Identity, MatchLog, Transport } from './ports.ts';
 import { World } from './world.ts';
 
@@ -223,6 +224,49 @@ export class GameServer {
         if (lobby.host !== me.id) return 'only the host can start';
         if (lobby.game && !lobby.game.over) return 'already playing';
         return this.start(lobby);
+      }
+      case 'game.save': {
+        const lobby = this.lobbyOf(me.id);
+        const game = lobby?.game;
+        if (!game || game.over) return 'no game running';
+        if (game.playerOf(me.id) === null) return 'you are watching this game';
+        const save = game.save();
+        if (!save) return 'only a game with one person in it can be saved';
+        const country = game.players[save.human]?.country ?? 'game';
+        const minutes = Math.floor(game.sim.state.time / 60);
+        this.send(conn, { t: 'saved', name: `openfork-${country}-${minutes}min.json`, data: JSON.stringify(save) });
+        return null;
+      }
+      case 'lobby.load': {
+        const read = readSave(msg.data, (id) => this.worlds.get(id));
+        if (typeof read === 'string') return read;
+        const running = [...this.lobbies.values()].filter((l) => l.game && !l.game.over).length;
+        if (running >= MAX_GAMES) return 'the server is full right now: try again in a few minutes';
+        const world = this.worlds.get(read.save.map) as World;
+        let game: Game;
+        try {
+          game = Game.restore(world, read.save, read.state, me.id, this.deps.clock.now());
+        } catch {
+          return 'that save file doesn\'t fit this map';
+        }
+        this.leave(me.id);
+        const code = this.newCode();
+        const lobby: Lobby = {
+          code,
+          host: me.id,
+          members: new Map(),
+          settings: { map: read.save.map, size: read.save.players.length, starting: read.save.starting, pick: 'free', difficulty: read.save.bots },
+          game,
+          emptySince: null,
+          ticks: 0,
+        };
+        this.lobbies.set(code, lobby);
+        this.join(lobby, me, conn);
+        (lobby.members.get(me.id) as Member).country = read.save.players[read.save.human].country;
+        this.sendGameStart(lobby, conn, me.id);
+        this.broadcastLobby(lobby);
+        this.log(`${me.name} loaded a saved game into lobby ${code}`);
+        return null;
       }
       case 'order': {
         const lobby = this.lobbyOf(me.id);

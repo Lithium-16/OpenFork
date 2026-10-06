@@ -19,6 +19,8 @@
           <input id="code" maxlength="8" placeholder="LOBBY CODE" autocapitalize="characters" />
           <button id="join">Join</button>
         </div>
+        <button id="load">Load a saved game</button>
+        <input id="load-file" type="file" accept=".json,application/json" hidden />
       </div>
     </main>
 
@@ -100,6 +102,7 @@
         <div class="card menu-card">
           <div class="classbar"><span>Command // Menu</span><span>Esc</span></div>
           <button id="menu-resume" class="primary">Resume</button>
+          <button id="menu-save">Save game (file)</button>
           <button id="menu-surrender" class="danger">Surrender</button>
           <button id="menu-leave">Back to menu</button>
           <div class="opts" role="group" aria-label="Sound and effects">

@@ -265,3 +265,50 @@ describe('lobbies', () => {
     assert.equal(t.last('a', 'error')?.message, 'bad message');
   });
 });
+
+describe('saving and loading', () => {
+  it('a one-person game saves to a file and loads back where it was, paused', async () => {
+    const t = setup();
+    await t.connect('a', 'Ann');
+    await t.send('a', { t: 'lobby.create' });
+    await t.send('a', { t: 'lobby.start' });
+    t.tick(300);
+    await t.send('a', { t: 'game.save' });
+    const saved = t.last('a', 'saved');
+    assert.ok(saved, 'got a file');
+    assert.match(saved.name, /^openfork-[A-Z]{2}-\d+min\.json$/);
+    const before = t.last('a', 'snap')?.snap;
+    // Someone else (another browser) loads it.
+    await t.connect('b', 'Ben');
+    await t.send('b', { t: 'lobby.load', data: saved.data });
+    assert.equal(t.last('b', 'error'), undefined);
+    const start = t.last('b', 'game.start');
+    assert.ok(start && start.you !== null, 'plays the saved country');
+    const snap = t.last('b', 'snap')?.snap;
+    assert.ok(snap);
+    assert.equal(snap.paused, true, 'starts paused');
+    assert.ok(Math.abs(snap.time - (before?.time ?? 0)) < 0.5, 'at the time it was saved');
+    assert.deepEqual(snap.regions.map((r) => r[0]), before?.regions.map((r) => r[0]), 'same land');
+    assert.equal(snap.blobs.length, before?.blobs.length, 'same units');
+    // It plays on once unpaused.
+    await t.send('b', { t: 'order', order: { o: 'pause', on: false } });
+    t.tick(20);
+    assert.ok((t.last('b', 'snap')?.snap.time ?? 0) > snap.time + 1);
+  });
+
+  it('refuses broken or foreign files, and games with more than one person', async () => {
+    const t = setup();
+    await t.connect('a', 'Ann');
+    await t.send('a', { t: 'lobby.load', data: 'not a save' });
+    assert.match(t.last('a', 'error')?.message ?? '', /isn't an OpenFork save/);
+    await t.send('a', { t: 'lobby.load', data: JSON.stringify({ v: 1, map: 'europe', players: [], sim: {} }) });
+    assert.match(t.last('a', 'error')?.message ?? '', /damaged/);
+    await t.send('a', { t: 'lobby.create' });
+    const code = t.last('a', 'lobby')?.lobby?.code as string;
+    await t.connect('b', 'Ben');
+    await t.send('b', { t: 'lobby.join', code });
+    await t.send('a', { t: 'lobby.start' });
+    await t.send('a', { t: 'game.save' });
+    assert.match(t.last('a', 'error')?.message ?? '', /one person/);
+  });
+});
