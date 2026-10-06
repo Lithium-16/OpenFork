@@ -1405,6 +1405,9 @@ export class GameScreen {
         if (e.owner === this.you) this.sfx.built();
         break;
       }
+      case 'routed':
+        this.view.routed(e.region);
+        break;
       case 'captured':
         if (e.by === this.you) this.sfx.captured();
         else if (e.from === this.you) this.sfx.lost();

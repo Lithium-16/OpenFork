@@ -1589,6 +1589,9 @@ export class MapView {
             const top = cy - 2 * is;
             for (let i = 0; i < all; i++) {
               const bx = ix + i * 5 * is;
+              // A thin dark outline so the boxes read on any land colour.
+              ctx.fillStyle = INK;
+              ctx.fillRect(bx - 1, top - 1, 4 * is + 2, 4 * is + 2);
               if (i < used) {
                 ctx.fillStyle = '#9aa7b1';
                 ctx.fillRect(bx, top, 4 * is, 4 * is);
@@ -1640,7 +1643,7 @@ export class MapView {
     const step = Math.max(FRAME_W * px, PLATE_MIN_W) + 3;
     const sideGap = 14 * px;
     const swords: Array<[number, number]> = [];
-    const attacks: Array<{ owner: number; region: number; side: number; items: Item[]; swords?: boolean }> = [];
+    const attacks: Array<{ owner: number; region: number; side: number; items: Item[]; swords?: boolean; fight: boolean }> = [];
     const slot = (key: string, rows: BlobRow[], owner: number, moving: boolean, group: string, single: boolean) => {
       const pinned = group === this.expanded;
       if (single || pinned || rows.length === 1) return rows.map((b) => ({ key: `b:${b[0]}`, rows: [b], owner, moving, group, pinned }));
@@ -1731,7 +1734,9 @@ export class MapView {
           items.push(it);
           made.push(it);
         });
-        const at = { owner: g.owner, region, side: g.side, items: made };
+        // A fight (enemies stand there: a solid arrow) or taking empty land (a dashed one).
+        const fight = snap.blobs.some((b) => b[6] === region && atWar(b[1], g.owner));
+        const at = { owner: g.owner, region, side: g.side, items: made, fight };
         attacks.push(at);
         const defended = middle.some((sl) => !sl.moving && atWar(sl.owner, g.owner));
         if (hasMiddle && defended && g.rows.length > fightBy) [fightBy, biggest] = [g.rows.length, at];
@@ -1865,7 +1870,7 @@ export class MapView {
       const [bx, by] = this.toScreen(...this.borderPoint(at.region, at.side));
       const [ux, uy] = this.attackDir(at.region, at.side);
       const half = (ARROW_LEN * px) / 2;
-      drawArrow(ctx, bx - ux * half, by - uy * half, ux, uy, colorOf(players, at.owner), px);
+      drawArrow(ctx, bx - ux * half, by - uy * half, ux, uy, colorOf(players, at.owner), px, 1, !at.fight);
       if (at.swords) {
         // Beside the arrow, on its upper side, clear of the head.
         const [nx, ny] = ux >= 0 ? [uy, -ux] : [-uy, ux];
@@ -1894,6 +1899,8 @@ export class MapView {
       placed.push(p);
     }
     this.placed = placed;
+    // Over the tokens: where the guns are aiming.
+    this.drawAim(snap, players, now, px);
   }
 
   /** When each fight on screen fires its next artillery round. */
@@ -1972,37 +1979,149 @@ export class MapView {
       const live = new Set(shooters.map(([k]) => k));
       for (const k of this.nextShell.keys()) if (!live.has(k)) this.nextShell.delete(k);
     }
+    const full = this.fx.level === 'full';
     for (const [key, from, target] of shooters) {
       if (target < 0) {
         this.nextShell.delete(key);
         continue;
       }
-      const due = this.nextShell.get(key) ?? now + Math.random() * 1500;
+      const due = this.nextShell.get(key) ?? now + Math.random() * 1200;
       if (now < due) {
         this.nextShell.set(key, due);
         continue;
       }
-      this.nextShell.set(key, now + 1500 + Math.random() * 1500);
-      const gun = this.map.regions[from];
-      const [gx, gy] = this.toScreen(gun.x, gun.y);
+      // A volley every second or so: a siege, not a tick.
+      this.nextShell.set(key, now + (full ? 800 : 1600) + Math.random() * (full ? 700 : 1400));
+      const [gunX, gunY] = this.gunAt(key, from);
+      const [gx, gy] = this.toScreen(gunX, gunY);
       const pix = this.regionPixels[target];
-      const i = pix[Math.floor(Math.random() * pix.length)];
-      const x = i % W;
-      const y = (i - x) / W;
-      const [sx, sy] = this.toScreen(x, y);
+      const sea = !!this.map.regions[target].sea;
       const onScreen = (px2: number, py2: number) => px2 > -80 && py2 > -80 && px2 < cw + 80 && py2 < chh + 80;
-      if (!onScreen(gx, gy) && !onScreen(sx, sy)) continue;
-      this.fx.add({ kind: 'flash', x: gun.x, y: gun.y - 2, vx: 0, vy: 0, life: 200, size: 4, color: '#ffe08a' });
-      this.fx.add({ kind: 'smoke', x: gun.x, y: gun.y - 2, vx: 2, vy: -4, life: 1400, size: 3, color: '#b9bdc0' });
-      this.fx.add({ kind: 'tracer', x: gun.x, y: gun.y, x2: x, y2: y, vx: 0, vy: 0, life: 350, size: 1, color: '#ffcf6b' });
-      this.fx.add({ kind: 'boom', x, y, vx: 0, vy: 0, born: now + 350, life: 560, size: 6, color: '#ff9a3c' });
-      for (let k = 0; k < 2; k++) {
-        this.fx.add({ kind: 'smoke', x: x + (Math.random() - 0.5) * 2, y, vx: 1 + Math.random() * 2, vy: -3 - Math.random() * 3, born: now + 450 + k * 90, life: 2000, size: 4, color: '#5a5f63' });
+      // Muzzle: a big flash and a cloud of powder smoke where the guns stand.
+      if (onScreen(gx, gy)) {
+        this.fx.add({ kind: 'flash', x: gunX, y: gunY - 2, vx: 0, vy: 0, life: 260, size: 7, color: '#fff1b0' });
+        for (let k = 0; k < (full ? 3 : 1); k++) {
+          this.fx.add({ kind: 'smoke', x: gunX + (Math.random() - 0.5) * 3, y: gunY - 2, vx: 2 + Math.random() * 3, vy: -5 - Math.random() * 3, born: now + k * 60, life: 1800, size: 4, color: '#c9ccce' });
+        }
       }
-      if (onScreen(sx, sy)) this.sounds?.boom(Math.min(1, scale / 2) * 0.7);
+      let heard = false;
+      const shells = full ? 3 : 1;
+      for (let n = 0; n < shells; n++) {
+        const i = pix[Math.floor(Math.random() * pix.length)];
+        const x = i % W;
+        const y = (i - x) / W;
+        const [sx, sy] = this.toScreen(x, y);
+        if (!onScreen(gx, gy) && !onScreen(sx, sy)) continue;
+        const land = now + 380 + n * 140;
+        this.fx.add({ kind: 'tracer', x: gunX, y: gunY, x2: x, y2: y, vx: 0, vy: 0, born: now + n * 140, life: 380, size: 1, color: '#ffcf6b' });
+        if (sea) {
+          // A shell into the sea: a white column of spray and droplets, no fire.
+          this.fx.add({ kind: 'flash', x, y, vx: 0, vy: 0, born: land, life: 180, size: 6, color: '#ffffff' });
+          for (let k = 0; k < (full ? 4 : 2); k++) {
+            this.fx.add({ kind: 'puff', x: x + (Math.random() - 0.5) * 3, y, vx: (Math.random() - 0.5) * 2, vy: -10 - Math.random() * 8, born: land + k * 40, life: 900, size: 4, color: '#e8f4ff' });
+          }
+          for (let k = 0; k < (full ? 6 : 3); k++) {
+            const a = Math.random() * Math.PI * 2;
+            this.fx.add({ kind: 'spark', x, y, vx: Math.cos(a) * 9, vy: Math.sin(a) * 6 - 8, born: land, life: 500, size: 1, color: '#cfe8ff' });
+          }
+          continue;
+        }
+        // On land: a fireball, debris flying out, a dust ring and a column of black smoke
+        // that hangs over the region (so a shelled region looks besieged).
+        this.fx.add({ kind: 'boom', x, y, vx: 0, vy: 0, born: land, life: 700, size: full ? 12 : 9, color: '#ff8a2a' });
+        this.fx.add({ kind: 'flash', x, y, vx: 0, vy: 0, born: land, life: 160, size: 10, color: '#fff7d6' });
+        for (let k = 0; k < (full ? 7 : 3); k++) {
+          const a = Math.random() * Math.PI * 2;
+          const v = 8 + Math.random() * 10;
+          this.fx.add({ kind: 'spark', x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v * 0.7 - 6, born: land, life: 450 + Math.random() * 300, size: 1, color: k % 2 ? '#ffb347' : '#3a3026' });
+        }
+        for (let k = 0; k < (full ? 4 : 2); k++) {
+          const a = (k / 4) * Math.PI * 2;
+          this.fx.add({ kind: 'dust', x, y, vx: Math.cos(a) * 7, vy: Math.sin(a) * 4, born: land, life: 900, size: 2, color: '#a08a66' });
+        }
+        for (let k = 0; k < (full ? 3 : 1); k++) {
+          this.fx.add({ kind: 'smoke', x: x + (Math.random() - 0.5) * 3, y, vx: 1 + Math.random() * 2, vy: -4 - Math.random() * 3, born: land + 80 + k * 120, life: 3200, size: 5, color: k ? '#4a4e52' : '#2e3134' });
+        }
+        if (!heard && onScreen(sx, sy)) {
+          this.sounds?.boom(Math.min(1, scale / 2) * 0.8);
+          heard = true;
+        }
+      }
     }
     // Small-arms fire for the fights on screen, a few crackles a second at most.
     if (fights && Math.random() < dt * Math.min(6, 2 * fights)) this.sounds?.gun(Math.min(1, 0.35 + 0.1 * fights) * Math.min(1, scale / 1.5));
+  }
+
+  /**
+   * Guns shelling: a dotted arc from the guns to where they shell, its dots running toward the
+   * target, and a crosshair over the region being shelled (one per guns and target).
+   */
+  private drawAim(snap: Snapshot, players: GamePlayer[], now: number, px: number): void {
+    const ctx = this.ctx;
+    const seen = new Set<string>();
+    const aims: Array<[number, number, number, number]> = [];
+    for (const b of snap.blobs) if (b[13] >= 0) aims.push([b[0], b[1], b[6], b[13]]);
+    for (const [region, sea] of snap.shelling ?? []) aims.push([-1 - region, snap.regions[region][0], region, sea]);
+    const marked = new Set<string>();
+    for (const [key, owner, from, target] of aims) {
+      const id = `${owner}:${from}:${target}`;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const [gx, gy] = this.toScreen(...this.gunAt(key, from));
+      const t = this.map.regions[target];
+      const [tx, ty0] = this.toScreen(t.x, t.y);
+      const ty = ty0 + 14; // where the units there stand
+      const dist = Math.hypot(tx - gx, ty - gy);
+      if (dist < 8) continue;
+      const color = colorOf(players, owner);
+      // A shell's arc: a parabola over the straight line, higher for longer shots.
+      const lift = Math.min(80, dist * 0.35);
+      const step = 5 * px;
+      const n = Math.max(2, Math.floor(dist / step));
+      const run = (now / 60) % 1;
+      for (let i = 1; i < n; i++) {
+        const f = (i - run) / n;
+        if (f <= 0.04 || f >= 0.96) continue;
+        const x = gx + (tx - gx) * f;
+        const y = gy + (ty - gy) * f - lift * 4 * f * (1 - f);
+        const d = Math.max(3, Math.round(px * 1.5));
+        // Every fourth dot bigger and brighter, running toward the target: shells in flight.
+        const shell = i % 4 === 0;
+        const sz = d + (shell ? 1 : 0);
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = INK;
+        ctx.fillRect(Math.round(x) - 1, Math.round(y) - 1, sz + 2, sz + 2);
+        ctx.fillStyle = shell ? '#ffe08a' : color;
+        ctx.fillRect(Math.round(x), Math.round(y), sz, sz);
+      }
+      ctx.globalAlpha = 1;
+      const tk = `${owner}:${target}`;
+      if (marked.has(tk)) continue;
+      marked.add(tk);
+      crosshair(ctx, Math.round(tx), Math.round(ty0), color, px, now);
+    }
+  }
+
+  /** Defenders broke: white puffs go up where they stood and dust scatters as they run. */
+  routed(region: number): void {
+    const r = this.map.regions[region];
+    const now = performance.now();
+    for (let k = 0; k < 8; k++) {
+      this.fx.add({ kind: 'puff', x: r.x + (Math.random() - 0.5) * 8, y: r.y + 3, vx: (Math.random() - 0.5) * 4, vy: -6 - Math.random() * 6, born: now + k * 70, life: 1600, size: 4, color: '#ffffff' });
+    }
+    for (let k = 0; k < 12; k++) {
+      const a = (k / 12) * Math.PI * 2;
+      this.fx.add({ kind: 'dust', x: r.x, y: r.y + 4, vx: Math.cos(a) * 16, vy: Math.sin(a) * 9, born: now, life: 1100, size: 2, color: '#b8a27c' });
+    }
+  }
+
+  /** Where a gun fires from (map coordinates): its token if it's drawn (a battery: its
+   * region's label point). */
+  private gunAt(key: number, region: number): [number, number] {
+    const p = key >= 0 ? this.placed.find((x) => x.ids.includes(key)) : undefined;
+    if (p) return this.toMap(p.x, p.y);
+    const r = this.map.regions[region];
+    return [r.x, r.y];
   }
 
   /** Losses since the last snapshot: the unit shakes. */
@@ -2188,6 +2307,9 @@ export class MapView {
     if (this.map.regions[rows[0][6]]?.sea && rows.some((b) => !UNITS[UNIT_INDEX[b[2]]].naval)) {
       blit(ctx, ICONS.afloat, x0 + w + 3 * px, y0 + h - 6 * px, px);
     }
+    // Waiting to go on (the next region is full, or a fleet blocks the sea): an hourglass at
+    // the top right.
+    if (!it.moving && rows.every((b) => b[11] & 1 && b[13] < 0)) blit(ctx, ICONS.hourglass, x0 + w + px, y0 - 2 * px, px);
     // On the move: a bar of 5 cells left of the frame fills up until the hop to the next region.
     if (it.moving) {
       const progress = Math.min(1, Math.max(...rows.map((b) => b[8])));
@@ -2499,27 +2621,59 @@ const ARROW_ROWS = [
 const ARROW_LEN = ARROW_ROWS[0].length;
 const arrowCache = new Map<string, HTMLCanvasElement>();
 
-function arrowSprite(color: string): HTMLCanvasElement {
-  let c = arrowCache.get(color);
+/** The arrow with gaps cut in its shaft (taking empty land, not a fight). */
+const DASHED_ROWS = ARROW_ROWS.map((r) => [...r].map((ch, x) => (x > 0 && x < 16 && Math.floor((x - 1) / 3) % 2 === 1 ? '.' : ch)).join(''));
+
+function arrowSprite(color: string, dashed = false): HTMLCanvasElement {
+  const key = `${color}${dashed ? ':d' : ''}`;
+  let c = arrowCache.get(key);
   if (!c) {
+    const rows = dashed ? DASHED_ROWS : ARROW_ROWS;
     c = color === 'shadow'
-      ? art(ARROW_ROWS.map((r) => r.replace(/[LCD]/g, 'O')), { O: 'rgba(0,0,0,0.3)' })
-      : art(ARROW_ROWS, { L: shade(color, 1.4), C: color, D: shade(color, 0.7) });
-    arrowCache.set(color, c);
+      ? art(rows.map((r) => r.replace(/[LCD]/g, 'O')), { O: 'rgba(0,0,0,0.3)' })
+      : art(rows, { L: shade(color, 1.4), C: color, D: shade(color, 0.7) });
+    arrowCache.set(key, c);
   }
   return c;
 }
 
+/** A crosshair over a region being shelled: four white ticks round the units there, pulsing
+ * in, with a corner bracket in the shelling side's colour. */
+function crosshair(ctx: CanvasRenderingContext2D, x: number, y: number, color: string, px: number, now: number): void {
+  const r = Math.round((22 + Math.sin(now / 160) * 3) * Math.max(1, px * 0.75));
+  const d = Math.max(2, Math.round(px));
+  const len = 6 * d;
+  y += 14; // round the units, which stand just below the label point
+  for (const [cx, cy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) {
+    const bx = x + cx * (r + len / 2);
+    const by = y + cy * (r * 0.7 + len / 2);
+    ctx.fillStyle = INK;
+    ctx.fillRect(Math.round(bx - (cx < 0 ? 1 : len - d + 1)), Math.round(by - 1), len + 2, d + 2);
+    ctx.fillRect(Math.round(bx - 1), Math.round(by - (cy < 0 ? 1 : len - d + 1)), d + 2, len + 2);
+    ctx.fillStyle = color;
+    ctx.fillRect(Math.round(bx - (cx < 0 ? 0 : len - d)), Math.round(by), len, d);
+    ctx.fillRect(Math.round(bx), Math.round(by - (cy < 0 ? 0 : len - d)), d, len);
+  }
+  for (const [c, w] of [[INK, d + 2], ['#ffffff', d]] as const) {
+    ctx.fillStyle = c;
+    const o = (w - d) / 2;
+    ctx.fillRect(x - r - len - o, y - Math.floor(w / 2), len + 2 * o, w);
+    ctx.fillRect(x + r - o, y - Math.floor(w / 2), len + 2 * o, w);
+    ctx.fillRect(x - Math.floor(w / 2), y - r - len - o, w, len + 2 * o);
+    ctx.fillRect(x - Math.floor(w / 2), y + r - o, w, len + 2 * o);
+  }
+}
+
 /** Draws the attack arrow with its tail at (x, y), pointing along (ux, uy), `s` px per pixel. */
-function drawArrow(ctx: CanvasRenderingContext2D, x: number, y: number, ux: number, uy: number, color: string, s: number, alpha = 1): void {
+function drawArrow(ctx: CanvasRenderingContext2D, x: number, y: number, ux: number, uy: number, color: string, s: number, alpha = 1, dashed = false): void {
   const w = ARROW_LEN * s;
   const h = ARROW_ROWS.length * s;
   const angle = Math.atan2(uy, ux);
   ctx.globalAlpha = alpha;
   // The shadow first, falling down and to the right whatever the arrow's angle.
   for (const [sprite, dx, dy] of [
-    [arrowSprite('shadow'), s, s],
-    [arrowSprite(color), 0, 0],
+    [arrowSprite('shadow', dashed), s, s],
+    [arrowSprite(color, dashed), 0, 0],
   ] as const) {
     ctx.save();
     ctx.translate(x + (ux * w) / 2 + dx, y + (uy * w) / 2 + dy);
