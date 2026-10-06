@@ -53,6 +53,14 @@ export class MapView {
   readonly grid: Uint16Array;
   /** Sea region per pixel of open sea, WATER elsewhere. */
   readonly seaGrid: Uint16Array;
+  /** Province and sea region borders as hairlines (map coordinates), stroked one screen
+   * pixel wide at any zoom so they stay crisp instead of growing into blocks. */
+  private readonly provinceLines: Path2D;
+  private readonly seaLines: Path2D;
+  /** Each country's outline (borders with other land and the coast), rebuilt when land
+   * changes hands; stroked two screen pixels wide in the country's colour. */
+  private countryLines = new Map<number, Path2D>();
+  private countryKey = '';
   private readonly terrain: HTMLImageElement;
   private readonly territory: HTMLCanvasElement;
   private readonly highlight: HTMLCanvasElement;
@@ -130,6 +138,8 @@ export class MapView {
     this.terrain = terrain;
     this.grid = decodeGrid(map.grid, map.width * map.height);
     this.seaGrid = map.seaGrid ? decodeGrid(map.seaGrid, map.width * map.height) : new Uint16Array(map.width * map.height).fill(WATER);
+    this.provinceLines = borderLines(this.grid, map.width, map.height);
+    this.seaLines = borderLines(this.seaGrid, map.width, map.height);
     this.territory = offscreen(map.width, map.height);
     this.highlight = offscreen(map.width, map.height);
     this.supplyLayer = offscreen(map.width, map.height);
@@ -334,6 +344,65 @@ export class MapView {
       dirty.push(r);
     }
     if (dirty.length) this.repaintRegions(dirty);
+    const key = regions.map((r) => r[0]).join(',');
+    if (key !== this.countryKey) {
+      this.countryKey = key;
+      this.countryLines = this.outlines(regions.map((r) => r[0]));
+    }
+  }
+
+  /** Every country's outline as hairline runs along pixel edges (see borderLines). */
+  private outlines(owners: number[]): Map<number, Path2D> {
+    const W = this.map.width;
+    const H = this.map.height;
+    const own = new Int16Array(this.grid.length);
+    for (let i = 0; i < own.length; i++) own[i] = this.grid[i] === WATER ? -2 : owners[this.grid[i]];
+    const paths = new Map<number, Path2D>();
+    const path = (o: number) => {
+      let p = paths.get(o);
+      if (!p) paths.set(o, (p = new Path2D()));
+      return p;
+    };
+    // Each run of edges between the same two sides goes to the owned side(s).
+    const run = (a: number, b: number, x0: number, y0: number, x1: number, y1: number) => {
+      for (const o of [a, b]) {
+        if (o < 0) continue;
+        const p = path(o);
+        p.moveTo(x0, y0);
+        p.lineTo(x1, y1);
+      }
+    };
+    for (let x = 0; x + 1 < W; x++) {
+      let start = -1;
+      let a = 0;
+      let b = 0;
+      for (let y = 0; y <= H; y++) {
+        const l = y < H ? own[y * W + x] : 0;
+        const r = y < H ? own[y * W + x + 1] : 0;
+        const on = y < H && l !== r && (l >= 0 || r >= 0);
+        if (start >= 0 && (!on || l !== a || r !== b)) {
+          run(a, b, x + 1, start, x + 1, y);
+          start = -1;
+        }
+        if (on && start < 0) [start, a, b] = [y, l, r];
+      }
+    }
+    for (let y = 0; y + 1 < H; y++) {
+      let start = -1;
+      let a = 0;
+      let b = 0;
+      for (let x = 0; x <= W; x++) {
+        const t = x < W ? own[y * W + x] : 0;
+        const u = x < W ? own[(y + 1) * W + x] : 0;
+        const on = x < W && t !== u && (t >= 0 || u >= 0);
+        if (start >= 0 && (!on || t !== a || u !== b)) {
+          run(a, b, start, y + 1, x, y + 1);
+          start = -1;
+        }
+        if (on && start < 0) [start, a, b] = [x, t, u];
+      }
+    }
+    return paths;
   }
 
   /** The order a captured region's pixels change colour in: nearest the taker's land first. */
@@ -435,14 +504,11 @@ export class MapView {
     d[o + 3] = cut ? 55 : 100;
   }
 
-  /** Repaints whole regions (and the borders they touch) at once. */
+  /** Repaints whole regions at once (borders are drawn as lines, see outlines()). */
   private repaintRegions(dirty: number[]): void {
     const W = this.map.width;
     const ctx = this.territory.getContext('2d') as CanvasRenderingContext2D;
     this.territoryImg ??= ctx.createImageData(W, this.map.height);
-    const d = this.territoryImg.data;
-    const regions = (this.territorySnap as Snapshot).regions;
-    const rgb = this.territoryRgb as Array<[number, number, number]>;
     let [x0, y0, x1, y1] = [W, this.map.height, -1, -1];
     const grow = (r: number) => {
       const o = r * 4;
@@ -454,31 +520,6 @@ export class MapView {
     for (const r of dirty) {
       for (const i of this.regionPixels[r]) this.fillPixel(i);
       grow(r);
-    }
-    // Borders: on both sides of every border a changed region touches.
-    for (const r of dirty) {
-      for (const k of this.regionEdges[r]) {
-        const i = this.edges[k];
-        const own = this.grid[i];
-        if (own !== r) grow(own);
-        this.fillPixel(i);
-        const other = this.edgeOther[k];
-        const owner = regions[own][0];
-        const otherOwner = other === WATER ? -2 : regions[other][0];
-        const o = i * 4;
-        if (owner >= 0 && owner !== otherOwner) {
-          const c = rgb[owner];
-          d[o] = c[0] * 0.75;
-          d[o + 1] = c[1] * 0.75;
-          d[o + 2] = c[2] * 0.75;
-          d[o + 3] = 235;
-        } else if (other !== WATER) {
-          d[o] = 20;
-          d[o + 1] = 20;
-          d[o + 2] = 20;
-          d[o + 3] = 70;
-        }
-      }
     }
     if (x1 >= x0) ctx.putImageData(this.territoryImg, 0, 0, x0, y0, x1 - x0 + 1, y1 - y0 + 1);
   }
@@ -1032,6 +1073,23 @@ export class MapView {
     ctx.globalAlpha = showSupply ? 0.35 : 1;
     ctx.drawImage(this.territory, 0, 0);
     ctx.globalAlpha = 1;
+    // Hairline borders: provinces in a soft dark line, seas in a faint dashed one.
+    const hair = 1 / this.cam.scale;
+    ctx.lineWidth = hair;
+    ctx.strokeStyle = 'rgba(16, 20, 24, 0.4)';
+    ctx.stroke(this.provinceLines);
+    ctx.setLineDash([3 * hair, 3 * hair]);
+    ctx.strokeStyle = 'rgba(200, 225, 245, 0.35)';
+    ctx.stroke(this.seaLines);
+    ctx.setLineDash([]);
+    // Country outlines: two screen pixels in a darker shade of the country's colour.
+    ctx.lineWidth = 2 * hair;
+    for (const [o, p] of this.countryLines) {
+      const c = this.territoryRgb?.[o];
+      if (!c) continue;
+      ctx.strokeStyle = `rgb(${Math.round(c[0] * 0.75)}, ${Math.round(c[1] * 0.75)}, ${Math.round(c[2] * 0.75)})`;
+      ctx.stroke(p);
+    }
     this.updateDevelopLayer(snap);
     ctx.imageSmoothingEnabled = this.cam.scale < 1;
     ctx.drawImage(this.developLayer, 0, 0);
@@ -2233,4 +2291,41 @@ function hexRgb(hex: string): [number, number, number] {
 
 export function colorOf(players: GamePlayer[], id: number): string {
   return players[id]?.color ?? '#999999';
+}
+
+/**
+ * The borders between different regions of a grid (WATER on either side doesn't count), as
+ * one path of straight runs along pixel edges: each run joins neighbouring pixels' edges that
+ * separate the same two regions.
+ */
+function borderLines(grid: Uint16Array, W: number, H: number): Path2D {
+  const path = new Path2D();
+  const differ = (a: number, b: number) => a !== b && a !== WATER && b !== WATER;
+  // Vertical edges, between (x, y) and (x + 1, y), run down each column of edges.
+  for (let x = 0; x + 1 < W; x++) {
+    let start = -1;
+    for (let y = 0; y <= H; y++) {
+      const on = y < H && differ(grid[y * W + x], grid[y * W + x + 1]);
+      if (on && start < 0) start = y;
+      if (!on && start >= 0) {
+        path.moveTo(x + 1, start);
+        path.lineTo(x + 1, y);
+        start = -1;
+      }
+    }
+  }
+  // Horizontal edges, between (x, y) and (x, y + 1), run along each row of edges.
+  for (let y = 0; y + 1 < H; y++) {
+    let start = -1;
+    for (let x = 0; x <= W; x++) {
+      const on = x < W && differ(grid[y * W + x], grid[(y + 1) * W + x]);
+      if (on && start < 0) start = x;
+      if (!on && start >= 0) {
+        path.moveTo(start, y + 1);
+        path.lineTo(x, y + 1);
+        start = -1;
+      }
+    }
+  }
+  return path;
 }

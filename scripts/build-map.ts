@@ -763,9 +763,7 @@ for (let y = 0; y < H; y++) {
     } else {
       const depth = Math.min(1, Math.max(0, -elev[i] / 2500));
       c = SHALLOW.map((v, k) => v + (DEEP[k] - v) * Math.sqrt(depth));
-      // Sea region borders: a faint dotted line.
-      const z = seaOf[i];
-      if (z !== -1 && (x + y) % 3 === 0 && neighbors4(i, W, H).some((j) => seaOf[j] !== -1 && seaOf[j] !== z)) c = c.map((v) => v + 38);
+      // (Sea region borders are drawn by the client, as hairlines.)
     }
     png.data[o] = clamp(c[0]);
     png.data[o + 1] = clamp(c[1]);
