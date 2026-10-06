@@ -77,8 +77,21 @@ const http = createServer(async (req, res) => {
 
 const wss = new WebSocketServer({ server: http, path: '/ws', maxPayload: 32 * 1024, perMessageDeflate: { threshold: 1024 } });
 const alive = new WeakSet<WebSocket>();
+/** Open sockets per address: generous (players behind one proxy share an address), but one
+ * script can't open hundreds. */
+const MAX_SOCKETS_PER_IP = 32;
+const perIp = new Map<string, number>();
+wss.on('error', (e) => console.error('websocket server error', e));
 
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, req) => {
+  const ip = String(req.headers['x-forwarded-for'] ?? req.socket.remoteAddress ?? '?').split(',')[0].trim();
+  if ((perIp.get(ip) ?? 0) >= MAX_SOCKETS_PER_IP) {
+    ws.close(1008, 'too many connections');
+    return;
+  }
+  perIp.set(ip, (perIp.get(ip) ?? 0) + 1);
+  // A bad frame (too big, malformed) ends that connection only, never the server.
+  ws.on('error', () => ws.terminate());
   const conn = randomUUID();
   sockets.set(conn, ws);
   alive.add(ws);
@@ -106,6 +119,9 @@ wss.on('connection', (ws) => {
     game.handleMessage(conn, raw).catch((e) => console.error('handleMessage failed', e));
   });
   ws.on('close', () => {
+    const n = (perIp.get(ip) ?? 1) - 1;
+    if (n > 0) perIp.set(ip, n);
+    else perIp.delete(ip);
     sockets.delete(conn);
     game.handleDisconnect(conn);
   });
