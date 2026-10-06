@@ -813,8 +813,8 @@ describe('development', () => {
     const s = sim(map, ['A']);
     clearBlobs(s);
     for (let i = 0; i < n; i++) s.state.regions[i].owner = 0;
-    rich(s);
     s.tick(0.1);
+    rich(s); // after the tick: stock past the stores' size is lost on the next one
     return s;
   }
   /** Runs until builds are done; land cut off meanwhile (and so lost) is given back. */
@@ -1025,7 +1025,7 @@ describe('artillery', () => {
 });
 
 describe('storage', () => {
-  it('stores fill up to what cities and depots hold; the rest is lost', () => {
+  it('stores fill up to what cities and depots hold; the rest is lost, and losing storage loses stock', () => {
     const s = duel();
     clearBlobs(s);
     const p = s.state.players[0];
@@ -1040,6 +1040,12 @@ describe('storage', () => {
     assert.equal(p.cap.money, STORE_PER_CITY_LEVEL.money * city + STORE_PER_DEPOT.money);
     run(s, 2);
     assert.ok(p.resources.money > STORE_PER_CITY_LEVEL.money * city, 'room again');
+    // The depot's region is lost: what it held goes with it.
+    p.resources.manpower = p.cap.manpower;
+    s.state.regions[1].owner = 1;
+    s.tick(0.1);
+    assert.equal(p.resources.manpower, STORE_PER_CITY_LEVEL.manpower * city);
+    assert.equal(p.resources.money, STORE_PER_CITY_LEVEL.money * city);
   });
 
   it('depots take a slot, can be built anywhere you hold and knocked down', () => {

@@ -889,6 +889,27 @@ button.primary:hover:not(:disabled) {
   color: var(--accent);
 }
 
+/* The building slots of the region under the cursor, as on the map. */
+.buildbar .strip .slotboxes {
+  display: inline-flex;
+  gap: 3px;
+  align-self: center;
+}
+
+.buildbar .strip .slotboxes i {
+  width: 10px;
+  height: 10px;
+  box-sizing: border-box;
+}
+
+.buildbar .strip .slotboxes .used {
+  background: #9aa7b1;
+}
+
+.buildbar .strip .slotboxes .free {
+  border: 3px solid #7bd389;
+}
+
 /* The dock's tabs: Economy, Military, Naval (Tab cycles them). */
 .buildbar .tabs {
   display: flex;

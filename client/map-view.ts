@@ -1477,19 +1477,20 @@ export class MapView {
       const y = Math.round(fy);
       if (x < -80 || y < -80 || x > this.canvas.clientWidth + 80 || y > this.canvas.clientHeight + 80) continue;
 
-      // Icons in a row above the units: capital or city, and fort, each with its level as a
-      // roman numeral on its bottom-right corner; the other buildings (barracks, factory,
-      // port, depots) count as "+N" (the region panel lists them). Without a city or fort,
-      // the first of them shows itself.
+      // Icons in a row above the units: capital or city (a city nobody holds yet is just a
+      // flag), fort and port, the levels as roman numerals on their bottom-right corners; the
+      // other buildings (barracks, factory, coastal battery, depots) count as "+N" (the region
+      // panel lists them). Without any of the first, the first of the others shows itself.
       const icons: Array<{ s: Sprite; level?: number }> = [];
       const city = rr[2];
+      const unclaimed = rr[0] < 0;
       if (capitals.has(region.id)) icons.push({ s: ICONS.capital, level: city });
-      else if (city > 0) icons.push({ s: ICONS.city, level: city });
+      else if (city > 0) icons.push(unclaimed ? { s: ICONS.flag } : { s: ICONS.city, level: city });
       if (rr[1] > 0) icons.push({ s: ICONS.fort, level: rr[1] });
+      if (rr[3] & 8) icons.push({ s: ICONS.port });
       const others: Sprite[] = [];
       if (rr[3] & 1) others.push(ICONS.barracks);
       if (rr[3] & 2) others.push(ICONS.factory);
-      if (rr[3] & 8) others.push(ICONS.port);
       if (rr[3] & 16) others.push(ICONS.battery);
       for (let d = 0; d < rr[13]; d++) others.push(ICONS.depot);
       if (!icons.length && others.length) icons.push({ s: others.shift() as Sprite });
@@ -1522,7 +1523,7 @@ export class MapView {
       } else if (capitals.has(region.id)) {
         blitCentred(ctx, ICONS.capital, x, y, 1);
       } else if (city > 0) {
-        blitCentred(ctx, ICONS.city, x, y, 1);
+        blitCentred(ctx, rr[0] < 0 ? ICONS.flag : ICONS.city, x, y, 1);
       }
 
       // Name, in the pixel font, above everything else (not over a battle unless zoomed in).
@@ -1566,7 +1567,10 @@ export class MapView {
         const items = parts.length + (slots ? 1 : 0);
         if (items) {
           const total = parts.reduce((sum, p) => sum + w(p), 0) + boxes + 3 * ds * (items - 1);
-          const cy = Math.round(y + below + 12 * px + 6 * is);
+          // Where the units stand when there are none; above the name when there are (so it
+          // stays on the region, not out at sea off a coast).
+          const nameTop = (showIcons ? iconBottom - 10 * ipx : y + tokenTop) - 3 - 12;
+          const cy = Math.round(owners.has(region.id) ? nameTop - 6 * is - 2 : y + 14);
           ctx.fillStyle = 'rgba(11, 15, 19, 0.75)';
           ctx.fillRect(Math.round(x - total / 2) - 2 * ds, cy - 6 * is, total + 4 * ds, 12 * is);
           let ix = Math.round(x - total / 2);
