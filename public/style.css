@@ -930,7 +930,7 @@ button.primary:hover:not(:disabled) {
 }
 
 /* Less room (a laptop, or a bigger UI size): icon, hotkey and cost only. */
-@container hud (max-width: 1500px) {
+@container hud (max-width: 1700px) {
   .buildbar .slot {
     width: 52px;
     padding: 8px 1px 4px;
