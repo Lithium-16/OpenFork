@@ -246,6 +246,8 @@ export const ICONS = {
     ],
     { r: '#b5653a', y: '#c19a5b' },
   ),
+  /** Units waiting to go on: an hourglass. */
+  hourglass: art(['OOOOO', 'OYYYO', '.OYO.', '..O..', '.OYO.', 'OYYYO', 'OOOOO'], { Y: '#ffd166' }),
   /** A city nobody holds yet: a flag on a pole, white (unclaimed). */
   flag: art(
     [

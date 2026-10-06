@@ -43,7 +43,7 @@ export class World {
     return supplyCapacity(this.regions[id], city, techs);
   }
 
-  captureSeconds(id: number, fort: number, training: number): number {
-    return captureSeconds(this.regions[id], fort, training);
+  captureSeconds(id: number, fort: number, training: number, neutral = false): number {
+    return captureSeconds(this.regions[id], fort, training, neutral);
   }
 }
