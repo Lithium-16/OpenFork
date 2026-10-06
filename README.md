@@ -142,7 +142,9 @@ under the SIL Open Font License 1.1 (`public/fonts/OFL.txt`).
 
 ## Known limits / next steps
 
-- Balance is first-pass. Bot-only matches end in 17–40 minutes, but two evenly matched hard
-  bots can stall into a long war; tune `shared/rules.ts` from real games.
+- Balance is first-pass. Bot-only matches (normal and hard) end in 19–36 minutes, by
+  domination or the last capital; easy bots never start wars, so an all-easy match only ends
+  by someone conquering. Tune `shared/rules.ts` from real games (`node scripts/bot-match.ts
+  [seed] [countries] [difficulty]`).
 - Guest identities live in memory: a server restart forgets who was who (and running games).
 - Not built yet: air, alliances, fog of war, procedural maps, the Kernel module.

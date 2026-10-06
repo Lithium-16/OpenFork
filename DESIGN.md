@@ -9,7 +9,7 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
 `shared/rules.ts`.
 
 ## 1. Match
-- Real-time and continuous. Target length is 15–25 min. No time limit. A game with one person
+- Real-time and continuous. Target length is 20–40 min (bot-only matches end in 19–36). No time limit. A game with one person
   in it (the rest bots) can be **paused** (P; the menu pauses it while open); games with more
   people can't.
 - A one-person game can be **saved to a file** (Menu: Save game) and **loaded** from the main
@@ -24,7 +24,8 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
 - Spectating is allowed for eliminated players and visitors.
 - On disconnect a **bot takes over** the country until the player rejoins (alone in the game,
   it pauses instead and waits for them).
-- **Win:** hold every capital. Alliances come after v1; allies who hold all remaining
+- **Win:** hold every capital, or **hold 70% of all the land** (a domination win, with two or
+  more countries in the game). Alliances come after v1; allies who hold all remaining
   capitals will win together.
 - **Losing your capital** eliminates you: your land goes neutral and empty, and your blobs
   disband.
@@ -131,7 +132,12 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
   - Mine (+0.6 steel/s on industry, +0.3 on hills or mountains).
   - Oil well (+0.5 oil/s): oil fields.
   - Market (+0.4 money/s, +0.6 in a city): anywhere.
-  Several of the same kind per region are fine.
+  Farms, wells and labs: several of the same kind per region are fine, a slot each. **Mines
+  and markets** are one per region and **level up in place, I to III** (one slot at any
+  level; each level yields as much again). A level costs more each time: mine $80 / $160 +
+  15 steel / $240 + 30 steel (75 / 105 / 135 s), market $70 / $140 + 10 / $210 + 20
+  (60 / 90 / 120 s). Their level shows in roman numerals beside them on the map, as forts and
+  cities do, and in the region panel and build bar. Demolishing one takes every level.
 - **Military buildings:** fort (levels 1–3) anywhere you own; barracks and factory in cities;
   on a coast, a port and a **coastal battery** (a slot, $120 + 40 steel, 75 s): it shells
   enemy ships and troops at sea in the seas off its coast (about as hard as 10 strength of
@@ -293,6 +299,10 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
   shelling from the border, too) and is lost when it moves, attacks or takes land. A shield beside the token fills with earth as it digs in and stays full once it's
   dug in (under attack, the same shield also shows the fort level and a river crossed).
 - **Capturing waits** while a region is fought over, inside or from next door.
+- **Sieges:** artillery and warships shelling an enemy-held region with a fort, at war, wear
+  the fort down a level at a time (a 20-strength battery of artillery takes a level in about
+  40 s; Rangefinders doesn't change this). The feed says when a fort is knocked down.
+  Building a new level resets the wear.
 - **Flanking:** attacking a region from more than one neighbouring region: +15% damage
   there for each extra region attacked from, up to +45%.
 - Anyone can reinforce either side mid-battle. With 3 or more sides, **each side spreads its
@@ -360,8 +370,15 @@ country much weaker than them:
   sometimes;
 - **hard:** from minute 3, against one with about 60% of their strength or less, more often.
 
+They grow **bolder the longer they're at peace**: the edge they need falls by 0.1× a minute
+(normal from 2× down to 1.1×, hard from 1.6× down to 0.9×). They're at their boldest at once
+when their money stores are 70% full (nothing better to spend it on) or in the **endgame**
+(3 countries left or fewer), when they also act on it far more often.
+
 Bots offer peace when a war goes badly or stalls, and accept offers when the war isn't
-going their way. A bot playing for a disconnected person never starts a war.
+going their way. In the endgame they don't make peace over a quiet front: they offer it only
+when losing badly and take it only when weaker. A bot playing for a disconnected person
+never starts a war. Mines and markets they upgrade rather than fill new slots, when it fits.
 
 ## Later (not in v1)
 - **Air:** air blobs that are fast, ignore terrain and ZoC, and return to airfields.
@@ -400,7 +417,7 @@ going their way. A bot playing for a disconnected person never starts a war.
 | Supply capacity of a region | 90 × terrain × (1 + 0.25 × city level); infantry needs 1 per point, tanks 2 |
 | Yield of land without buildings | none (city tax: 0.8 money, 0.25 manpower per level per s) |
 | Starting resources (normal) | $150, 250 manpower, 40 steel, 20 oil |
-| Build times | farm, market 60 s; mine, oil well 75 s; fort 60 s per level; barracks 60 s; factory 120 s; road 30 s |
+| Build times | farm, market 60 s; mine, oil well 75 s (mine and market levels II, III: +30 s each); fort 60 s per level; barracks 60 s; factory 120 s; road 30 s |
 | Stack cap | 2–4 tokens by size/terrain, +1 per fort level, +1 per city level |
 | Slots | 1 (large: 2), + city level |
 | Retreat cost | −15% strength, −10 training |

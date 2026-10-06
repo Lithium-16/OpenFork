@@ -542,6 +542,11 @@ const ROMAN_GLYPHS: Record<string, string[]> = {
 };
 const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V'];
 
+/** A level (1-5) as roman numerals, as on the map: "II". */
+export function roman(level: number): string {
+  return ROMAN[level] ?? String(level);
+}
+
 /** A level (1-5) as a roman numeral sprite: white on a dark outline. */
 export function romanSprite(level: number): Sprite {
   return cached(`roman:${level}`, () => {

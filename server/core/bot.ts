@@ -8,6 +8,9 @@ import {
   BOT_LONG_WAR_SECONDS,
   BOT_MIN_WAR_SECONDS,
   BOT_PEACE_STALEMATE_SECONDS,
+  BOT_BOLDER_PER_MINUTE,
+  BOT_ENDGAME_COUNTRIES,
+  BOT_HOARD_SHARE,
   BOT_PEACE_WHEN_WEAKER,
   type BotDifficulty,
   type BuildingKind,
@@ -89,6 +92,8 @@ export class Bot {
   private heading = new Map<number, number>();
   /** Enemy → when this bot first saw the war. */
   private readonly warSince = new Map<number, number>();
+  /** Since when it has had no war (null while it has one): it grows bolder at peace. */
+  private peaceSince: number | null = 0;
 
   /**
    * `standIn`: playing for a person who dropped. It defends and makes peace, but never
@@ -157,7 +162,13 @@ export class Bot {
     return out;
   }
 
-  /** Offers of peace to us: take them when the war isn't going our way or has stalled. */
+  /** Few countries left: time to fight it out. */
+  private endgame(sim: Sim): boolean {
+    return sim.state.players.filter((p) => p.alive).length <= BOT_ENDGAME_COUNTRIES;
+  }
+
+  /** Offers of peace to us: take them when the war isn't going our way or has stalled (in
+   * the endgame, only when losing). */
   private answerOffers(sim: Sim): void {
     for (const key of [...sim.state.peaceOffers.keys()]) {
       const [from, to] = key.split('>').map(Number);
@@ -169,7 +180,8 @@ export class Bot {
       // A long war is worth ending even when winning, now and then (wars needn't always be
       // fought to the last region).
       const long = sim.state.time - (this.warSince.get(from) ?? sim.state.time) >= BOT_LONG_WAR_SECONDS;
-      if (mine < theirs * 1.2 || quiet || fronts > 1 || (long && this.random() < 0.35)) sim.offerPeace(this.player, from);
+      const take = this.endgame(sim) ? mine < theirs * 0.9 || fronts > 1 : mine < theirs * 1.2 || quiet || fronts > 1 || (long && this.random() < 0.35);
+      if (take) sim.offerPeace(this.player, from);
       else sim.refusePeace(this.player, from);
     }
   }
@@ -178,26 +190,36 @@ export class Bot {
     const now = sim.state.time;
     const mine = this.strength(sim, this.player);
     const enemies = this.enemies(sim);
+    const endgame = this.endgame(sim);
     for (const e of [...this.warSince.keys()]) if (!enemies.includes(e)) this.warSince.delete(e);
-    // Wars going badly, or stuck: offer peace.
+    if (enemies.length) this.peaceSince = null;
+    else this.peaceSince ??= now;
+    // Wars going badly, or stuck: offer peace (in the endgame, only when losing).
     for (const e of enemies) {
       if (!this.warSince.has(e)) this.warSince.set(e, now);
       if (now - (this.warSince.get(e) as number) < BOT_MIN_WAR_SECONDS) continue;
       if (sim.state.peaceOffers.has(`${this.player}>${e}`)) continue;
       const losing = mine < this.strength(sim, e) * BOT_PEACE_WHEN_WEAKER;
-      const stalled = now - (sim.state.warActivity.get(pairKey(this.player, e)) ?? now) >= BOT_PEACE_STALEMATE_SECONDS;
+      const stalled = !endgame && now - (sim.state.warActivity.get(pairKey(this.player, e)) ?? now) >= BOT_PEACE_STALEMATE_SECONDS;
       if (losing || stalled) sim.offerPeace(this.player, e);
     }
-    // Picking on a much weaker neighbour (never on easy, rarely on normal).
+    // Picking on a weaker neighbour (never on easy). It needs a clear edge at first, less
+    // the longer it's been at peace, and only a slight one (or none, on hard) in the endgame or
+    // with money piling up that it has nothing better to spend on.
     const opp = this.opportunism;
     if (!opp || now < opp.after || enemies.length >= opp.maxWars) return;
+    const me = sim.state.players[this.player];
+    const hoarding = me.cap.money > 0 && me.resources.money >= BOT_HOARD_SHARE * me.cap.money;
+    const calm = (now - (this.peaceSince ?? now)) / 60;
+    const ratio = endgame || hoarding ? opp.boldest : Math.max(opp.boldest, opp.ratio - BOT_BOLDER_PER_MINUTE * calm);
+    const chance = endgame ? Math.max(0.5, opp.chance) : opp.chance;
     const prey = [...this.neighbours(sim)]
       .filter((p) => !sim.atWar(this.player, p) && !sim.inTruce(this.player, p))
       .map((p) => ({ p, s: this.strength(sim, p), w: this.wealth(sim, p) }))
-      .filter((x) => mine >= x.s * opp.ratio)
+      .filter((x) => mine >= x.s * ratio)
       // Weak and rich is best: developed land is worth taking.
       .sort((a, b) => a.s / (1 + a.w / 10) - b.s / (1 + b.w / 10))[0];
-    if (prey && this.random() < opp.chance) sim.declareWar(this.player, prey.p);
+    if (prey && this.random() < chance) sim.declareWar(this.player, prey.p);
   }
 
   // -- building and production ------------------------------------------------------------
@@ -398,6 +420,8 @@ export class Bot {
           // Not right on a front line.
           if (this.threat(sim, r) > 0) score -= 2;
           if (regions[r].city > 0) score += 0.3;
+          // Upgrading a mine or market needs no new slot: worth a little more.
+          if (regions[r].econ[kind] > 0) score += 0.5;
         }
         options.push({ r, kind, score });
       }

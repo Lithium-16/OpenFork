@@ -21,11 +21,13 @@ const sim = new Sim(
 const bots = sim.state.players.map((p) => new Bot(p.id, difficulty, mulberry32(seed * 100 + p.id)));
 const t0 = performance.now();
 let lastReport = 0;
+let breaches = 0;
 while (sim.state.winner === null && sim.state.time < 3600) {
   for (const b of bots) b.act(sim);
   sim.tick();
   for (const e of sim.drainEvents()) {
     if (e.kind === 'eliminated') console.log(`${fmt(sim.state.time)} ${sim.state.players[e.player].name} eliminated by ${sim.state.players[e.by]?.name ?? '?'}`);
+    if (e.kind === 'breached') breaches++;
     if (e.kind === 'won') console.log(`${fmt(sim.state.time)} ${sim.state.players[e.player].name} wins`);
     const name = (id: number) => sim.state.players[id].country;
     if (e.kind === 'war') console.log(`${fmt(sim.state.time)} war: ${name(e.by)} attacks ${name(e.by === e.a ? e.b : e.a)}`);
@@ -45,6 +47,7 @@ while (sim.state.winner === null && sim.state.time < 3600) {
     console.log(`${fmt(sim.state.time)} ${line}`);
   }
 }
+console.log(`forts knocked down by sieges: ${breaches}`);
 console.log(`simulated ${fmt(sim.state.time)} in ${((performance.now() - t0) / 1000).toFixed(1)}s; winner: ${sim.state.winner === null ? 'none' : sim.state.players[sim.state.winner].name}`);
 
 function fmt(t: number): string {

@@ -846,8 +846,9 @@ describe('development', () => {
   it('slots come from region size, plus the city level', () => {
     const s = land(3, [{}, { size: 'small' }, { size: 'large' }]);
     assert.equal(s.build(0, 1, 'market'), null);
-    assert.match(s.build(0, 1, 'market') ?? '', /no free slot/);
-    for (let i = 0; i < 2; i++) assert.equal(s.build(0, 2, 'market'), null);
+    assert.match(s.build(0, 1, 'farm') ?? '', /no free slot/);
+    assert.equal(s.build(0, 2, 'market'), null);
+    assert.equal(s.build(0, 2, 'farm'), null);
     assert.match(s.build(0, 2, 'farm') ?? '', /no free slot/);
     // Capital: medium (2) + city level 3, minus the barracks.
     assert.equal(s.state.regions[0].city, START_CAPITAL_LEVEL);
@@ -927,15 +928,50 @@ describe('development', () => {
 
   it('demolishing frees the slot at once, with no refund', () => {
     const s = land(2, [{}, { size: 'large' }]);
-    s.build(0, 1, 'market');
-    s.build(0, 1, 'market');
+    s.build(0, 1, 'farm');
+    s.build(0, 1, 'farm');
     finish(s);
     const money = s.state.players[0].resources.money;
-    assert.equal(s.demolish(0, 1, 'market'), null);
-    assert.equal(s.state.regions[1].econ.market, 1);
+    assert.equal(s.demolish(0, 1, 'farm'), null);
+    assert.equal(s.state.regions[1].econ.farm, 1);
     assert.ok(s.state.players[0].resources.money <= money);
-    assert.equal(s.build(0, 1, 'market'), null);
+    assert.equal(s.build(0, 1, 'farm'), null);
     assert.match(s.demolish(0, 1, 'city') ?? '', /can't be demolished/);
+  });
+
+  it('mines and markets level up in place (I to III) in one slot', () => {
+    const s = land(2, [{}, { size: 'small', terrain: 'hills' }]);
+    const p = s.state.players[0];
+    const before = p.income.money;
+    assert.equal(s.build(0, 1, 'market'), null);
+    assert.equal(s.build(0, 1, 'market'), null, 'level II queued on it: no new slot');
+    assert.equal(s.build(0, 1, 'market'), null);
+    assert.match(s.build(0, 1, 'market') ?? '', /highest level/);
+    assert.match(s.build(0, 1, 'mine') ?? '', /no free slot/, 'the one slot is the market');
+    assert.deepEqual(s.pending(s.state.regions[1]).map((c) => c.level), [1, 2, 3]);
+    assert.ok(buildCost('market', 3).cost.money > buildCost('market', 2).cost.money && buildCost('market', 2).cost.money > buildCost('market', 1).cost.money);
+    finish(s);
+    assert.equal(s.state.regions[1].econ.market, 3);
+    assert.equal(s.slotsUsed(s.state.regions[1]), 1);
+    assert.ok(Math.abs(p.income.money - before - 3 * (econYield('market', s.world.regions[1]).money ?? 0)) < 1e-9, 'each level yields as much again');
+    // Demolishing takes the whole building, every level.
+    assert.equal(s.demolish(0, 1, 'market'), null);
+    assert.equal(s.state.regions[1].econ.market, 0);
+    assert.equal(s.build(0, 1, 'mine'), null);
+  });
+
+  it('cancelling a mine level cancels the levels queued on it, refunded', () => {
+    const s = land(2, [{}, { terrain: 'hills' }]);
+    const p = s.state.players[0];
+    // Within the stores (a refund past their size would be lost).
+    p.resources.money = 700;
+    p.resources.steel = 300;
+    assert.equal(s.build(0, 1, 'mine'), null);
+    const [money, steel] = [p.resources.money, p.resources.steel];
+    for (let i = 0; i < 2; i++) assert.equal(s.build(0, 1, 'mine'), null);
+    assert.equal(s.unbuild(0, 1, 1), null);
+    assert.deepEqual(s.pending(s.state.regions[1]).map((c) => c.level), [1]);
+    assert.ok(Math.abs(p.resources.money - money) < 1e-6 && Math.abs(p.resources.steel - steel) < 1e-6, 'levels II and III refunded');
   });
 
   it('captured land keeps its buildings', () => {
@@ -967,6 +1003,24 @@ describe('capitals', () => {
     assert.ok(![...s.state.blobs.values()].some((x) => x.owner === 1));
     const events = s.drainEvents().map((e) => e.kind);
     assert.ok(events.includes('eliminated') && events.includes('won'));
+  });
+});
+
+describe('domination', () => {
+  it('holding most of the land wins outright, capitals or not', () => {
+    const s = duel();
+    clearBlobs(s);
+    // A holds 5 of the 8 regions (62%); taking a sixth (75%) is enough.
+    s.state.regions.forEach((rs, i) => (rs.owner = i < 5 ? 0 : 1));
+    s.declareWar(0, 1);
+    const b = place(s, 0, 'infantry', 4);
+    s.move(0, [b.id], 5);
+    run(s, 40);
+    assert.equal(s.state.regions[5].owner, 0);
+    assert.equal(s.state.players[1].alive, true, 'B still has its capital');
+    assert.equal(s.state.winner, 0);
+    const won = s.drainEvents().find((e) => e.kind === 'won');
+    assert.ok(won && won.kind === 'won' && won.domination);
   });
 });
 
@@ -1030,6 +1084,31 @@ describe('artillery', () => {
     };
     assert.ok(hit(0) > 0);
     assert.ok(Math.abs(hit(1) - hit(0)) < 1e-9);
+  });
+
+  it('wears an enemy fort down a level at a time (a siege), even with Rangefinders', () => {
+    for (const techs of [[], ['shells', 'rangefinders']] as TechId[][]) {
+      const s = war();
+      s.state.players[0].techs = techs;
+      s.state.regions[4].fort = 2;
+      place(s, 0, 'artillery', 2, 20);
+      const held = place(s, 1, 'infantry', 4, 1000);
+      run(s, 45);
+      assert.equal(s.state.regions[4].fort, 1, `one level gone in 45 s (${techs.join(',') || 'no techs'})`);
+      assert.ok(held.strength > 0);
+      const breached = s.drainEvents().filter((e) => e.kind === 'breached');
+      assert.deepEqual(breached.map((e) => e.kind === 'breached' && e.level), [1]);
+      run(s, 45);
+      assert.equal(s.state.regions[4].fort, 0, 'and the next');
+    }
+  });
+
+  it("doesn't wear forts down when not at war, or with nobody in them", () => {
+    const s = war();
+    s.state.regions[4].fort = 2;
+    place(s, 0, 'artillery', 2, 20);
+    run(s, 60);
+    assert.equal(s.state.regions[4].fort, 2, 'nobody there: nothing to shell');
   });
 
   it('comes from the factory, not the barracks', () => {
