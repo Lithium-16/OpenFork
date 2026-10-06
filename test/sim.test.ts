@@ -89,18 +89,20 @@ describe('movement', () => {
     assert.ok(enemy > t0 && forted > enemy);
   });
 
-  it('captures neutral regions on the way, then goes on', () => {
+  it('takes neutral regions on the way from the border, steps in, then goes on', () => {
     const s = duel();
     clearBlobs(s);
     const b = place(s, 0, 'infantry', 1);
     s.move(0, [b.id], 4);
-    run(s, CROSS_SECONDS + 0.2);
-    assert.equal(b.region, 2);
-    assert.equal(s.state.regions[2].owner, NEUTRAL);
     run(s, 3);
-    assert.equal(b.region, 2, 'waits to capture');
+    assert.equal(b.region, 1, 'takes it from where it stands');
+    assert.equal(b.progress, 0);
+    assert.equal(b.attacking, 2);
+    assert.ok((s.state.regions[2].capture?.progress ?? 0) > 0.3);
     run(s, 4);
     assert.equal(s.state.regions[2].owner, 0);
+    run(s, CROSS_SECONDS);
+    assert.equal(b.region, 2, 'then steps in');
     run(s, 40);
     assert.equal(b.region, 4);
     assert.equal(s.state.regions[3].owner, 0);
@@ -147,16 +149,21 @@ describe('movement', () => {
     assert.deepEqual(b.path, []);
   });
 
-  it('waits at the edge of a full region', () => {
+  it('waits at home while the next region is full, and goes once there is room', () => {
     const s = duel();
     clearBlobs(s);
     const cap = s.stackCap(1);
-    for (let i = 0; i < cap; i++) place(s, 0, 'infantry', 1);
+    const there = Array.from({ length: cap }, () => place(s, 0, 'infantry', 1));
     const late = place(s, 0, 'infantry', 0);
     s.move(0, [late.id], 1);
     run(s, CROSS_SECONDS * 2);
     assert.equal(late.region, 0);
-    assert.equal(late.progress, 1);
+    assert.equal(late.progress, 0, 'stands in its region (it can fight and be shelled there)');
+    assert.equal(late.waiting, true);
+    s.move(0, [there[0].id], 0);
+    s.move(0, [late.id], 1);
+    run(s, CROSS_SECONDS * 2.5);
+    assert.equal(late.region, 1);
   });
 
   it('every token counts toward the cap: passing through a full region of your own waits too', () => {
@@ -185,7 +192,7 @@ describe('movement', () => {
     s.move(0, [leaving.id], 2);
     run(s, CROSS_SECONDS * 2);
     assert.equal(leaving.region, 1);
-    assert.equal(leaving.progress, 1);
+    assert.equal(leaving.waiting, true);
     assert.match(s.split(0, other.id) ?? '', /no room/);
   });
 
@@ -237,7 +244,7 @@ function front(river = false) {
 }
 
 describe('border battles', () => {
-  it('attacks a defended neighbour from home; walks in and takes it once the defenders are gone', () => {
+  it('attacks a defended neighbour from home; the broken defenders rout, and it takes the region and steps in', () => {
     const s = front();
     const a = place(s, 0, 'infantry', 2, 40);
     const d = place(s, 1, 'infantry', 3, 5);
@@ -248,10 +255,59 @@ describe('border battles', () => {
     assert.equal(a.attacking, 3);
     assert.ok(a.strength < 40 && d.strength < 5, 'both sides take damage');
     assert.ok(s.drainEvents().some((e) => e.kind === 'battle' && e.region === 3));
-    run(s, 120);
-    assert.ok(!s.state.blobs.has(d.id));
+    run(s, 4);
+    const events = s.drainEvents();
+    assert.ok(events.some((e) => e.kind === 'routed' && e.region === 3), 'down to a quarter and outnumbered 3:1: they rout');
+    assert.ok(events.some((e) => e.kind === 'captured' && e.region === 3), 'the region falls at once');
+    assert.equal(d.region, 4, 'they fled to their own land');
+    assert.ok(d.strength < 5);
+    run(s, CROSS_SECONDS + 1);
     assert.equal(a.region, 3, 'advanced after the win');
-    assert.equal(s.state.regions[3].owner, 0, 'and took it');
+    assert.equal(s.state.regions[3].owner, 0);
+  });
+
+  it('routed defenders with nowhere to go are destroyed', () => {
+    const s = front();
+    s.state.regions[4].owner = 0; // cut off: no land of theirs to flee to
+    const a = place(s, 0, 'infantry', 2, 40);
+    const d = place(s, 1, 'infantry', 3, 5);
+    s.move(0, [a.id], 3);
+    run(s, 6);
+    assert.ok(!s.state.blobs.has(d.id));
+    assert.equal(s.state.regions[3].owner, 0);
+  });
+
+  it('attacking from more than one region hits harder (flanking)', () => {
+    const dealt = (sides: number) => {
+      const map = makeMap([{}, {}, {}, {}], [[0, 1], [2, 1], [3, 1], [0, 2], [0, 3]], [{ id: 'A', capital: 0 }, { id: 'B', capital: 1 }]);
+      const s = sim(map, ['A', 'B']);
+      clearBlobs(s);
+      for (const r of [0, 2, 3]) s.state.regions[r].owner = 0;
+      s.declareWar(0, 1);
+      const d = place(s, 1, 'infantry', 1, 100);
+      const from = [0, 2, 3].slice(0, sides);
+      const each = 30 / sides;
+      for (const r of from) s.move(0, [place(s, 0, 'infantry', r, each).id], 1);
+      run(s, 1);
+      return 100 - d.strength;
+    };
+    const one = dealt(1);
+    assert.ok(Math.abs(dealt(2) / one - 1.15) < 0.03, 'two sides: +15%');
+    assert.ok(Math.abs(dealt(3) / one - 1.3) < 0.03, 'three sides: +30%');
+  });
+
+  it('rough ground covers its defenders', () => {
+    const lost = (terrain: 'plains' | 'mountains') => {
+      const map = makeMap([{}, { terrain }], [[0, 1]], [{ id: 'A', capital: 0 }, { id: 'B', capital: 1 }]);
+      const s = sim(map, ['A', 'B']);
+      clearBlobs(s);
+      s.declareWar(0, 1);
+      const d = place(s, 1, 'infantry', 1, 50);
+      s.move(0, [place(s, 0, 'infantry', 0, 20).id], 1);
+      run(s, 1);
+      return 50 - d.strength;
+    };
+    assert.ok(lost('mountains') < lost('plains') / 1.3);
   });
 
   it('forts and a river between help the defenders', () => {
@@ -280,18 +336,33 @@ describe('border battles', () => {
     assert.ok(a.strength < 20 && b.strength < 20);
   });
 
-  it('enemies getting there first turn a move into an attack from the border', () => {
+  it('enemies getting there mid-hop call the hop off at once: it attacks from the border', () => {
     const s = front();
-    s.state.regions[3].owner = NEUTRAL;
+    s.state.regions[3].owner = 0;
     const a = place(s, 0, 'infantry', 2);
     s.move(0, [a.id], 3);
     run(s, CROSS_SECONDS / 2);
     assert.ok(a.progress > 0);
     place(s, 1, 'infantry', 3);
-    run(s, CROSS_SECONDS);
+    run(s, 0.2);
     assert.equal(a.region, 2);
     assert.equal(a.progress, 0);
     assert.equal(a.attacking, 3);
+  });
+
+  it('units on the move still hold their region: they fight there and stop captures', () => {
+    const s = front();
+    const leaving = place(s, 1, 'infantry', 3, 20);
+    s.state.regions[4].owner = 1;
+    s.move(1, [leaving.id], 4);
+    run(s, 1);
+    assert.ok(leaving.progress > 0);
+    const a = place(s, 0, 'infantry', 2, 20);
+    s.move(0, [a.id], 3);
+    run(s, 1);
+    assert.equal(a.attacking, 3);
+    assert.ok(leaving.strength < 20, 'still in 3: it is attacked there');
+    assert.equal(s.state.regions[3].capture, null);
   });
 
   it('defenders attacked from next door are pinned; attackers break off for free', () => {
@@ -419,6 +490,28 @@ describe('battles', () => {
     // b is hit by a and c, which each send 2/3 of their damage to it (20 of 30 enemy strength).
     assert.ok(lossB > lossA && lossB > lossC);
     assert.ok(Math.abs(lossA - lossC) < 1e-9);
+  });
+
+  it('units killed in a fight are gone before the guns fire (no coming back from the dead)', () => {
+    const s = front();
+    s.state.regions[4].owner = 1;
+    const tanks = place(s, 0, 'tank', 2, 117);
+    const gun = place(s, 0, 'artillery', 1, 30);
+    const art = place(s, 1, 'artillery', 3, 0.3);
+    const inf = place(s, 1, 'infantry', 3, 0.4);
+    s.move(0, [tanks.id], 3);
+    run(s, 1);
+    for (const b of [art, inf, gun, tanks]) if (s.state.blobs.has(b.id)) assert.ok(b.strength <= b.size + 1e-9 && b.strength >= 0, `${b.type} ${b.strength}/${b.size}`);
+  });
+
+  it('a refused order declares no war', () => {
+    const s = duel();
+    clearBlobs(s);
+    s.state.regions[3].owner = 1;
+    const b = place(s, 0, 'infantry', 0);
+    s.state.blobs.delete(b.id);
+    assert.match(s.move(0, [b.id], 3) ?? '', /not your unit/);
+    assert.equal(s.atWar(0, 1), false);
   });
 
   it('retreating costs strength', () => {
@@ -658,6 +751,7 @@ describe('economy', () => {
     s.build(0, 0, 'fort');
     s.build(0, 0, 'market');
     s.build(0, 0, 'fort');
+    p.resources.money = 0; // refunds go back into the stores, up to their size
     run(s, 5);
     const money = p.resources.money;
     assert.equal(s.unbuild(0, 0, 0), null);
@@ -1152,6 +1246,90 @@ describe('the sea', () => {
     s.tick(0.1);
     assert.equal(ship.bombarding, 3);
     assert.ok(target.strength < 10);
+  });
+
+  it('artillery never shells ships or troops at sea, and guns being shipped never fire', () => {
+    const s = strait();
+    s.declareWar(0, 1);
+    s.state.regions[0].port = true;
+    const gun = place(s, 0, 'artillery', 0, 20);
+    const ship = place(s, 1, 'warship', 1, 20);
+    const boats = place(s, 1, 'infantry', 1, 10);
+    s.tick(0.1);
+    assert.equal(gun.bombarding, -1);
+    assert.equal(boats.strength, 10);
+    const afloat = place(s, 0, 'artillery', 2, 20);
+    place(s, 1, 'infantry', 3, 10);
+    s.tick(0.1);
+    assert.equal(afloat.bombarding, -1, 'no firing from the transports');
+    assert.ok(ship.strength > 0);
+  });
+
+  it('ships never fight on land: docked ships don\'t defend, and they put to sea when the port falls', () => {
+    const s = strait();
+    s.declareWar(0, 1);
+    s.state.regions[3].port = true;
+    s.state.players[1].capital = -1; // so taking 3 doesn't knock B out
+    const fleet = place(s, 1, 'warship', 3, 100);
+    const inf = place(s, 0, 'infantry', 2, 20);
+    inf.path = [3];
+    s.tick(0.1);
+    assert.equal(s.inFight(inf), false, 'nothing to fight: the coast is empty but for ships');
+    run(s, 20);
+    assert.equal(s.state.regions[3].owner, 0, 'taken from the sea');
+    assert.equal(fleet.region, 2, 'the fleet put out to sea');
+    // Ships don't storm their own port when enemy troops are in it.
+    s.state.regions[0].port = true;
+    s.state.regions[0].owner = 1;
+    place(s, 0, 'infantry', 0, 10);
+    const ships = place(s, 1, 'warship', 1, 20);
+    assert.match(s.move(1, [ships.id], 0) ?? 'ok', /ok/);
+    run(s, 1);
+    assert.equal(ships.attacking, -1);
+    assert.equal(ships.region, 1);
+  });
+
+  it('a fleet in port sails out to fight a fleet off its coast, at full strength', () => {
+    const s = strait();
+    s.declareWar(0, 1);
+    s.state.regions[0].port = true;
+    const mine = place(s, 0, 'warship', 0, 20);
+    const theirs = place(s, 1, 'warship', 1, 20);
+    s.move(0, [mine.id], 1);
+    run(s, 3);
+    assert.equal(mine.attacking, 1);
+    assert.ok(theirs.strength < 18, `it hits back (${theirs.strength})`);
+  });
+
+  it('a coastal battery shells enemy ships and troops off its coast', () => {
+    const s = strait();
+    rich(s);
+    s.declareWar(0, 1);
+    assert.match(s.build(0, 4, 'battery') ?? '', /coast/);
+    s.state.regions[0].battery = true;
+    const ship = place(s, 1, 'warship', 1, 20);
+    s.tick(0.1);
+    assert.ok(ship.strength < 20);
+    assert.deepEqual([...s.batteryTargets], [[0, 1]]);
+  });
+
+  it('a mixed selection sends the ships to sea and the troops ashore', () => {
+    const s = strait();
+    s.state.regions[0].port = true;
+    const ship = place(s, 0, 'warship', 0, 10);
+    const inf = place(s, 0, 'infantry', 0, 10);
+    assert.equal(s.move(0, [ship.id, inf.id], 1), null);
+    assert.deepEqual(ship.path, [1]);
+    assert.deepEqual(inf.path, []);
+  });
+
+  it('troops at sea neither refill nor drill', () => {
+    const s = strait();
+    const inf = place(s, 0, 'infantry', 1, 10);
+    inf.size = 20;
+    run(s, 30);
+    assert.equal(inf.strength, 10);
+    assert.equal(inf.training, 0);
   });
 
   it('ships are supplied near their own ports only', () => {

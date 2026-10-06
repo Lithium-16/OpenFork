@@ -28,8 +28,11 @@ export interface Blob {
   progress: number;
   /** 0..1, grows while it holds still in its own region. */
   entrench: number;
-  /** Must win and take its region before going on along its path. */
-  hold: boolean;
+  /** Has orders but is waiting in its region: the next region is full, or (troops) enemy
+   * warships hold the sea ahead, or (artillery) enemies stand there and it shells them instead. */
+  waiting: boolean;
+  /** Going home through this country's land after peace (-1: none). */
+  through: number;
   /** Came into its region across a river (the defender there gets the river bonus). */
   crossedRiver: boolean;
   /** The region it came into its region from (-1: it started there). A unit in a fight may
@@ -37,7 +40,7 @@ export interface Blob {
   from: number;
   /** 0..1, set by the supply pass. */
   supply: number;
-  /** The neighbouring region it is attacking from its own (-1: none). Set each tick. */
+  /** The neighbouring region it is attacking, or taking, from its own (-1: none). Set each tick. */
   attacking: number;
   /** Artillery: the region it shells this tick, or -1. */
   bombarding: number;
@@ -48,6 +51,8 @@ export interface ProductionLine {
   /** Seconds done on the head of the queue; -1 until it is paid for. */
   progress: number;
   repeat: boolean;
+  /** What the head of the queue cost when it was paid for (refunded if cancelled). */
+  paid?: Resources;
 }
 
 export interface Construction {
@@ -72,6 +77,8 @@ export interface RegionState {
   factory: boolean;
   /** A port (coastal regions only): ships are built and dock here, troops board here. */
   port: boolean;
+  /** A coastal battery: shells enemy ships and troops at sea off this coast. */
+  battery: boolean;
   /** Depots: storage (see STORE_PER_DEPOT). */
   depots: number;
   production: Record<ProductionBuilding, ProductionLine>;
@@ -116,6 +123,7 @@ export type SimEvent =
   | { kind: 'peaceRefused'; from: number; to: number }
   | { kind: 'battle'; region: number; sides: number[] }
   | { kind: 'captured'; region: number; by: number; from: number }
+  | { kind: 'routed'; region: number; owner: number; by: number }
   | { kind: 'looted'; region: number; by: number; from: number; got: Resources }
   | { kind: 'researched'; player: number; tech: TechId }
   | { kind: 'built'; region: number; owner: number; building: BuildingKind; level: number }
@@ -161,6 +169,7 @@ export function emptyRegion(): RegionState {
     depots: 0,
     barracks: false,
     port: false,
+    battery: false,
     factory: false,
     production: { barracks: emptyLine(), factory: emptyLine(), port: emptyLine() },
     construction: null,

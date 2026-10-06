@@ -56,7 +56,7 @@ if (process.env.DEBUG) {
     const rs = sim.state.regions[cap];
     console.log(`${p.name}: capital ${map.regions[cap].name} owner ${rs.owner} fort ${rs.fort} supplied ${rs.supplied}`);
     for (const r of [cap, ...map.regions[cap].neighbors.map((n) => n.id)]) {
-      const here = sim.blobsIn(r).map((b) => `${sim.state.players[b.owner].country}:${b.type[0]}${b.strength.toFixed(0)}/${b.size}${b.path.length ? `>${b.path.at(-1)}` : ''}${b.hold ? 'H' : ''}`);
+      const here = sim.blobsIn(r).map((b) => `${sim.state.players[b.owner].country}:${b.type[0]}${b.strength.toFixed(0)}/${b.size}${b.path.length ? `>${b.path.at(-1)}` : ''}${b.waiting ? 'W' : ''}`);
       const moving = [...sim.state.blobs.values()].filter((b) => b.progress > 0 && (b.region === r || b.path[0] === r)).length;
       console.log(`  ${r} ${map.regions[r].name} (${sim.state.regions[r].owner}, cap ${sim.stackCap(r)}, fort ${sim.state.regions[r].fort}): ${here.join(' ')} moving:${moving}`);
     }
