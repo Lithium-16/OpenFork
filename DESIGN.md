@@ -84,9 +84,9 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
     (mines and wells +30%) → Banking (markets and city tax +25%).
   - Logistics: Warehouses (storage +50%) → Railways (supply +1 region) → Field kitchens
     (regions feed +30% troops).
-- **Upkeep:** each blob costs money per minute, scaled by its size and type. If income goes
-  below upkeep, **blobs wither**: they lose strength and training until you're back in the
-  plus.
+- **Upkeep:** each blob costs money per second, scaled by its strength and type. Once the
+  money runs out, **blobs wither**: they lose strength and training, which also lowers their
+  upkeep, until you're back in the plus.
 - **Cities** (levels 1–5) are the heart of development.
   - The map's cities are the real ones with a million people or more (about 50); their
     starting level comes from the population (1–2M: 1 … 8M+: 4, so Paris, Moscow and
@@ -110,37 +110,49 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
   - Oil well (+0.5 oil/s): oil fields.
   - Market (+0.4 money/s, +0.6 in a city): anywhere.
   Several of the same kind per region are fine.
-- **Military buildings:** fort (levels 1–3) anywhere you own; barracks and factory in cities.
+- **Military buildings:** fort (levels 1–3) anywhere you own; barracks and factory in cities;
+  on a coast, a port and a **coastal battery** (a slot, $120 + 40 steel, 75 s): it shells
+  enemy ships and troops at sea in the seas off its coast (about as hard as 10 strength of
+  artillery) while the region is supplied and not fought over, and its region's defenders
+  get +50% against troops landing from the sea.
+- Nothing is built in, or knocked down in, a region under attack (enemies in it, attacking it,
+  or taking it): what's there goes to whoever takes it.
 - **Roads** join two of your regions across their border: crossing is 40% faster (for
   anyone, invaders too) and the border counts as half a hop for supply. Paint them by
   dragging across regions.
 - You pick what and where, pay, and it **builds over time in the background**. No builder
   units.
-  - **Placement mode:** pick a building in the build bar (or 1–9), then click one of your
+  - **Placement mode:** the build bar has three tabs, Economy (farm, mine, well, market, lab,
+    city, depot, road), Military (fort, barracks, factory) and Naval (port, coastal battery);
+    Tab cycles them. Pick a building (or 1–9 in the open tab), then click one of your
     regions (roads: drag); Shift places more. Valid regions light up green, and the bar
     shows the exact cost of the next level and the free slots in the region under the
     cursor.
   - **Build queue:** a busy region queues up to 3 more builds behind the one under way. Each
-    is paid when placed and can be cancelled for a full refund (cancelling a fort or city
-    level also cancels the higher levels queued after it). A captured region's queue is
-    lost.
+    is paid when placed and can be cancelled for a full refund, into the stores like income
+    (what doesn't fit is lost; cancelling a fort or city level also cancels the higher levels
+    queued after it). A captured region's queue is lost; one that goes neutral, cut off,
+    gives back what was paid. A city being founded counts as a city for "not next to another
+    city", so two can't be founded side by side.
   - Towns, fields, mines, derricks, market halls and roads are drawn into the map itself.
   - A captured region's buildings go **intact to the captor**.
 
 ## 4. Units (blobs)
-- A blob is a token with a **type**, a **strength** (a small number, capped per type: infantry
-  20, tanks 10) and a **training** level. Types: **infantry, tanks, artillery and warships** (§4a). Air
+- A blob is a token with a **type**, a **strength** (new ones come in batches: infantry 10,
+  the rest 5; merging takes a blob up to 100) and a **training** level. Types: **infantry, tanks, artillery and warships** (§4a). Air
   comes later.
 - **Stat-based:** each type has attack, defense, speed, cost and upkeep. **Terrain matters
   a lot:** tanks are strong on plains and weak in forest and mountains.
 - **Production:** you order a blob at a barracks (infantry) or factory (artillery, and tanks
   once the Tanks tech is researched),
-  and a "repeat" toggle keeps producing. A new blob appears in the building's region.
-- **Artillery:** standing still and in supply, it shells enemy units up to **2 regions away**
-  (its own side's fights first, else the strongest enemy force). Shells ignore digging in
-  and count forts half. It never storms a region: sent at enemies, it waits at the border
-  and shells. Up close it barely hits back and breaks fast. Bots keep it one region behind
-  the front.
+  and a "repeat" toggle keeps producing. A new blob appears in the building's region; if the
+  region is full, the finished unit waits (paid for) until there's room.
+- **Artillery:** standing still and in supply, it shells enemy units on land up to **2
+  regions away** (its own side's fights first, else the strongest enemy force). Shells ignore
+  digging in and count forts half. It never shells ships or anything at sea, and guns being
+  shipped can't fire. It never storms a region: sent at enemies, it waits at the border and
+  shells (digging in meanwhile). It can take empty land. Up close it barely hits back and
+  breaks fast. Bots keep it one region behind the front.
 - **Training:**
   - **Gained** from combat veterancy and from drilling: any idle blob in supply slowly trains
     up to a cap.
@@ -155,12 +167,14 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
   - Splitting is free and takes any amount: half (X), one batch, or a number typed in the
     unit panel. Both parts keep their training.
   - Bots keep units around two batches, and merge bigger only when a region is full.
-- **Refill:** a damaged blob in supply slowly refills, paying manpower (plus steel for tanks).
+- **Refill:** a damaged blob in supply slowly refills, paying money and manpower (plus steel
+  and oil for tanks, at the prices techs set). Not at sea.
 - **Stack cap:** each region holds a limited number of tokens per player. The cap depends on
   region size and terrain and goes up by 1 per fort level and per city level. **Every token
-  counts:** standing, leaving, or waiting at the edge of the next region. A route that meets
-  a full region waits on its border; two full regions swapping units trade places, so they
-  can't jam each other. Merge to make room.
+  counts:** standing, leaving, or waiting to go on (ships in port take no room). A unit whose
+  next region is full **waits at home**, standing in its region (it fights and is shelled
+  there), and goes as soon as there's room; two full regions swapping units trade places,
+  so they can't jam each other. Merge to make room.
 
 ## 4a. The sea
 - **Sea regions** belong to nobody and are never captured. Land regions touching one are
@@ -168,22 +182,31 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
 - **Warships** are built at a port (5 per order: 120 money, 20 manpower, 60 steel, 15 oil,
   40 s). They sail sea regions and into their own country's ports, never onto land, and
   hold up to 12 tokens per side per sea region.
-  - **Fighting:** ships fight enemy ships and troops at sea, at full strength. In port they
-    don't fight (they mend there).
+  - **Fighting:** ships fight enemy ships and troops at sea, at full strength, and a fleet in
+    port sails out at full strength against enemies in the sea off it. Ships never fight on
+    land: docked ships take no part in a fight over their port and don't stop it being taken;
+    when their port is lost (or knocked down) they put out to the sea off it, or are lost if
+    it's blockaded. Ships don't take land stack room in port. In port they mend.
   - **Shelling:** a ship standing still in supply shells enemies on the coasts of its sea
     region and in the neighbouring sea regions (so transports waiting next to a fleet get
     sunk), like artillery with a range of 1.
   - **Supply:** full within 3 sea regions of one of its country's supplied ports, none
     beyond (it slowly wastes away). Ships refill only in port.
+  - Seas cut off by straits too narrow for the map (the Black Sea, through the Bosporus and
+    Dardanelles) are joined to the rest, so fleets can sail out.
 - **Troops cross the sea on their own:** send land units to a region across the water and
   they march to the nearest of your ports, **board** (8 s), sail (slower than ships), and
   **land** on the far coast. There are no transport units to manage. Without a port of your
   own there is no way across.
-  - At sea they are **easy to hurt** (half defence) and hit back at a quarter.
-  - **Blockade:** troops never sail into a sea region with enemy ships in it; they wait in
-    the sea region before it (and the enemy fleet shells them there). Bots turn back.
-  - **Landing:** attacking a defended coast straight from the sea hits at half strength.
-  - Troops can't be sent to a sea region itself, and ships and troops are ordered apart.
+  - At sea they are **easy to hurt** (half defence) and hit back at a quarter. They can't
+    refill or drill at sea.
+  - **Blockade:** troops never sail into a sea region with enemy warships in it; they wait
+    (and the enemy fleet shells them there). Bots turn back. Enemy troops at sea don't block.
+  - **Landing:** attacking a defended coast straight from the sea hits at half strength; an
+    empty coast is taken from the sea like any land (see §5), and they land once it's taken.
+  - Troops can't be sent to a sea region itself. Ordering a mix of ships and troops sends
+    each where it can go (ships to sea or your port, troops to land); with only ships
+    selected, a click on land or open water means the sea nearest it.
 - **On screen:** sea names in blue, a hull symbol for warships, a boat beside troops that are
   at sea, an anchor icon on ports; clicking a sea shows its coasts and who's there.
 
@@ -196,16 +219,18 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
   ends. A new order the same way keeps the progress; any other order, or Halt, turns the
   unit back at once (it never has to step into the next region first). Pulling out of a
   fight costs once, however often the way out changes.
-- **Zone of control:** crossing enemy-owned land is slower than crossing your own, and forts
-  there slow it more. A fort without units in it only slows; it can't stop anything.
-- **Running into enemies (border battles):** a blob never walks into a region with enemy
-  blobs in it. It stops in its own region and **attacks across the border** at once; when
-  the defenders are gone it walks in (the normal hop time) and captures as usual. If enemies
-  get into the region first while it's on its way, the hop is called off and it attacks
-  from the border instead.
-- **Capturing:** an empty enemy or neutral region is captured after the blob **holds it for a
-  while**. The time scales with the region's size and terrain, forts make it longer, and
-  training makes it shorter.
+- **Attacking and taking land from where you stand:** a blob never walks into land that
+  isn't its country's. Sent at a neighbouring region with enemies in it, it stays in its own
+  region and **attacks across the border** at once. Sent at someone else's empty land
+  (neutral, or an enemy's), it **takes it from the border**: the capture timer runs while it
+  stands on its side, and once the region is taken it steps in (the normal hop) and goes on.
+  A longer route does this region by region. If enemies (or a change of owner) get to the
+  next region while a unit is on its way there, the hop is called off at once and it
+  attacks or takes it from the border instead.
+- **A unit on the move is still in its region** until the hop ends: it defends it, is
+  attacked and shelled there, and stops captures of it.
+- **Capturing:** the time scales with the region's size and terrain, forts make it longer,
+  and training makes it shorter. The capture waits while the region is fought over.
 - **How a fight looks:** units in their own region hold the middle (with a shield showing
   their fort level, whether they're dug in, and a river crossed by the attackers); units
   attacking a region from next door, or taking an empty one, get an arrow in their colour
@@ -228,16 +253,25 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
   it in every battle it's part of: attacking out while your own region is attacked means
   being hit at home while hitting only forward. Two sides attacking each other across a
   border both hit, and each defends with its own region's fort.
-- **Defender bonus = fort + entrenchment + river crossing**, added together, for the region
-  owner's blobs standing in it. The river bonus counts the attackers coming over a river
-  edge. **Entrenchment** builds up while a blob holds still and is lost when it moves or
-  attacks. A shield beside the token fills with earth as it digs in and stays full once it's
+- **Defender bonus = terrain + fort + entrenchment + river crossing (+ coastal battery
+  against landings)**, added together. Terrain covers anyone standing in the region fought
+  over (forest +15%, hills +25%, mountains +40%); the rest is for the region owner's blobs
+  standing in it. The river bonus counts the attackers coming over a river edge.
+  **Entrenchment** builds up while a blob holds still in its own land (waiting, or
+  shelling from the border, too) and is lost when it moves, attacks or takes land. A shield beside the token fills with earth as it digs in and stays full once it's
   dug in (under attack, the same shield also shows the fort level and a river crossed).
 - **Capturing waits** while a region is fought over, inside or from next door.
+- **Flanking:** attacking a region from more than one neighbouring region: +15% damage
+  there for each extra region attacked from, up to +45%.
 - Anyone can reinforce either side mid-battle. With 3 or more sides, **each side spreads its
   damage over all hostile sides in proportion to their strength**.
-- The battle ends when only one side has blobs left. If the winner isn't the owner, the
-  capture timer starts.
+- **Routing:** defenders down to a quarter of their strength in the fight and outnumbered
+  3 to 1 break: each flees to the nearest region of theirs with room and no enemies (at most
+  3 regions away through their own land), losing 10% of its strength; with nowhere to go it
+  is destroyed. The strongest attacker takes the region at once.
+- Otherwise the battle ends when only one side has blobs left. If the winner isn't the owner,
+  the capture timer starts. Units killed in a fight are gone at once (before shelling, so
+  nothing comes back from the dead).
 
 ## 7. Supply
 - **Hubs:** every **city** you own (your capital is one). A city reaches 3 + its level
@@ -262,9 +296,12 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
 - **A peaceful country's land is closed:** routes go around it. Sending units into it is an
   attack and declares war (the game asks you to confirm). You can also declare war from the
   player list.
+- Sending units into it is only refused (and declares nothing) if there's no way there.
 - **Peace:** either side can offer it; the other accepts or refuses, and the offer lapses
   after 30 s. Peace starts a **3-minute truce** (no war between the two) and sends each
-  side's units home.
+  side's units home through the other's land; attacks under way are called off. A unit left
+  standing in a peaceful country's land with no orders always heads home (with no way home
+  it's interned: it leaves the game), so no army waits inside for the truce to end.
 - Zones of control (slow movement) apply only in the land of countries you're at war with.
 
 ## 9. Bots
