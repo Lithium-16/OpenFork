@@ -1743,3 +1743,9 @@ select:focus-visible {
 .panel button.prod:hover:not(:disabled) .n {
   color: var(--ink);
 }
+
+/* In the desktop app the launcher is the home screen, and there's nobody to invite. */
+.desktop #home,
+.desktop #copy-link {
+  display: none !important;
+}
