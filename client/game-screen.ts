@@ -138,6 +138,8 @@ export class GameScreen {
   private readonly cleanup: Array<() => void> = [];
   private centred = false;
   finished = false;
+  /** A HUD button is held down: its panel waits to be redrawn. */
+  private pressing = false;
   private readonly minimap: HTMLCanvasElement;
   private readonly sfx = new Sfx();
   private readonly meter = new FrameMeter();
@@ -178,10 +180,10 @@ export class GameScreen {
     }
   }
 
-  /** Sets the UI size; sizes that would leave the HUD less than 1050×600 to lay out on are
+  /** Sets the UI size; sizes that would leave the HUD less than 1150×600 to lay out on are
    * off (and a remembered one falls back) until the window is big enough. */
   private setUiScale(want: number, remember = true): void {
-    const fits = (s: number) => s === 1 || (window.innerWidth / s >= 1050 && window.innerHeight / s >= 600);
+    const fits = (s: number) => s === 1 || (window.innerWidth / s >= 1150 && window.innerHeight / s >= 600);
     const scale = fits(want) ? want : [1.5, 1.25, 1].find(fits) ?? 1;
     document.documentElement.style.setProperty('--ui-scale', String(scale));
     for (const b of document.querySelectorAll<HTMLButtonElement>('#menu-scale button')) {
@@ -231,7 +233,16 @@ export class GameScreen {
 
   /** Back to the main menu: leaves the lobby (the server answers with no lobby). */
   private leave(): void {
+    this.leaving = true;
     this.net.send({ t: 'lobby.leave' });
+  }
+
+  /** The player chose to leave (so the lobby going away is no surprise). */
+  leaving = false;
+
+  /** The same game as a fresh start message describes (a reconnect, not a new match). */
+  sameGame(map: string, you: number | null, players: GamePlayer[]): boolean {
+    return !this.finished && this.map.id === map && this.you === you && JSON.stringify(this.players) === JSON.stringify(players);
   }
 
   start(): void {
@@ -283,6 +294,8 @@ export class GameScreen {
   destroy(): void {
     cancelAnimationFrame(this.raf);
     for (const c of this.cleanup) c();
+    this.sfx.close();
+    delete (window as unknown as { openfork?: unknown }).openfork;
   }
 
   private send(order: Order): void {
@@ -307,12 +320,12 @@ export class GameScreen {
       this.centreOnCapital();
     }
     for (const e of snap.events) this.addEvent(e);
-    this.renderTopbar();
+    if (!this.pressing) this.renderTopbar();
     this.renderPlayers();
     this.renderOffers();
-    this.renderPanel();
+    if (!this.pressing) this.renderPanel();
     this.renderBuildbar();
-    this.renderResearch();
+    if (!this.pressing) this.renderResearch();
   }
 
   /** Your techs (none when watching). */
@@ -326,7 +339,7 @@ export class GameScreen {
   }
 
   private setResearchOpen(open: boolean): void {
-    this.researchOpen = open && this.you !== null;
+    this.researchOpen = open && this.playing;
     this.researchKey = '';
     $('#research').classList.toggle('hidden', !this.researchOpen);
     this.renderResearch();
@@ -354,7 +367,7 @@ export class GameScreen {
     // Layout: a tree growing down from the root, each parent centred over its children,
     // leaves side by side, a row per depth. In CSS pixels.
     const W = 150;
-    const H = 92;
+    const H = 104;
     const GX = 20;
     const GY = 58;
     const kids = (id: TechId | null) => TECHS.filter((t) => (t.needs[0] ?? null) === id);
@@ -431,6 +444,9 @@ export class GameScreen {
           el('button', { class: 'x', 'data-act': 'unresearch' }, ['Cancel (refund)']),
         ]
       : ['Nothing under way: pick a lit tech'];
+    // Redrawn as resources come in: keep where the tree was scrolled to.
+    const old = box.querySelector('.tscroll');
+    const [sx, sy] = old ? [old.scrollLeft, old.scrollTop] : [0, 0];
     box.replaceChildren(
       el('div', { class: 'tscreen' }, [
         el('div', { class: 'thead' }, [
@@ -448,10 +464,14 @@ export class GameScreen {
         ]),
       ]),
     );
+    const scroll = box.querySelector('.tscroll');
+    if (scroll) [scroll.scrollLeft, scroll.scrollTop] = [sx, sy];
   }
 
   onOver(winner: number | null): void {
     this.finished = true;
+    this.setPlacing(null);
+    this.setResearchOpen(false);
     const name = winner === null ? 'Nobody' : this.players[winner]?.name;
     $('#over-title').textContent = winner === this.you ? 'Victory! Every capital is yours.' : `${name} wins.`;
     $('#over').classList.remove('hidden');
@@ -483,11 +503,32 @@ export class GameScreen {
     // Audio may only start after a gesture.
     on(window, 'pointerdown', () => this.sfx.unlock());
     on(window, 'keydown', () => this.sfx.unlock());
+    // A tick when the pointer comes onto a button (not again for the same one, even though
+    // the HUD is redrawn under a still pointer).
+    let lastHover = '';
     for (const sel of ['#buildbar', '#topbar', '#players']) {
       on($(sel), 'pointerover', (e: PointerEvent) => {
-        if ((e.target as HTMLElement).closest('button')) this.sfx.tick();
+        const b = (e.target as HTMLElement).closest('button');
+        const key = b ? `${sel}|${b.dataset.kind ?? b.dataset.tab ?? b.dataset.act ?? ''}|${b.textContent}` : '';
+        if (b && key !== lastHover) this.sfx.tick();
+        lastHover = key;
       });
+      on($(sel), 'pointerleave', () => (lastHover = ''));
     }
+    // While a button in the HUD is held down, the panels aren't redrawn under it (a snapshot
+    // landing between press and release would swallow the click); they catch up after.
+    for (const sel of ['#topbar', '#panel', '#research']) {
+      on($(sel), 'pointerdown', () => (this.pressing = true));
+    }
+    on(window, 'pointerup', () => {
+      if (!this.pressing) return;
+      setTimeout(() => {
+        this.pressing = false;
+        this.renderTopbar();
+        this.renderPanel();
+        this.renderResearch();
+      }, 0);
+    });
     // The controls panel folds to its strip and back (remembered).
     on($('#help-fold'), 'click', () => this.foldHelp(!$('#help').classList.contains('folded')));
     // Open for a first game; folded to its "? Keys" strip after that, unless you chose.
@@ -580,9 +621,11 @@ export class GameScreen {
       this.view.focusMinimap(this.minimap, e.clientX - r.left, e.clientY - r.top);
     };
     on(this.minimap, 'mousedown', (e: MouseEvent) => {
+      if (e.button !== 0) return;
       miniDown = true;
       miniJump(e);
     });
+    on(this.minimap, 'contextmenu', (e: MouseEvent) => e.preventDefault());
     on(window, 'mousemove', (e: MouseEvent) => {
       if (miniDown) miniJump(e);
     });
@@ -649,7 +692,15 @@ export class GameScreen {
       // (only when it was reached by keyboard: a clicked button keeps no claim on Space).
       const keyFocus = (e.target as HTMLElement).matches?.(':focus-visible');
       if ((tag === 'BUTTON' || tag === 'SUMMARY') && keyFocus && (e.key === 'Enter' || e.key === ' ')) return;
+      // Browser shortcuts (Ctrl/Alt/Cmd) are the browser's.
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      // Behind the menu or the game-over screen only Esc counts (Tab moves through its buttons).
+      const overlay = !$('#menu').classList.contains('hidden') || !$('#over').classList.contains('hidden');
+      if (overlay && e.key !== 'Escape') return;
+      if (overlay && !$('#over').classList.contains('hidden')) return;
       this.keys.add(e.key.toLowerCase());
+      // Held keys repeat only for panning (arrows, WASD); everything else is once per press.
+      if (e.repeat) return;
       this.key(e);
     });
     on(window, 'keyup', (e: KeyboardEvent) => this.keys.delete(e.key.toLowerCase()));
@@ -843,12 +894,12 @@ export class GameScreen {
       this.toggleMenu(false);
     } else if (k === 'escape' && this.placing) {
       this.setPlacing(null);
+    } else if (k === 'escape' && this.researchOpen) {
+      this.setResearchOpen(false);
     } else if (k === 'escape' && (this.selected.size || this.region >= 0 || this.view.expanded !== null)) {
       this.selected.clear();
       this.region = -1;
       this.view.expanded = null;
-    } else if (k === 'escape' && this.researchOpen) {
-      this.setResearchOpen(false);
     } else if (k === 'escape') {
       this.toggleMenu(true);
     } else if (k === 'x' && sel.length) {
@@ -939,7 +990,8 @@ export class GameScreen {
       if (tab >= 0) this.tab = tab;
     }
     this.placing = kind === this.placing ? null : kind;
-    if (this.placing && this.you === null) this.placing = null;
+    // Out of the game (watching, knocked out, or it's over): nothing to build.
+    if (this.placing && !this.playing) this.placing = null;
     this.roadPath = null;
     this.view.roadPreview = null;
     this.view.canvas.classList.toggle('placing', this.placing !== null);
@@ -1163,8 +1215,8 @@ export class GameScreen {
   private renderBuildbar(): void {
     const bar = $('#buildbar');
     const snap = this.snap;
-    bar.classList.toggle('hidden', !snap || this.you === null || !snap.players[this.you]?.alive);
-    if (!snap || this.you === null || !snap.players[this.you]?.alive) return;
+    bar.classList.toggle('hidden', !snap || !this.playing);
+    if (!snap || this.you === null || !this.playing) return;
     const res = this.resources();
     const mine = this.hover >= 0 && snap.regions[this.hover][0] === this.you ? this.hover : -1;
     // The dock doesn't depend on where the pointer is: press a key (or a button), then click a
@@ -1553,7 +1605,8 @@ export class GameScreen {
     const snap = this.snap;
     if (!snap) return;
     // Typing a split amount: leave the panel alone until the field loses focus.
-    if (document.activeElement?.id === 'split-amount' && panel.contains(document.activeElement)) return;
+    // (Unless the unit it's for is gone.)
+    if (document.activeElement?.id === 'split-amount' && panel.contains(document.activeElement) && this.selected.size > 0) return;
     const sel = [...this.selected].map((id) => this.blob(id)).filter((b): b is BlobRow => !!b);
     if (sel.length) {
       panel.replaceChildren(...this.unitsPanel(sel));
