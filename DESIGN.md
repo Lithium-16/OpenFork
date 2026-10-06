@@ -235,6 +235,11 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
 - **Capturing:** the time scales with the region's size and terrain, forts make it longer,
   and training makes it shorter. Land nobody holds takes 30% longer than an enemy's, so the
   opening land grab lasts a while. The capture waits while the region is fought over.
+- **Reading the map:** a solid arrow is an attack on enemies; a dashed one is taking empty
+  land. Guns shelling show a dotted arc from the guns to the target, shells running along
+  it, and a reticle round the units being shelled; shelled land erupts in fire, debris and
+  smoke (shells into the sea throw up spray). Defenders that rout go up in white puffs. A unit
+  waiting to go on (the next region is full, or a fleet blocks the sea) shows an hourglass.
 - **How a fight looks:** units in their own region hold the middle (with a shield showing
   their fort level, whether they're dug in, and a river crossed by the attackers); units
   attacking a region from next door, or taking an empty one, get an arrow in their colour
