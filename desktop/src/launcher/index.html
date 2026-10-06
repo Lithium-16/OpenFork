@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:" />
+    <title>OpenFork</title>
+    <link rel="stylesheet" href="launcher.css" />
+  </head>
+  <body>
+    <header class="titlebar">
+      <span>Ops // Launcher</span>
+      <span class="winbtns">
+        <button id="min" aria-label="Minimise">_</button>
+        <button id="close" aria-label="Close">X</button>
+      </span>
+    </header>
+    <main>
+      <div class="brand">
+        <canvas id="logo" width="9" height="10" aria-hidden="true"></canvas>
+        <div>
+          <h1>Open<span>Fork</span></h1>
+          <p class="tagline">Theatre: Europe. No connection needed.</p>
+        </div>
+      </div>
+      <div class="actions">
+        <button id="continue" class="primary hidden"><span>Continue</span><small id="continue-label"></small></button>
+        <button id="new">New game</button>
+        <button id="load">Load a saved game</button>
+      </div>
+      <div class="opts">
+        <label class="check"><input id="fullscreen" type="checkbox" /> Fullscreen</label>
+        <button id="saves">Saves folder</button>
+        <button id="share">Share</button>
+      </div>
+      <p id="note" class="note" role="status" aria-live="polite"></p>
+    </main>
+    <footer>
+      <span id="version"></span>
+      <span id="update"></span>
+      <button id="install" class="primary hidden">Restart to update</button>
+    </footer>
+    <script src="launcher.js"></script>
+  </body>
+</html>
