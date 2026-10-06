@@ -97,7 +97,7 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
   - **Expand city** (a build, cost and time grow with the level) gives more tax, a slot, +1
     stack cap and one more hop of supply reach.
   - **Found a city** in a region of yours that's in supply and not next to another city
-    ($1600, 240 steel, 4 minutes): a rare, big decision. It starts at level 1 and is a
+    ($700, 160 steel, 4 minutes): a rare, big decision. It starts at level 1 and is a
     supply hub. Expanding to level L costs $240·L and 40·(L−1) steel and takes L minutes.
 - **Slots:** a land region has 1 (2 if large), plus its city level (sea regions have none). Every
   building but cities and roads takes one (a fort takes one for all its levels). Choosing
@@ -233,7 +233,8 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
 - **A unit on the move is still in its region** until the hop ends: it defends it, is
   attacked and shelled there, and stops captures of it.
 - **Capturing:** the time scales with the region's size and terrain, forts make it longer,
-  and training makes it shorter. The capture waits while the region is fought over.
+  and training makes it shorter. Land nobody holds takes 30% longer than an enemy's, so the
+  opening land grab lasts a while. The capture waits while the region is fought over.
 - **How a fight looks:** units in their own region hold the middle (with a shield showing
   their fort level, whether they're dug in, and a river crossed by the attackers); units
   attacking a region from next door, or taking an empty one, get an arrow in their colour
@@ -268,8 +269,8 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
   there for each extra region attacked from, up to +45%.
 - Anyone can reinforce either side mid-battle. With 3 or more sides, **each side spreads its
   damage over all hostile sides in proportion to their strength**.
-- **Routing:** defenders down to a quarter of their strength in the fight and outnumbered
-  3 to 1 break: each flees to the nearest region of theirs with room and no enemies (at most
+- **Routing:** defenders down to a fifth of their strength in the fight and outnumbered
+  4 to 1 break: each flees to the nearest region of theirs with room and no enemies (at most
   3 regions away through their own land), losing 10% of its strength; with nowhere to go it
   is destroyed. The strongest attacker takes the region at once.
 - Otherwise the battle ends when only one side has blobs left. If the winner isn't the owner,
