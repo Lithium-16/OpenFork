@@ -336,38 +336,51 @@ const LAND = {
   A: '#b5483e', // awning
 };
 
-/** Modern buildings: concrete, flat roofs, glass and windows. */
+/** City buildings: each type its own shape and colour, all with a dark outline so neighbours
+ * never blend. */
 const CITY = {
-  ...LAND,
-  C: '#cfcdc6', // concrete
-  c: '#8a877f', // concrete in shade
-  F: '#b9b5aa', // flat roof
-  f: '#8f8b81',
-  W: '#56758f', // window
-  w: '#e3cf7a', // lit window
-  G: '#8fb7d4', // glass, lit
-  g: '#3f5e7a', // glass in shade
-  k: '#3d434a', // base, spire
+  o: '#262b31', // outline
+  R: '#b0533a', // roof tiles
+  r: '#7d4a3a',
+  H: '#eadfc6', // house wall
+  d: '#3a3226', // door
+  W: '#4a6276', // window
+  w: '#f0d77a', // lit window
+  B: '#e2d3b0', // apartment concrete (warm sand)
+  f: '#7d7468', // flat roof
+  S: '#5f6a74', // office steel
+  L: '#c4e4ef', // office window band
+  G: '#6fb0e0', // tower glass
+  g: '#3d6f99', // mullion
+  Y: '#f1c232', // spire
 };
 
 export const MAP_ART = {
-  houses: [art(['RRR', 'HHH', 'HdH'], LAND), art(['rrr', 'HHH', 'HHd'], LAND), art(['.R.', 'RRR', 'HdH'], LAND)],
-  tower: art(['.S.', 'SSS', 'SsS', 'SSS', 'SsS'], LAND),
-  /** Apartment blocks (4×4): the middle ring of a city from level 2. Lit on the left, the
-   * right side in shade, so they read as boxes. */
+  /** Houses (5×6): the edge of every town. */
+  houses: [
+    art(['..o..', '.oRo.', 'oRRRo', 'oHWHo', 'oHdHo', 'ooooo'], CITY),
+    art(['..o..', '.oro.', 'orrro', 'oHWHo', 'oHdHo', 'ooooo'], CITY),
+  ],
+  /** Apartment blocks (6×8): sand-coloured, flat roof, a grid of windows. From level 2. */
   blocks: [
-    art(['FFFf', 'CWCc', 'CCCc', 'CWCc'], CITY),
-    art(['FFFf', 'WCWc', 'CCCc', 'WCwc'], CITY),
-    art(['.FFf', 'CWCc', 'CCCc', 'CwCc'], CITY),
+    art(['oooooo', 'offffo', 'oWBWBo', 'oBBBBo', 'oBWBwo', 'oBBBBo', 'oWBdBo', 'oooooo'], CITY),
+    art(['oooooo', 'offffo', 'owBWBo', 'oBBBBo', 'oBWBWo', 'oBBBBo', 'oBdBWo', 'oooooo'], CITY),
   ],
-  /** Office towers (3×6): the centre from level 3. */
-  office: [art(['GGg', 'Gwg', 'GGg', 'GWg', 'Gwg', 'kkk'], CITY), art(['FFf', 'WCc', 'CCc', 'WCc', 'wCc', 'kkk'], CITY)],
-  /** Skyscrapers (3×9) from level 4, and a landmark tower (4×12) at the heart of a capital-size city. */
+  /** Office towers (5×11): dark steel with light window bands. From level 3. */
+  office: [art(['ooooo', 'oLLLo', 'oSSSo', 'oLLLo', 'oSSSo', 'oLLLo', 'oSSSo', 'oLLLo', 'oSSSo', 'oLdLo', 'ooooo'], CITY)],
+  /** Skyscrapers (6×16): blue glass with mullions. From level 4. */
   skyscraper: [
-    art(['.k.', 'GGg', 'Gwg', 'GGg', 'GWg', 'GGg', 'Gwg', 'GGg', 'kkk'], CITY),
-    art(['GGg', 'GWg', 'GGg', 'Gwg', 'GGg', 'GWg', 'GGg', 'Gwg', 'kkk'], CITY),
+    art([
+      '..oo..', '.oGGo.', 'oGgGgo', 'oGgwgo', 'oGgGgo', 'oGgGgo', 'owgGgo', 'oGgGgo',
+      'oGgGgo', 'oGgGwo', 'oGgGgo', 'oGgGgo', 'oGwGgo', 'oGgGgo', 'oGddGo', 'oooooo',
+    ], CITY),
   ],
-  landmark: art(['.k..', '.k..', 'GGGg', 'GwGg', 'GGWg', 'GGGg', 'GWwg', 'GGGg', 'GwGg', 'GGWg', 'GGGg', 'kkkk'], CITY),
+  /** The landmark tower (7×22) with a gold spire, at the heart of a level 5 city. */
+  landmark: art([
+    '...o...', '...Y...', '...Y...', '..oYo..', '..oGo..', '.oGgGo.', 'oGgGgGo', 'oGgwgGo',
+    'oGgGgGo', 'oGgGgwo', 'oGgGgGo', 'owgGgGo', 'oGgGgGo', 'oGgGgGo', 'oGgwgGo', 'oGgGgGo',
+    'oGgGgGo', 'oGgGgwo', 'oGgGgGo', 'oGgGgGo', 'oGgddGo', 'ooooooo',
+  ], CITY),
   farm: art(['YYYYYY', 'TTTTTT', 'YYYYYY', 'TTTTTT'], LAND),
   mine: art(['.KKK.', '.K.K.', 'KKKKK', 'kkkkk'], LAND),
   well: art(['.K.', '.K.', 'KKK', 'K.K', 'KKK'], LAND),
