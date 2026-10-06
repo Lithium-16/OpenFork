@@ -505,6 +505,10 @@ export class GameScreen {
     };
 
     on(canvas, 'contextmenu', (e: MouseEvent) => e.preventDefault());
+    // Anywhere in the game (panels too): no browser menu, except in a text field.
+    on(window, 'contextmenu', (e: MouseEvent) => {
+      if ((e.target as HTMLElement)?.tagName !== 'INPUT') e.preventDefault();
+    });
     // Audio may only start after a gesture.
     on(window, 'pointerdown', () => this.sfx.unlock());
     on(window, 'keydown', () => this.sfx.unlock());
