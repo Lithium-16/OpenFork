@@ -1571,8 +1571,12 @@ export class MapView {
           // stays on the region, not out at sea off a coast).
           const nameTop = (showIcons ? iconBottom - 10 * ipx : y + tokenTop) - 3 - 12;
           const cy = Math.round(owners.has(region.id) ? nameTop - 6 * is - 2 : y + 14);
-          ctx.fillStyle = 'rgba(11, 15, 19, 0.75)';
-          ctx.fillRect(Math.round(x - total / 2) - 2 * ds, cy - 6 * is, total + 4 * ds, 12 * is);
+          // A dark plate behind the yield numbers only; the slot boxes sit on the map itself.
+          if (parts.length) {
+            const partsW = parts.reduce((sum, p) => sum + w(p), 0) + 3 * ds * (parts.length - 1);
+            ctx.fillStyle = 'rgba(11, 15, 19, 0.75)';
+            ctx.fillRect(Math.round(x - total / 2) - 2 * ds, cy - 6 * is, partsW + 4 * ds, 12 * is);
+          }
           let ix = Math.round(x - total / 2);
           const working = (rr[3] & 4) !== 0 && (owners.get(region.id)?.size ?? 0) <= 1;
           for (const p of parts) {
