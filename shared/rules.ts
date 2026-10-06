@@ -170,6 +170,8 @@ export const CAPTURE_TERRAIN: Record<Terrain, number> = { plains: 1, forest: 1.2
 export const CAPTURE_FORT = 0.5;
 /** At 100 training, capture runs this much faster (1.5 = 50% faster). */
 export const CAPTURE_TRAINING = 0.5;
+/** Land nobody holds takes this much longer to take than an enemy's (the land grab lasts). */
+export const CAPTURE_NEUTRAL = 1.3;
 /** Capture progress lost per second while nobody is capturing. */
 export const CAPTURE_DECAY = 0.2;
 
@@ -190,8 +192,8 @@ export const FLANK_MAX_EXTRA = 3;
 /** Defenders rout (flee to their nearest region with room, losing ROUT_LOSS of their strength,
  * and the attackers take the region at once) when they are down to ROUT_SHARE of their
  * strength in the fight and outnumbered ROUT_ODDS to 1. Nowhere to flee: they're destroyed. */
-export const ROUT_SHARE = 0.25;
-export const ROUT_ODDS = 3;
+export const ROUT_SHARE = 0.2;
+export const ROUT_ODDS = 4;
 export const ROUT_LOSS = 0.1;
 /** How far (hops through their own land) routed units may flee. */
 export const ROUT_HOPS = 3;
@@ -393,7 +395,7 @@ export function buildCost(kind: BuildingKind, level = 1): { cost: Resources; sec
     case 'market':
       return { cost: res(70), seconds: 60 };
     case 'city':
-      return level <= 1 ? { cost: res(1600, 240), seconds: 240 } : { cost: res(240 * level, 40 * (level - 1)), seconds: 60 * level };
+      return level <= 1 ? { cost: res(700, 160), seconds: 240 } : { cost: res(240 * level, 40 * (level - 1)), seconds: 60 * level };
     case 'fort':
       return { cost: res(60 * level, 10 * level), seconds: 60 * level };
     case 'barracks':
@@ -607,7 +609,7 @@ export function bombardFortShare(techs: Techs = []): number {
 }
 
 /** Seconds to capture a region with blobs of the given (best) training. */
-export function captureSeconds(region: Region, fort: number, training: number): number {
-  const base = CAPTURE_SECONDS * CAPTURE_SIZE[region.size] * CAPTURE_TERRAIN[region.terrain] * (1 + CAPTURE_FORT * fort);
+export function captureSeconds(region: Region, fort: number, training: number, neutral = false): number {
+  const base = CAPTURE_SECONDS * CAPTURE_SIZE[region.size] * CAPTURE_TERRAIN[region.terrain] * (1 + CAPTURE_FORT * fort) * (neutral ? CAPTURE_NEUTRAL : 1);
   return base / (1 + (CAPTURE_TRAINING * training) / MAX_TRAINING);
 }

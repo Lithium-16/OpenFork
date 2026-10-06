@@ -447,7 +447,7 @@ export class Sim {
         const rs = this.state.regions[v];
         if (this.closedTo(owner, v) && rs.owner !== through && rs.owner !== attacking) continue;
         let c = this.travelSeconds(type, owner, u, v);
-        if (rs.owner !== owner && !this.world.isSea(v)) c += this.world.captureSeconds(v, rs.fort, training);
+        if (rs.owner !== owner && !this.world.isSea(v)) c += this.world.captureSeconds(v, rs.fort, training, rs.owner === NEUTRAL);
         if (this.hostileIn(v, owner)) c += FIGHT_PATH_PENALTY;
         if (cost[u] + c < cost[v]) {
           cost[v] = cost[u] + c;
@@ -1460,7 +1460,7 @@ export class Sim {
       }
       if (!rs.capture || rs.capture.by !== by) rs.capture = { by, progress: 0 };
       const training = Math.max(...capturers.filter((b) => b.owner === by).map((b) => b.training));
-      rs.capture.progress += dt / this.world.captureSeconds(i, rs.fort, training);
+      rs.capture.progress += dt / this.world.captureSeconds(i, rs.fort, training, rs.owner === NEUTRAL);
       if (rs.capture.progress >= 1) this.take(i, by);
     });
   }

@@ -98,8 +98,8 @@ describe('movement', () => {
     assert.equal(b.region, 1, 'takes it from where it stands');
     assert.equal(b.progress, 0);
     assert.equal(b.attacking, 2);
-    assert.ok((s.state.regions[2].capture?.progress ?? 0) > 0.3);
-    run(s, 4);
+    assert.ok((s.state.regions[2].capture?.progress ?? 0) > 0.25);
+    run(s, 6); // neutral land: 30% slower than an enemy's
     assert.equal(s.state.regions[2].owner, 0);
     run(s, CROSS_SECONDS);
     assert.equal(b.region, 2, 'then steps in');
