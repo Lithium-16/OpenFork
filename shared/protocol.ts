@@ -142,7 +142,9 @@ export type GameEvent =
   | { kind: 'built'; region: number; owner: number; building: BuildingKind; level: number }
   | { kind: 'produced'; region: number; owner: number; type: UnitType }
   | { kind: 'eliminated'; player: number; by: number; surrendered?: boolean }
-  | { kind: 'won'; player: number };
+  | { kind: 'won'; player: number; domination?: boolean }
+  /** Shelling knocked a fort down a level (to `level`). */
+  | { kind: 'breached'; region: number; owner: number; by: number; level: number };
 
 export interface Snapshot {
   time: number;
