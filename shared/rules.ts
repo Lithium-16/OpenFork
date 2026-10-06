@@ -449,6 +449,8 @@ export const BOT_DIPLOMACY_SECONDS = 45;
 /** Bots offer peace when they're this much weaker than the enemy, or after a long stalemate. */
 export const BOT_PEACE_WHEN_WEAKER = 0.7;
 export const BOT_PEACE_STALEMATE_SECONDS = 240;
+/** A bot at war this long may take an offer of peace even when winning. */
+export const BOT_LONG_WAR_SECONDS = 600;
 /** Wars last at least this long before a bot offers peace. */
 export const BOT_MIN_WAR_SECONDS = 180;
 
