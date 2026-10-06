@@ -1227,6 +1227,10 @@ button.primary:hover:not(:disabled) {
   border-top: 3px solid #4f81bd;
 }
 
+.techtree .node.b-naval {
+  border-top: 3px solid #2fb3a8;
+}
+
 .techtree .node.root {
   text-align: center;
   justify-items: center;

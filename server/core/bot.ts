@@ -64,8 +64,18 @@ const STYLES: Record<BotDifficulty, Style> = {
 const OVERSEAS_HOPS = 10;
 
 /** What bots research, in order: armies first for the ones that make tanks, else the economy. */
-const RESEARCH_MILITARY: TechId[] = ['tanks', 'rifles', 'farming', 'warehouses', 'trenches', 'shells', 'industry', 'engines', 'railways', 'armour', 'fuel', 'rangefinders', 'banking', 'conscription', 'longGuns', 'kitchens'];
-const RESEARCH_ECONOMY: TechId[] = ['farming', 'warehouses', 'rifles', 'industry', 'trenches', 'railways', 'banking', 'kitchens', 'conscription', 'shells', 'tanks', 'engines', 'armour', 'rangefinders', 'fuel', 'longGuns'];
+const RESEARCH_MILITARY: TechId[] = [
+  'tanks', 'rifles', 'farming', 'warehouses', 'trenches', 'shells', 'industry', 'engines', 'railways', 'armour', 'stormtroops', 'blitz',
+  'fuel', 'rangefinders', 'banking', 'conscription', 'longGuns', 'kitchens', 'shipyards', 'heavyTanks', 'mountaineers', 'barrage',
+  'massProduction', 'motorPool', 'navalGuns', 'coastalDefence', 'mechanized', 'totalWar', 'supplyCorps', 'combinedArms', 'generalStaff',
+  'radio', 'exchange', 'assemblyLines', 'amphibious', 'fleetTrain', 'hospitals', 'dreadnoughts', 'navalAviation',
+];
+const RESEARCH_ECONOMY: TechId[] = [
+  'farming', 'warehouses', 'rifles', 'industry', 'trenches', 'railways', 'banking', 'kitchens', 'conscription', 'shells', 'exchange',
+  'massProduction', 'totalWar', 'motorPool', 'shipyards', 'tanks', 'stormtroops', 'coastalDefence', 'engines', 'armour', 'radio',
+  'supplyCorps', 'assemblyLines', 'rangefinders', 'fuel', 'longGuns', 'navalGuns', 'hospitals', 'mountaineers', 'barrage', 'blitz',
+  'heavyTanks', 'mechanized', 'amphibious', 'fleetTrain', 'combinedArms', 'generalStaff', 'dreadnoughts', 'navalAviation',
+];
 
 export class Bot {
   readonly player: number;

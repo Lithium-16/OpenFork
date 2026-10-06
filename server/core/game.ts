@@ -12,7 +12,7 @@ import {
   type Snapshot,
   UNIT_INDEX,
 } from '../../shared/protocol.ts';
-import { type BotDifficulty, type BotSetting, DISCONNECT_BOT_SECONDS, type StartingResources, UNITS } from '../../shared/rules.ts';
+import { type BotDifficulty, type BotSetting, DISCONNECT_BOT_SECONDS, type StartingResources, unitStats } from '../../shared/rules.ts';
 import { Bot } from './bot.ts';
 import { mulberry32 } from './rng.ts';
 import { type PlayerSetup, Sim } from './sim.ts';
@@ -306,7 +306,7 @@ export class Game {
           region: i,
           building,
           queue: [...line.queue],
-          progress: head && line.progress >= 0 ? round(line.progress / UNITS[head].buildTime, 2) : -1,
+          progress: head && line.progress >= 0 ? round(line.progress / unitStats(head, this.sim.techsOf(player)).buildTime, 2) : -1,
           repeat: line.repeat,
         });
       }
