@@ -1270,7 +1270,12 @@ export class MapView {
     }
     this.updateDevelopLayer(snap);
     ctx.imageSmoothingEnabled = this.cam.scale < 1;
+    // Towns, roads and buildings a little darker and see-through, so they sit in the map.
+    ctx.globalAlpha = 0.8;
+    ctx.filter = 'brightness(0.85)';
     ctx.drawImage(this.developLayer, 0, 0);
+    ctx.filter = 'none';
+    ctx.globalAlpha = 1;
     ctx.imageSmoothingEnabled = false;
     this.updateFrontLayer(snap, players);
     ctx.drawImage(this.frontLayer, 0, 0);
