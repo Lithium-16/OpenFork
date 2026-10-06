@@ -2137,6 +2137,10 @@ export class MapView {
       if (was === undefined || !hit || was - b[3] <= 0) continue;
       this.shaking.set(b[0], now + 300);
     }
+    // Forget units that are gone.
+    const live = new Set(next.blobs.map((b) => b[0]));
+    for (const id of this.shaking.keys()) if (!live.has(id) || (this.shaking.get(id) as number) < now) this.shaking.delete(id);
+    for (const id of this.glides.keys()) if (!live.has(id)) this.glides.delete(id);
   }
 
   /**

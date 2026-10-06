@@ -141,7 +141,7 @@ export class GameServer {
       lobby.emptySince = null;
       lobby.game?.setConnected(identity.id, true);
       this.broadcastLobby(lobby);
-      if (lobby.game) this.sendGameStart(lobby, conn, identity.id);
+      if (lobby.game && !lobby.game.over) this.sendGameStart(lobby, conn, identity.id);
     } else {
       this.send(conn, { t: 'lobby', lobby: null });
     }
@@ -172,14 +172,14 @@ export class GameServer {
         if (this.lobbyOf(me.id) === lobby) {
           lobby.members.get(me.id)?.conns.add(conn);
           this.broadcastLobby(lobby);
-          if (lobby.game) this.sendGameStart(lobby, conn, me.id);
+          if (lobby.game && !lobby.game.over) this.sendGameStart(lobby, conn, me.id);
           return null;
         }
         // Only people still connected take room (someone gone for good doesn't fill it).
         if ([...lobby.members.values()].filter((m) => m.conns.size > 0).length >= MAX_MEMBERS) return 'lobby is full';
         this.leave(me.id);
         this.join(lobby, me, conn);
-        if (lobby.game) this.sendGameStart(lobby, conn, me.id);
+        if (lobby.game && !lobby.game.over) this.sendGameStart(lobby, conn, me.id);
         return null;
       }
       case 'lobby.leave':

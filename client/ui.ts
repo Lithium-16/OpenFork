@@ -66,6 +66,8 @@ export function confirmBox(head: string, text: string, yes: string): Promise<boo
     $('#confirm-yes').onclick = () => done(true);
     $('#confirm-no').onclick = () => done(false);
     box.onkeydown = (e) => {
+      // The box has the keyboard: nothing reaches the game behind it.
+      e.stopPropagation();
       if (e.key === 'Escape') done(false);
     };
   });

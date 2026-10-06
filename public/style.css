@@ -1448,7 +1448,8 @@ button.primary:hover:not(:disabled) {
 .toast {
   position: fixed;
   left: 50%;
-  bottom: 70px;
+  /* Under the top bar, clear of the build dock. */
+  top: 64px;
   transform: translateX(-50%);
   background: #2a1214;
   color: var(--text);
