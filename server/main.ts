@@ -75,7 +75,7 @@ const http = createServer(async (req, res) => {
   }
 });
 
-const wss = new WebSocketServer({ server: http, path: '/ws', maxPayload: 32 * 1024 });
+const wss = new WebSocketServer({ server: http, path: '/ws', maxPayload: 32 * 1024, perMessageDeflate: { threshold: 1024 } });
 const alive = new WeakSet<WebSocket>();
 
 wss.on('connection', (ws) => {
