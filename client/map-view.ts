@@ -129,7 +129,12 @@ export class MapView {
   private developDirty = true;
   /** Terrain, territory and towns flattened into one image; rebuilt when any of them change. */
   private readonly base: HTMLCanvasElement;
+  /** The base picture at half size, drawn instead when zoomed out. */
+  private readonly baseHalf: HTMLCanvasElement;
   private baseKey = '';
+  /** The part of the base picture to recomposite (map pixels x0, y0, x1, y1): the territory
+   * changed there. A whole-map recomposite only when towns or the overlay change. */
+  private baseDirty: [number, number, number, number] | null = null;
   private territoryRev = 0;
   private miniBase: HTMLCanvasElement | null = null;
   private miniKey = '';
@@ -156,6 +161,7 @@ export class MapView {
     this.frontLayer = offscreen(map.width, map.height);
     this.developLayer = offscreen(map.width, map.height);
     this.base = offscreen(map.width, map.height);
+    this.baseHalf = offscreen(Math.ceil(map.width / 2), Math.ceil(map.height / 2));
     this.developShown = offscreen(map.width, map.height);
     // Border pixels never change; only who owns each side does.
     const W = map.width;
@@ -342,36 +348,45 @@ export class MapView {
 
   private view: [number, number, number, number] = [0, 0, 1, 1];
 
-  private readonly lineCanvas = document.createElement('canvas');
-  private lineKey = '';
-  private linesOf: unknown = null;
+  /** Province and sea borders (they never change). */
+  private readonly borderCache = new LineCache();
+  /** Country outlines (they change as land changes hands). */
+  private readonly outlineCache = new LineCache();
 
-  /** Borders and outlines, re-stroked into a screen-sized cache only when the camera or owners change. */
+  /** Borders and outlines, from caches that only re-stroke on a zoom, a change of owners, or
+   * a pan past what they hold (see LineCache). */
   private drawBorders(w: number, h: number, dpr: number): void {
-    const key = `${this.cam.x},${this.cam.y},${this.cam.scale},${w},${h},${dpr}`;
-    if (key !== this.lineKey || this.linesOf !== this.countryLines) {
-      this.lineKey = key;
-      this.linesOf = this.countryLines;
-      const c = this.lineCanvas;
-      if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) {
-        c.width = Math.round(w * dpr);
-        c.height = Math.round(h * dpr);
-      }
-      const lc = c.getContext('2d') as CanvasRenderingContext2D;
-      lc.setTransform(1, 0, 0, 1, 0, 0);
-      lc.clearRect(0, 0, c.width, c.height);
-      lc.setTransform(dpr * this.cam.scale, 0, 0, dpr * this.cam.scale, -this.cam.x * dpr * this.cam.scale, -this.cam.y * dpr * this.cam.scale);
+    const bounds = { w: this.map.width, h: this.map.height };
+    this.borderCache.draw(this.ctx, this.cam, w, h, dpr, bounds, null, (lc, view, hair) => {
       // Hairline borders: provinces in a soft dark line, seas in a faint dashed one.
-      const hair = 1 / this.cam.scale;
-      // Only the tiles on screen are stroked.
-      const view: [number, number, number, number] = [this.cam.x - 2, this.cam.y - 2, this.cam.x + w / this.cam.scale + 2, this.cam.y + h / this.cam.scale + 2];
       lc.lineWidth = hair;
       lc.strokeStyle = 'rgba(16, 20, 24, 0.4)';
       this.provinceLines.stroke(lc, ...view);
       lc.setLineDash([3 * hair, 3 * hair]);
       lc.strokeStyle = 'rgba(200, 225, 245, 0.35)';
       this.seaLines.stroke(lc, ...view);
+      // A faint dotted grid every 60 map pixels (180 km), like an ops overlay: whole-pixel
+      // lines, so they stay crisp.
+      const step = 60;
+      const k = this.cam.scale * dpr;
+      const half = Math.round(dpr) % 2 ? 0.5 : 0;
+      const snap = (m: number, o: number) => o + (Math.round((m - o) * k) + half) / k;
+      lc.strokeStyle = 'rgba(79,209,255,0.10)';
+      lc.beginPath();
+      for (let mx = Math.ceil(view[0] / step) * step; mx <= view[2]; mx += step) {
+        const x = snap(mx, view[0]);
+        lc.moveTo(x, view[1]);
+        lc.lineTo(x, view[3]);
+      }
+      for (let my = Math.ceil(view[1] / step) * step; my <= view[3]; my += step) {
+        const y = snap(my, view[1]);
+        lc.moveTo(view[0], y);
+        lc.lineTo(view[2], y);
+      }
+      lc.stroke();
       lc.setLineDash([]);
+    });
+    this.outlineCache.draw(this.ctx, this.cam, w, h, dpr, bounds, this.countryLines, (lc, view, hair) => {
       // Country outlines: two screen pixels in a darker shade of the country's colour.
       lc.lineWidth = 2 * hair;
       for (const [o, p] of this.countryLines) {
@@ -380,16 +395,21 @@ export class MapView {
         lc.strokeStyle = `rgb(${Math.round(rgb[0] * 0.75)}, ${Math.round(rgb[1] * 0.75)}, ${Math.round(rgb[2] * 0.75)})`;
         p.stroke(lc, ...view);
       }
-    }
-    this.ctx.save();
-    this.ctx.setTransform(1, 0, 0, 1, 0, 0);
-    this.ctx.drawImage(this.lineCanvas, 0, 0);
-    this.ctx.restore();
+    });
   }
 
-  /** Draws the on-screen part of a map-sized layer (in map space). */
-  private blitLayer(layer: CanvasImageSource): void {
-    const [x, y, w, h] = this.view;
+  /** Draws the on-screen part of a map-sized layer (in map space); only the part in `box`
+   * (map pixels, inclusive) when the rest of the layer is known to be empty. */
+  private blitLayer(layer: CanvasImageSource, box?: [number, number, number, number] | null): void {
+    let [x, y, w, h] = this.view;
+    if (box) {
+      const x1 = Math.min(x + w, box[2] + 1);
+      const y1 = Math.min(y + h, box[3] + 1);
+      x = Math.max(x, box[0]);
+      y = Math.max(y, box[1]);
+      w = x1 - x;
+      h = y1 - y;
+    }
     if (w > 0 && h > 0) this.ctx.drawImage(layer, x, y, w, h, x, y, w, h);
   }
 
@@ -546,7 +566,6 @@ export class MapView {
   private animateSweeps(now: number): void {
     if (!this.sweeps.size || !this.territorySnap || !this.territoryImg) return;
     const ctx = this.territory.getContext('2d') as CanvasRenderingContext2D;
-    this.baseKey = '';
     this.territoryRev++;
     for (const [r, sw] of [...this.sweeps]) {
       const t = Math.min(1, (now - sw.start) / SWEEP_MS);
@@ -555,6 +574,7 @@ export class MapView {
       sw.done = upto;
       const o = r * 4;
       const box = this.regionBox;
+      this.markBase(box[o], box[o + 1], box[o + 2], box[o + 3]);
       if (t >= 1) {
         this.sweeps.delete(r);
         this.repaintRegions([r]);
@@ -605,7 +625,6 @@ export class MapView {
   private repaintRegions(dirty: number[]): void {
     const W = this.map.width;
     const ctx = this.territory.getContext('2d') as CanvasRenderingContext2D;
-    this.baseKey = '';
     this.territoryRev++;
     this.territoryImg ??= ctx.createImageData(W, this.map.height);
     let [x0, y0, x1, y1] = [W, this.map.height, -1, -1];
@@ -620,7 +639,16 @@ export class MapView {
       for (const i of this.regionPixels[r]) this.fillPixel(i);
       grow(r);
     }
-    if (x1 >= x0) ctx.putImageData(this.territoryImg, 0, 0, x0, y0, x1 - x0 + 1, y1 - y0 + 1);
+    if (x1 >= x0) {
+      ctx.putImageData(this.territoryImg, 0, 0, x0, y0, x1 - x0 + 1, y1 - y0 + 1);
+      this.markBase(x0, y0, x1, y1);
+    }
+  }
+
+  /** The base picture needs recompositing in this box (map pixels, inclusive). */
+  private markBase(x0: number, y0: number, x1: number, y1: number): void {
+    const d = this.baseDirty;
+    this.baseDirty = d ? [Math.min(d[0], x0), Math.min(d[1], y0), Math.max(d[2], x1), Math.max(d[3], y1)] : [x0, y0, x1, y1];
   }
 
   /** Your supply network, worked out the way the server does (DESIGN.md §7). */
@@ -750,7 +778,21 @@ export class MapView {
     }
     this.frontPix = painted;
     if (x1 >= x0) ctx.putImageData(this.frontImg, 0, 0, x0, y0, x1 - x0 + 1, y1 - y0 + 1);
+    // What's there now: only that part is drawn each frame (often nothing, at peace).
+    let [fx0, fy0, fx1, fy1] = [W, this.map.height, -1, -1];
+    for (const i of painted) {
+      const x = i % W;
+      const y = (i - x) / W;
+      if (x < fx0) fx0 = x;
+      if (y < fy0) fy0 = y;
+      if (x > fx1) fx1 = x;
+      if (y > fy1) fy1 = y;
+    }
+    this.frontBox = fx1 >= fx0 ? [fx0, fy0, fx1, fy1] : null;
   }
+
+  /** What the front layer holds (map pixels, inclusive), if anything. */
+  private frontBox: [number, number, number, number] | null = null;
 
   /** Where a region's town (or the hub of its roads) is: the real city, else the label point. */
   private townAt(region: number): [number, number] {
@@ -1296,22 +1338,35 @@ export class MapView {
     this.highlighted = region;
     const W = this.map.width;
     const ctx = this.highlight.getContext('2d') as CanvasRenderingContext2D;
-    ctx.clearRect(0, 0, W, this.map.height);
+    const old = this.highlightBox;
+    if (old) ctx.clearRect(old[0], old[1], old[2] - old[0] + 1, old[3] - old[1] + 1);
+    this.highlightBox = null;
     if (region < 0) return;
     const img = ctx.createImageData(W, this.map.height);
     // A dithered checkerboard, the pixel-art way to show a selection.
     const grid = this.map.regions[region]?.sea ? this.seaGrid : this.grid;
+    let [x0, y0, x1, y1] = [W, this.map.height, -1, -1];
     for (let i = 0; i < grid.length; i++) {
       if (grid[i] !== region) continue;
       const x = i % W;
-      if ((x + (i - x) / W) % 2) continue;
+      const y = (i - x) / W;
+      if (x < x0) x0 = x;
+      if (x > x1) x1 = x;
+      if (y < y0) y0 = y;
+      if (y > y1) y1 = y;
+      if ((x + y) % 2) continue;
       img.data[i * 4] = 230;
       img.data[i * 4 + 1] = 248;
       img.data[i * 4 + 2] = 255;
       img.data[i * 4 + 3] = 120;
     }
-    ctx.putImageData(img, 0, 0);
+    if (x1 < x0) return;
+    this.highlightBox = [x0, y0, x1, y1];
+    ctx.putImageData(img, 0, 0, x0, y0, x1 - x0 + 1, y1 - y0 + 1);
   }
+
+  /** What the highlight layer holds (map pixels, inclusive), if anything. */
+  private highlightBox: [number, number, number, number] | null = null;
 
   // -- drawing ------------------------------------------------------------------------------
 
@@ -1364,22 +1419,46 @@ export class MapView {
       dc.filter = 'brightness(0.85)';
       dc.drawImage(this.developLayer, 0, 0);
     }
-    if (this.developDirty || baseKey !== this.baseKey) {
+    if (this.developDirty || baseKey !== this.baseKey || this.baseDirty) {
+      // Everything when towns or the overlay changed; else only where the territory did.
+      const all = this.developDirty || baseKey !== this.baseKey;
+      const d = this.baseDirty;
+      const [x, y, bw, bh] = all || !d ? [0, 0, this.map.width, this.map.height] : [d[0], d[1], d[2] - d[0] + 1, d[3] - d[1] + 1];
       this.developDirty = false;
       this.baseKey = baseKey;
+      this.baseDirty = null;
       const bc = this.base.getContext('2d') as CanvasRenderingContext2D;
-      bc.drawImage(this.terrain, 0, 0);
+      bc.drawImage(this.terrain, x, y, bw, bh, x, y, bw, bh);
       bc.globalAlpha = showSupply ? 0.35 : 1;
-      bc.drawImage(this.territory, 0, 0);
+      bc.drawImage(this.territory, x, y, bw, bh, x, y, bw, bh);
       bc.globalAlpha = 1;
-      bc.drawImage(this.developShown, 0, 0);
+      bc.drawImage(this.developShown, x, y, bw, bh, x, y, bw, bh);
+      // The half-size copy, for zoomed-out views: the same box, from even pixels.
+      const hx = x >> 1;
+      const hy = y >> 1;
+      const hw = Math.min(this.baseHalf.width, Math.ceil((x + bw) / 2)) - hx;
+      const hh = Math.min(this.baseHalf.height, Math.ceil((y + bh) / 2)) - hy;
+      const hc = this.baseHalf.getContext('2d') as CanvasRenderingContext2D;
+      hc.imageSmoothingEnabled = true;
+      hc.drawImage(this.base, 2 * hx, 2 * hy, Math.min(2 * hw, this.map.width - 2 * hx), Math.min(2 * hh, this.map.height - 2 * hy), hx, hy, hw, hh);
     }
-    this.blitLayer(this.base);
+    if (this.cam.scale < HALF_BASE_BELOW) {
+      // Zoomed out: from the half-size copy (shrinking the full picture every frame is slow,
+      // and a pre-shrunk one looks smoother anyway).
+      const [vx, vy, vw, vh] = this.view;
+      const hx = vx >> 1;
+      const hy = vy >> 1;
+      const hw = Math.min(this.baseHalf.width, Math.ceil((vx + vw) / 2)) - hx;
+      const hh = Math.min(this.baseHalf.height, Math.ceil((vy + vh) / 2)) - hy;
+      if (hw > 0 && hh > 0) ctx.drawImage(this.baseHalf, hx, hy, hw, hh, 2 * hx, 2 * hy, 2 * hw, 2 * hh);
+    } else {
+      this.blitLayer(this.base);
+    }
     ctx.imageSmoothingEnabled = false;
     this.drawBorders(w, h, dpr);
     ctx.imageSmoothingEnabled = false;
     this.updateFrontLayer(snap, players);
-    this.blitLayer(this.frontLayer);
+    if (this.frontBox) this.blitLayer(this.frontLayer, this.frontBox);
     this.drawSites(snap);
     if (this.fx.level === 'full') this.drawAmbient(snap);
     if (showSupply) this.blitLayer(this.supplyLayer);
@@ -1387,9 +1466,8 @@ export class MapView {
       this.updatePlaceLayer(place.valid);
       this.blitLayer(this.placeLayer);
     }
-    if (lit >= 0) this.blitLayer(this.highlight);
+    if (lit >= 0 && this.highlightBox) this.blitLayer(this.highlight, this.highlightBox);
     ctx.restore();
-    this.drawGrid(w, h);
 
     this.drawRegions(snap, players, you);
     if (this.roadPreview && this.roadPreview.length > 1) {
@@ -1418,32 +1496,6 @@ export class MapView {
         ctx.fillRect(x1, y, 1, 2);
       }
     }
-  }
-
-  /** A faint map grid, like an ops overlay. */
-  private drawGrid(w: number, h: number): void {
-    const ctx = this.ctx;
-    const step = 60; // map pixels (180 km)
-    const [mx0, my0] = this.toMap(0, 0);
-    const [mx1, my1] = this.toMap(w, h);
-    // Dotted lines: two stroked paths, not one rectangle per dot.
-    ctx.save();
-    ctx.strokeStyle = 'rgba(79,209,255,0.10)';
-    ctx.lineWidth = 1;
-    ctx.setLineDash([3, 3]);
-    ctx.beginPath();
-    for (let mx = Math.ceil(mx0 / step) * step; mx <= mx1; mx += step) {
-      const x = Math.round(this.toScreen(mx, 0)[0]) + 0.5;
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, h);
-    }
-    for (let my = Math.ceil(my0 / step) * step; my <= my1; my += step) {
-      const y = Math.round(this.toScreen(0, my)[1]) + 0.5;
-      ctx.moveTo(0, y);
-      ctx.lineTo(w, y);
-    }
-    ctx.stroke();
-    ctx.restore();
   }
 
   private drawRegions(snap: Snapshot, players: GamePlayer[], you: number | null): void {
@@ -2381,6 +2433,10 @@ function shieldSprite(fort: number, dig: number, river: boolean): HTMLCanvasElem
 const GLIDE_MS = 300;
 /** A captured region filling with its new colour. */
 const SWEEP_MS = 1000;
+/** Below this zoom the map picture is drawn from its half-size copy. */
+const HALF_BASE_BELOW = 0.6;
+/** The biggest line cache, in device pixels (about 32 MB; there are two). */
+const MAX_LINE_PIXELS = 8_000_000;
 
 /** Token bitmaps: the anchor (the token's centre) sits at (TOKEN_AX, TOKEN_AY) × px. */
 const TOKEN_AX = 40;
@@ -2772,6 +2828,68 @@ export function colorOf(players: GamePlayer[], id: number): string {
  * map's borders are a lot of runs). A run goes in the tile where it starts; each tile knows
  * how far its runs reach.
  */
+/**
+ * Lines stroked at screen resolution, cached. Stroking every border is slow (zoomed out, all of
+ * them are on screen), so the cache reaches past the screen on every side: panning only moves
+ * it. It's re-stroked on a zoom, when what it shows changes (`key`), or on a pan past it.
+ */
+class LineCache {
+  private readonly canvas = document.createElement('canvas');
+  /** The map box it holds, at which zoom and pixel ratio, showing what. */
+  private area: { x0: number; y0: number; x1: number; y1: number; scale: number; dpr: number; key: unknown } | null = null;
+
+  draw(
+    ctx: CanvasRenderingContext2D,
+    cam: { x: number; y: number; scale: number },
+    w: number,
+    h: number,
+    dpr: number,
+    map: { w: number; h: number },
+    key: unknown,
+    stroke: (lc: CanvasRenderingContext2D, view: [number, number, number, number], hair: number) => void,
+  ): void {
+    const s = cam.scale;
+    const [vx0, vy0] = [cam.x, cam.y];
+    const [vx1, vy1] = [vx0 + w / s, vy0 + h / s];
+    let a = this.area;
+    if (!(a && a.scale === s && a.dpr === dpr && a.key === key && vx0 >= a.x0 && vy0 >= a.y0 && vx1 <= a.x1 && vy1 <= a.y1)) {
+      // Half a screen of room on each side, less if that would make a huge canvas; no room
+      // past the map's edge (the screen itself can reach past it, zoomed out).
+      const room = Math.min(0.5, Math.max(0, (Math.sqrt(MAX_LINE_PIXELS / (w * h * dpr * dpr)) - 1) / 2));
+      const [mx, my] = [(room * w) / s, (room * h) / s];
+      const x0 = Math.min(Math.floor(vx0), Math.max(-2, Math.floor(vx0 - mx)));
+      const y0 = Math.min(Math.floor(vy0), Math.max(-2, Math.floor(vy0 - my)));
+      const x1 = Math.max(Math.ceil(vx1), Math.min(map.w + 2, Math.ceil(vx1 + mx)));
+      const y1 = Math.max(Math.ceil(vy1), Math.min(map.h + 2, Math.ceil(vy1 + my)));
+      a = this.area = { x0, y0, x1, y1, scale: s, dpr, key };
+      const c = this.canvas;
+      const cw = Math.ceil((x1 - x0) * s * dpr);
+      const ch = Math.ceil((y1 - y0) * s * dpr);
+      if (c.width !== cw || c.height !== ch) {
+        c.width = cw;
+        c.height = ch;
+      }
+      const lc = c.getContext('2d') as CanvasRenderingContext2D;
+      lc.setTransform(1, 0, 0, 1, 0, 0);
+      lc.clearRect(0, 0, cw, ch);
+      lc.setTransform(dpr * s, 0, 0, dpr * s, -x0 * dpr * s, -y0 * dpr * s);
+      stroke(lc, [x0, y0, x1, y1], 1 / s);
+    }
+    // Only the on-screen part of it.
+    const ox = Math.round((a.x0 - vx0) * s * dpr);
+    const oy = Math.round((a.y0 - vy0) * s * dpr);
+    const sx = Math.max(0, -ox);
+    const sy = Math.max(0, -oy);
+    const sw = Math.min(this.canvas.width - sx, Math.ceil(w * dpr));
+    const sh = Math.min(this.canvas.height - sy, Math.ceil(h * dpr));
+    if (sw <= 0 || sh <= 0) return;
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(this.canvas, sx, sy, sw, sh, ox + sx, oy + sy, sw, sh);
+    ctx.restore();
+  }
+}
+
 class TiledPath {
   private static readonly TILE = 128;
   private readonly tiles = new Map<number, { path: Path2D; x0: number; y0: number; x1: number; y1: number }>();
