@@ -177,6 +177,24 @@ export class Game {
     return e;
   }
 
+  /**
+   * What one person may see of the shared snapshot: their own stocks, income, upkeep, stores
+   * and research, but nobody else's; offers of peace and looting only between others are
+   * left out. (Techs stay: they change what everyone's units can do.)
+   */
+  viewFor(shared: Omit<Snapshot, 'production' | 'routes' | 'builds'>, you: number | null): Omit<Snapshot, 'production' | 'routes' | 'builds'> {
+    const hidden = { res: [0, 0, 0, 0, 0], income: [0, 0, 0, 0, 0], upkeep: 0, cap: [0, 0, 0, 0, 0], research: null, broke: false };
+    const players = shared.players.map((p, i) => (i === you ? p : { ...p, ...hidden }) as PlayerRow);
+    const mine = (a: number, b: number) => you !== null && (a === you || b === you);
+    const offers = shared.offers.filter(([a, b]) => mine(a, b));
+    const events = shared.events.filter((e) => {
+      if (e.kind === 'peaceOffer' || e.kind === 'peaceRefused') return mine(e.from, e.to);
+      if (e.kind === 'looted') return mine(e.by, e.from);
+      return true;
+    });
+    return { ...shared, players, offers, events };
+  }
+
   /** The parts of a snapshot that are the same for everyone. */
   sharedSnapshot(events: GameEvent[]): Omit<Snapshot, 'production' | 'routes' | 'builds'> {
     const st = this.sim.state;
