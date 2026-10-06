@@ -106,6 +106,11 @@ export class GameServer {
       return;
     }
     if (msg.t === 'hello') {
+      // One hello per connection: a second one would leave the first identity holding it.
+      if (session.identity) {
+        this.send(conn, { t: 'error', message: 'already said hello' });
+        return;
+      }
       await this.hello(conn, msg.name, msg.token);
       return;
     }
