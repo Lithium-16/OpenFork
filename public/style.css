@@ -1586,6 +1586,13 @@ button.danger:hover:not(:disabled) {
   pointer-events: auto;
 }
 
+/* The two columns are only frames for their panels: clicks between the panels go through to
+   the map (a right-click there is an order, not the browser's menu). */
+.hud-layer > .leftcol,
+.hud-layer > .rightcol {
+  pointer-events: none;
+}
+
 .overlay .card,
 .toast {
   zoom: var(--ui-scale);
