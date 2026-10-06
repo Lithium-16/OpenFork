@@ -90,6 +90,8 @@ export interface RegionState {
   supplied: boolean;
   /** Seconds it has been cut off with none of its owner's blobs in it. */
   cutOff: number;
+  /** How far enemy shelling has worn its fort toward losing a level (0 to 1). */
+  siege: number;
 }
 
 export interface Player {
@@ -129,7 +131,9 @@ export type SimEvent =
   | { kind: 'built'; region: number; owner: number; building: BuildingKind; level: number }
   | { kind: 'produced'; region: number; owner: number; type: UnitType }
   | { kind: 'eliminated'; player: number; by: number; surrendered?: boolean }
-  | { kind: 'won'; player: number };
+  | { kind: 'won'; player: number; domination?: boolean }
+  /** Shelling knocked a fort down a level (to `level`). */
+  | { kind: 'breached'; region: number; owner: number; by: number; level: number };
 
 export interface SimState {
   /** Seconds since the start. */
@@ -177,5 +181,6 @@ export function emptyRegion(): RegionState {
     capture: null,
     supplied: false,
     cutOff: 0,
+    siege: 0,
   };
 }

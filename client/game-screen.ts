@@ -13,12 +13,15 @@ import {
   captureSeconds,
   DISBAND_REFUND,
   ECON_KINDS,
+  econSlots,
   type EconKind,
   econYield,
   FOUND_CITY_MIN_HOPS,
   HINTERLAND_HOPS,
   MAX_CITY,
+  MAX_ECON_LEVEL,
   MAX_FORT,
+  maxLevel,
   regionYield,
   RESOURCES,
   type Resources,
@@ -46,7 +49,7 @@ import { FrameMeter } from './fx.ts';
 import { colorOf, MapView } from './map-view.ts';
 import { Sfx } from './sfx.ts';
 import type { Net } from './net.ts';
-import { hudIcon, ICONS, spriteUrl } from './sprites.ts';
+import { hudIcon, ICONS, roman, spriteUrl } from './sprites.ts';
 import { $, cellBar, classbar, confirmBox, el, fmt, toast } from './ui.ts';
 
 const BUILD_LABEL: Record<BuildingKind, string> = {
@@ -85,9 +88,9 @@ const gives = (kind: EconKind, traits: Region['traits'] = [], city = 0) =>
 /** What each building does, shown in the build bar. */
 const BUILD_HELP: Record<BuildingKind, string> = {
   farm: `Farm: +${gives('farm')} manpower/s (+${gives('farm', ['farmland'])} on farmland). Farmland or plains, within ${HINTERLAND_HOPS} regions of your city.`,
-  mine: `Mine: +${gives('mine')} steel/s (+${gives('mine', ['industry'])} on industry). Industry, hills or mountains, within ${HINTERLAND_HOPS} regions of your city.`,
+  mine: `Mine: +${gives('mine')} steel/s per level (+${gives('mine', ['industry'])} on industry), up to ${roman(MAX_ECON_LEVEL)}. Industry, hills or mountains, within ${HINTERLAND_HOPS} regions of your city.`,
   well: `Oil well: +${gives('well')} oil/s. Oil fields only, within ${HINTERLAND_HOPS} regions of your city.`,
-  market: `Market: +${gives('market')} money/s (+${gives('market', [], 1)} in a city). Anywhere within ${HINTERLAND_HOPS} regions of your city.`,
+  market: `Market: +${gives('market')} money/s per level (+${gives('market', [], 1)} in a city), up to ${roman(MAX_ECON_LEVEL)}. Anywhere within ${HINTERLAND_HOPS} regions of your city.`,
   city: `City: found one (a supply hub that pays tax) or expand one: more tax and manpower, a slot, +1 stack cap, supply reaches further.`,
   fort: `Fort: defenders get a bonus, enemies move and capture slower here. Up to ${MAX_FORT} levels.`,
   barracks: 'Barracks: trains infantry (Q). In a city.',
@@ -490,6 +493,7 @@ export class GameScreen {
           el('span', { class: 'k active' }, ['under way']),
           el('span', { class: 'k open' }, ['can research']),
           el('span', { class: 'k locked' }, ['needs the lines into it first']),
+          el('span', { class: 'hint' }, ['Drag, WASD or arrows to scroll']),
         ]),
       ]),
     );
@@ -497,12 +501,20 @@ export class GameScreen {
     if (scroll) [scroll.scrollLeft, scroll.scrollTop] = [sx, sy];
   }
 
+  /** The game was won by holding most of the land (not by taking every capital). */
+  private dominated = false;
+
   onOver(winner: number | null): void {
     this.finished = true;
     this.setPlacing(null);
     this.setResearchOpen(false);
     const name = winner === null ? 'Nobody' : this.players[winner]?.name;
-    $('#over-title').textContent = winner === this.you ? 'Victory! Every capital is yours.' : `${name} wins.`;
+    $('#over-title').textContent =
+      winner === this.you
+        ? this.dominated
+          ? 'Victory! Most of Europe is yours.'
+          : 'Victory! Every capital is yours.'
+        : `${name} wins${this.dominated ? ', holding most of Europe' : ''}.`;
     $('#over').classList.remove('hidden');
   }
 
@@ -609,6 +621,30 @@ export class GameScreen {
       const t = e.target as HTMLElement;
       const tech = (t.closest('[data-tech]') as HTMLElement | null)?.dataset.tech;
       const act = (t.closest('[data-act]') as HTMLElement | null)?.dataset.act;
+      const scroll = t.closest('.tscroll') as HTMLElement | null;
+      if (!tech && !act && scroll && e.button === 0) {
+        // Dragging the tree around (it's wider than the screen).
+        e.preventDefault();
+        const [x0, y0, sx, sy] = [e.clientX, e.clientY, scroll.scrollLeft, scroll.scrollTop];
+        scroll.classList.add('dragging');
+        // The tree is redrawn as resources come in: always move the one on screen.
+        const box = () => ($('#research').querySelector('.tscroll') as HTMLElement | null) ?? scroll;
+        const move = (m: PointerEvent) => {
+          const s = box();
+          s.scrollLeft = sx - (m.clientX - x0);
+          s.scrollTop = sy - (m.clientY - y0);
+        };
+        const up = () => {
+          box().classList.remove('dragging');
+          window.removeEventListener('pointermove', move);
+          window.removeEventListener('pointerup', up);
+          window.removeEventListener('pointercancel', up);
+        };
+        window.addEventListener('pointermove', move);
+        window.addEventListener('pointerup', up);
+        window.addEventListener('pointercancel', up);
+        return;
+      }
       if (!tech && !act) return;
       e.preventDefault();
       if (tech) this.send({ o: 'research', tech: tech as TechId });
@@ -813,6 +849,15 @@ export class GameScreen {
     this.panAt = now;
     const dx = (k.has('a') || k.has('arrowleft') ? step : 0) - (k.has('d') || k.has('arrowright') ? step : 0);
     const dy = (k.has('w') || k.has('arrowup') ? step : 0) - (k.has('s') || k.has('arrowdown') ? step : 0);
+    if (this.researchOpen) {
+      // The tech tree is open: the keys scroll it, not the map under it.
+      const tree = $('#research').querySelector('.tscroll');
+      if (tree && (dx || dy)) {
+        tree.scrollLeft -= dx;
+        tree.scrollTop -= dy;
+      }
+      return;
+    }
     if (dx || dy) this.view.pan(dx, dy);
   }
 
@@ -1114,24 +1159,35 @@ export class GameScreen {
   /** Slots taken in a region, counting builds under way and waiting (mirrors Sim.slotsUsed). */
   private slotsUsed(region: number): number {
     const rr = (this.snap as Snapshot).regions[region];
-    let n = rr[9] + rr[10] + rr[11] + rr[12] + rr[13] + rr[14] + (rr[1] > 0 ? 1 : 0) + (rr[3] & 1 ? 1 : 0) + (rr[3] & 2 ? 1 : 0) + (rr[3] & 8 ? 1 : 0) + (rr[3] & 16 ? 1 : 0);
-    let fort = rr[1] > 0;
+    let n = econSlots(this.econOf(rr)) + rr[13] + (rr[1] > 0 ? 1 : 0) + (rr[3] & 1 ? 1 : 0) + (rr[3] & 2 ? 1 : 0) + (rr[3] & 8 ? 1 : 0) + (rr[3] & 16 ? 1 : 0);
+    const counted = new Set<BuildingKind>();
     for (const [kind] of this.pending(region)) {
-      if (kind === 'fort') {
-        if (!fort) n++;
-        fort = true;
-      } else if (kind !== 'city' && kind !== 'road') n++;
+      if (kind === 'city' || kind === 'road') continue;
+      if (maxLevel(kind) > 1) {
+        if (counted.has(kind) || this.levelOf(kind, region) > 0) continue;
+        counted.add(kind);
+      }
+      n++;
     }
     return n;
   }
 
-  /** The level the next fort or city build would reach, counting queued ones. */
-  private nextLevel(kind: BuildingKind, region: number): number {
+  private econOf(rr: Snapshot['regions'][number]): Record<EconKind, number> {
+    return { farm: rr[9], mine: rr[10], well: rr[11], market: rr[12], lab: rr[14] };
+  }
+
+  /** What stands of a building with levels (fort, city, mine, market) in a region. */
+  private levelOf(kind: BuildingKind, region: number): number {
     const rr = (this.snap as Snapshot).regions[region];
-    const pending = this.pending(region).filter(([k]) => k === kind).length;
-    if (kind === 'fort') return rr[1] + pending + 1;
-    if (kind === 'city') return rr[2] + pending + 1;
-    return 1;
+    if (kind === 'fort') return rr[1];
+    if (kind === 'city') return rr[2];
+    return ECON_KINDS.includes(kind as EconKind) ? rr[ECON_FIELD[kind as EconKind]] : 0;
+  }
+
+  /** The level the next build of a levelled building would reach, counting queued ones. */
+  private nextLevel(kind: BuildingKind, region: number): number {
+    if (maxLevel(kind) <= 1) return 1;
+    return this.levelOf(kind, region) + this.pending(region).filter(([k]) => k === kind).length + 1;
   }
 
   /** Regions within `hops` of a region (itself included). */
@@ -1171,7 +1227,7 @@ export class GameScreen {
     if (ECON_KINDS.includes(kind as EconKind) && !this.near(region, HINTERLAND_HOPS).some((r) => snap.regions[r][0] === this.you && snap.regions[r][2] > 0)) {
       return `only within ${HINTERLAND_HOPS} regions of one of your cities`;
     }
-    if (kind === 'fort' && this.nextLevel(kind, region) > MAX_FORT) return 'the fort is at its highest level';
+    if (kind !== 'city' && maxLevel(kind) > 1 && this.nextLevel(kind, region) > maxLevel(kind)) return `the ${BUILD_LABEL[kind].toLowerCase()} is at its highest level`;
     const flag: Partial<Record<BuildingKind, number>> = { barracks: 1, factory: 2, port: 8, battery: 16 };
     if (flag[kind] && (rr[3] & (flag[kind] as number) || pending.some(([k]) => k === kind))) {
       return `already has a ${BUILD_LABEL[kind].toLowerCase()}`;
@@ -1189,7 +1245,8 @@ export class GameScreen {
       const queued = this.pending(region).some(([k, t]) => k === 'road' && t === target) || this.pending(target).some(([k, t]) => k === 'road' && t === region);
       if (has || queued) return 'there is a road already';
     }
-    const needsSlot = kind !== 'city' && kind !== 'road' && !(kind === 'fort' && (rr[1] > 0 || pending.some(([k]) => k === 'fort')));
+    const upgrade = maxLevel(kind) > 1 && (this.levelOf(kind, region) > 0 || pending.some(([k]) => k === kind));
+    const needsSlot = kind !== 'city' && kind !== 'road' && !upgrade;
     if (needsSlot && this.slotsUsed(region) >= slotsOf(map, rr[2])) return 'no free slot';
     if (rr[6] >= 0 && pending.length - 1 >= BUILD_QUEUE) return 'build queue is full';
     const cost = buildCost(kind, this.nextLevel(kind, region)).cost;
@@ -1254,9 +1311,10 @@ export class GameScreen {
     if (kind === 'city') {
       if (region < 0) return 'City';
       const level = this.nextLevel(kind, region);
-      return level === 1 ? 'Found city' : `City ${level}`;
+      return level === 1 ? 'Found city' : `City ${roman(Math.min(MAX_CITY, level))}`;
     }
-    if (kind === 'fort' && region >= 0) return `Fort ${this.nextLevel(kind, region)}`;
+    // A fort, mine or market: the level it would go up to here.
+    if (maxLevel(kind) > 1 && region >= 0) return `${BUILD_LABEL[kind]} ${roman(Math.min(maxLevel(kind), this.nextLevel(kind, region)))}`;
     return BUILD_LABEL[kind];
   }
 
@@ -1297,10 +1355,12 @@ export class GameScreen {
       }
       const how = this.placing === 'road' ? 'drag across your regions' : 'click a region';
       const level = mine >= 0 ? this.nextLevel(about, mine) : 1;
-      const here = mine >= 0 && level > 1 ? buildCost(about, level).cost : null;
+      // At its highest level here: no next level to price.
+      const top = mine >= 0 && maxLevel(about) > 1 && level > maxLevel(about);
+      const here = mine >= 0 && level > 1 && !top ? buildCost(about, level).cost : null;
       strip.push(
         el('div', { class: 'strip' }, [
-          el('b', {}, [mine >= 0 ? this.barName(about, mine) : BUILD_LABEL[about]]),
+          el('b', {}, [mine >= 0 ? this.barName(about, mine) + (top ? ' (highest level)' : '') : BUILD_LABEL[about]]),
           ...(here ? [costChips(here, res)] : []),
           el('span', { class: 'what' }, [text]),
           ...(mine >= 0 ? [this.slotBoxes(mine)] : []),
@@ -1524,6 +1584,7 @@ export class GameScreen {
         if (e.player === this.you) this.sfx.jingle(false);
         break;
       case 'won':
+        this.dominated = !!e.domination;
         if (this.you !== null) this.sfx.jingle(e.player === this.you);
         break;
     }
@@ -1571,8 +1632,14 @@ export class GameScreen {
         if (e.from === this.you) text = `${name(e.to)} refused peace`;
         break;
       case 'won':
-        text = `${name(e.player)} wins`;
+        text = e.domination ? `${name(e.player)} holds most of Europe and wins` : `${name(e.player)} wins`;
         break;
+      case 'breached': {
+        const what = e.level > 0 ? `knocked down to level ${e.level}` : 'destroyed';
+        if (e.owner === this.you) text = `Our fort at ${region(e.region)} ${what} by ${name(e.by)}'s guns`;
+        else if (e.by === this.you) text = `Our guns ${e.level > 0 ? 'breached' : 'destroyed'} the fort at ${region(e.region)}`;
+        break;
+      }
     }
     if (text) this.say(text);
   }
@@ -1795,14 +1862,14 @@ export class GameScreen {
     }
     // The stack cap counts every token in the region, moving out or waiting included.
     const myCount = snap.blobs.filter((b) => b[6] === region.id && b[1] === this.you).length;
-    const used = rr[9] + rr[10] + rr[11] + rr[12] + rr[13] + rr[14] + (rr[1] > 0 ? 1 : 0) + (rr[3] & 1 ? 1 : 0) + (rr[3] & 2 ? 1 : 0) + (rr[3] & 8 ? 1 : 0) + (rr[3] & 16 ? 1 : 0);
+    const used = econSlots(this.econOf(rr)) + rr[13] + (rr[1] > 0 ? 1 : 0) + (rr[3] & 1 ? 1 : 0) + (rr[3] & 2 ? 1 : 0) + (rr[3] & 8 ? 1 : 0) + (rr[3] & 16 ? 1 : 0);
     // The essentials up front; the rest folds under Details (remembered while you play).
     const info: Array<[string, string]> = [
       ['Owner', owner >= 0 ? (this.players[owner]?.name ?? '?') : 'Neutral'],
-      ['City', rr[2] > 0 ? `level ${rr[2]} / ${MAX_CITY}` : 'none'],
+      ['City', rr[2] > 0 ? `${roman(rr[2])} of ${roman(MAX_CITY)}` : 'none'],
       ['Produces', this.yieldLine(region, rr)],
       ['Slots', `${used} / ${slotsOf(region, rr[2])} built`],
-      ...(rr[1] > 0 ? [['Fort', `level ${rr[1]} / ${MAX_FORT}`] as [string, string]] : []),
+      ...(rr[1] > 0 ? [['Fort', `${roman(rr[1])} of ${roman(MAX_FORT)}`] as [string, string]] : []),
     ];
     // Details, three lines at most: supply (and how far a city's reaches), what it stores, and
     // the stack (plus how long it takes to capture, for land that isn't yours).
@@ -1825,8 +1892,13 @@ export class GameScreen {
       const res = this.resources();
       // What's built (each can be knocked down to free its slot).
       const built: Array<[BuildingKind, string]> = [];
-      for (const k of ECON_KINDS) for (let i = 0; i < rr[ECON_FIELD[k]]; i++) built.push([k, BUILD_LABEL[k]]);
-      if (rr[1] > 0) built.push(['fort', `Fort ${rr[1]}`]);
+      for (const k of ECON_KINDS) {
+        // A mine or market is one building with a level; the rest, one chip each.
+        if (maxLevel(k) > 1) {
+          if (rr[ECON_FIELD[k]] > 0) built.push([k, `${BUILD_LABEL[k]} ${roman(rr[ECON_FIELD[k]])}`]);
+        } else for (let i = 0; i < rr[ECON_FIELD[k]]; i++) built.push([k, BUILD_LABEL[k]]);
+      }
+      if (rr[1] > 0) built.push(['fort', `Fort ${roman(rr[1])}`]);
       if (rr[3] & 1) built.push(['barracks', 'Barracks']);
       if (rr[3] & 2) built.push(['factory', 'Factory']);
       if (rr[3] & 8) built.push(['port', 'Port']);
@@ -1849,11 +1921,12 @@ export class GameScreen {
       const pending = this.pending(region.id);
       if (pending.length) {
         // Under way, then what waits behind it; levels count up per kind.
-        const levels = { fort: rr[1], city: rr[2] };
+        const levels = new Map<BuildingKind, number>();
         const label = ([kind, target]: [BuildingKind, number]) => {
-          if (kind === 'fort' || kind === 'city') {
-            levels[kind] += 1;
-            return kind === 'city' && levels.city === 1 ? 'Found city' : `${BUILD_LABEL[kind]} ${levels[kind]}`;
+          if (maxLevel(kind) > 1) {
+            const level = (levels.get(kind) ?? this.levelOf(kind, region.id)) + 1;
+            levels.set(kind, level);
+            return kind === 'city' && level === 1 ? 'Found city' : `${BUILD_LABEL[kind]} ${roman(level)}`;
           }
           return kind === 'road' ? `Road to ${this.map.regions[target]?.name ?? '?'}` : BUILD_LABEL[kind];
         };

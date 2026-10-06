@@ -1117,16 +1117,18 @@ button.primary:hover:not(:disabled) {
   inset: 0;
   z-index: 15;
   display: grid;
-  place-items: center;
+  /* The screen fills the window; the tree scrolls inside it (both scrollbars on screen). */
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+  padding: 16px;
   background: rgba(8, 11, 14, 0.94);
 }
 
 .techtree .tscreen {
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 14px;
-  max-width: calc(100% - 32px);
-  max-height: calc(100% - 32px);
+  min-width: 0;
+  min-height: 0;
 }
 
 .techtree .thead {
@@ -1166,6 +1168,19 @@ button.primary:hover:not(:disabled) {
 .techtree .tscroll {
   overflow: auto;
   padding: 4px;
+  min-width: 0;
+  min-height: 0;
+  /* Dragged to pan (see game-screen.ts). */
+  cursor: grab;
+  scrollbar-color: var(--accent) var(--panel-solid);
+}
+
+.techtree .tscroll.dragging {
+  cursor: grabbing;
+}
+
+.techtree .tlegend .hint {
+  margin-left: auto;
 }
 
 .techtree .tplane {

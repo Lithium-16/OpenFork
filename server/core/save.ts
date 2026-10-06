@@ -11,8 +11,10 @@ import {
   type BuildingKind,
   ECON_KINDS,
   MAX_CITY,
+  MAX_ECON_LEVEL,
   MAX_FORT,
   MAX_PLAYERS,
+  maxLevel,
   RESOURCES,
   type Resources,
   type StartingResources,
@@ -153,7 +155,7 @@ export function readSave(text: string, world: (id: string) => World | undefined)
       const o = obj(v);
       return {
         kind: oneOf(o.kind, BUILDING_KINDS) as BuildingKind,
-        level: int(o.level, 1, Math.max(MAX_CITY, MAX_FORT)),
+        level: int(o.level, 1, Math.max(MAX_CITY, MAX_FORT, MAX_ECON_LEVEL)),
         progress: num(o.progress, 0, 1e5),
         seconds: num(o.seconds, 1, 1e5),
         cost: resources(o.cost),
@@ -183,7 +185,8 @@ export function readSave(text: string, world: (id: string) => World | undefined)
         owner: owner(o.owner),
         fort: int(o.fort, 0, MAX_FORT),
         city: int(o.city, 0, MAX_CITY),
-        econ: Object.fromEntries(ECON_KINDS.map((k) => [k, int(e[k] ?? 0, 0, 50)])) as RegionState['econ'],
+        // Mines and markets have levels now (older saves could have several of one).
+        econ: Object.fromEntries(ECON_KINDS.map((k) => [k, Math.min(maxLevel(k) > 1 ? maxLevel(k) : 50, int(e[k] ?? 0, 0, 50))])) as RegionState['econ'],
         barracks: bool(o.barracks),
         factory: bool(o.factory),
         port: bool(o.port),
@@ -195,6 +198,7 @@ export function readSave(text: string, world: (id: string) => World | undefined)
         capture: capture ? { by: player(capture.by), progress: num(capture.progress, 0, 1) } : null,
         supplied: bool(o.supplied),
         cutOff: num(o.cutOff, 0, 1e6),
+        siege: num(o.siege ?? 0, 0, 1),
       };
     });
 
