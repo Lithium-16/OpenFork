@@ -1064,18 +1064,24 @@ export class MapView {
     });
 
     snap.regions.forEach((r, i) => {
-      // Economic buildings, nearest the middle of the region first.
-      const sprites: Sprite[] = [];
-      for (let k = 0; k < r[9]; k++) sprites.push(MAP_ART.farm);
-      for (let k = 0; k < r[10]; k++) sprites.push(MAP_ART.mine);
-      for (let k = 0; k < r[11]; k++) sprites.push(MAP_ART.well);
-      for (let k = 0; k < r[12]; k++) sprites.push(MAP_ART.market);
-      for (let k = 0; k < r[14]; k++) sprites.push(MAP_ART.lab);
+      // Economic buildings, nearest the middle of the region first. A mine or market is one
+      // building with its level in roman numerals at its foot, as forts and cities have.
+      const sprites: Array<[Sprite, number]> = [];
+      for (let k = 0; k < r[9]; k++) sprites.push([MAP_ART.farm, 0]);
+      if (r[10] > 0) sprites.push([MAP_ART.mine, r[10]]);
+      for (let k = 0; k < r[11]; k++) sprites.push([MAP_ART.well, 0]);
+      if (r[12] > 0) sprites.push([MAP_ART.market, r[12]]);
+      for (let k = 0; k < r[14]; k++) sprites.push([MAP_ART.lab, 0]);
       if (sprites.length) {
         const spots = this.spotsIn(i);
-        sprites.forEach((sprite, k) => {
+        sprites.forEach(([sprite, level], k) => {
           const spot = spots[k];
-          if (spot) ctx.drawImage(sprite, spot[0], spot[1]);
+          if (!spot) return;
+          ctx.drawImage(sprite, spot[0], spot[1]);
+          if (level > 0) {
+            const n = romanSprite(level);
+            ctx.drawImage(n, spot[0] + sprite.width - 1, spot[1] + sprite.height - n.height + 1);
+          }
         });
       }
       // A port: a warehouse on the quay and a pier out into the sea, a boat at its end.

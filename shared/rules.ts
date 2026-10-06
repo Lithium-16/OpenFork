@@ -180,6 +180,11 @@ export const CAPTURE_DECAY = 0.2;
 /** Strength removed per second per point of attack power. */
 export const DAMAGE_RATE = 0.05;
 export const FORT_BONUS = 0.5; // per fort level
+/** Sieges: guns shelling an enemy fort wear it down, a level per this much shelling (shell
+ * power, as for damage: a 20-strength battery of artillery takes a level in about 40 s). */
+export const FORT_SIEGE_POWER = 80;
+/** Holding this share of all the land wins outright (no need to take every capital). */
+export const DOMINATION_SHARE = 0.7;
 export const ENTRENCH_BONUS = 0.5; // when fully dug in
 export const ENTRENCH_SECONDS = 60;
 export const RIVER_BONUS = 0.25;
@@ -267,6 +272,22 @@ export type BuildingKind = EconKind | 'city' | 'fort' | ProductionBuilding | 'ro
 export const BUILDING_KINDS: readonly BuildingKind[] = ['farm', 'mine', 'well', 'market', 'city', 'fort', 'barracks', 'factory', 'road', 'depot', 'lab', 'port', 'battery'];
 export const MAX_FORT = 3;
 export const MAX_CITY = 5;
+/** Mines and markets: one per region, upgraded in place up to this level (one slot at any level). */
+export const MAX_ECON_LEVEL = 3;
+/** Economic buildings that level up instead of being built again (the rest: one per slot). */
+export const LEVELLED_ECON: readonly EconKind[] = ['mine', 'market'];
+
+/** The highest level of a building that's upgraded in place; 1 for the rest. */
+export function maxLevel(kind: BuildingKind): number {
+  if (kind === 'fort') return MAX_FORT;
+  if (kind === 'city') return MAX_CITY;
+  return LEVELLED_ECON.includes(kind as EconKind) ? MAX_ECON_LEVEL : 1;
+}
+
+/** Slots a region's economic buildings take: one each, a levelled one one at any level. */
+export function econSlots(econ: Record<EconKind, number>): number {
+  return ECON_KINDS.reduce((n, k) => n + (LEVELLED_ECON.includes(k) ? Math.min(1, econ[k]) : econ[k]), 0);
+}
 /** Builds a region can have waiting behind the one under way. */
 export const BUILD_QUEUE = 3;
 /** Building slots of a region, by size; a city adds one per level. */
@@ -392,11 +413,12 @@ export function buildCost(kind: BuildingKind, level = 1): { cost: Resources; sec
     case 'farm':
       return { cost: res(60), seconds: 60 };
     case 'mine':
-      return { cost: res(80), seconds: 75 };
+      // Each level up costs more (and some steel), and takes longer.
+      return { cost: res(80 * level, 15 * (level - 1)), seconds: 75 + 30 * (level - 1) };
     case 'well':
       return { cost: res(90, 10), seconds: 75 };
     case 'market':
-      return { cost: res(70), seconds: 60 };
+      return { cost: res(70 * level, 10 * (level - 1)), seconds: 60 + 30 * (level - 1) };
     case 'city':
       return level <= 1 ? { cost: res(700, 160), seconds: 240 } : { cost: res(240 * level, 40 * (level - 1)), seconds: 60 * level };
     case 'fort':
@@ -441,13 +463,22 @@ export interface Opportunism {
   chance: number;
   /** Wars it will fight at once (it never starts one beyond this). */
   maxWars: number;
+  /** The lowest `ratio` falls to: the longer at peace, in the endgame, or with full stores. */
+  boldest: number;
 }
 export const OPPORTUNISM: Record<BotDifficulty, Opportunism | null> = {
   defensive: null,
   easy: null,
-  normal: { after: 300, ratio: 2, chance: 0.15, maxWars: 1 },
-  hard: { after: 180, ratio: 1.6, chance: 0.35, maxWars: 2 },
+  normal: { after: 300, ratio: 2, chance: 0.15, maxWars: 1, boldest: 1.1 },
+  hard: { after: 180, ratio: 1.6, chance: 0.35, maxWars: 2, boldest: 0.9 },
 };
+/** How much the odds a bot needs to start a war drop per minute it has been at peace. */
+export const BOT_BOLDER_PER_MINUTE = 0.1;
+/** The endgame: with this many countries left (or fewer), bots fight it out. They start wars
+ * at their boldest, don't make peace over a quiet front, and take peace only when losing. */
+export const BOT_ENDGAME_COUNTRIES = 3;
+/** Stores this full of money: a bot is as bold as it gets (it has nothing better to spend on). */
+export const BOT_HOARD_SHARE = 0.7;
 export const BOT_DIPLOMACY_SECONDS = 45;
 /** Bots offer peace when they're this much weaker than the enemy, or after a long stalemate. */
 export const BOT_PEACE_WHEN_WEAKER = 0.7;
