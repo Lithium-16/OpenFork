@@ -55,11 +55,11 @@ export class MapView {
   readonly seaGrid: Uint16Array;
   /** Province and sea region borders as hairlines (map coordinates), stroked one screen
    * pixel wide at any zoom so they stay crisp instead of growing into blocks. */
-  private readonly provinceLines: Path2D;
-  private readonly seaLines: Path2D;
+  private readonly provinceLines: TiledPath;
+  private readonly seaLines: TiledPath;
   /** Each country's outline (borders with other land and the coast), rebuilt when land
    * changes hands; stroked two screen pixels wide in the country's colour. */
-  private countryLines = new Map<number, Path2D>();
+  private countryLines = new Map<number, TiledPath>();
   private countryKey = '';
   private readonly terrain: HTMLImageElement;
   private readonly territory: HTMLCanvasElement;
@@ -363,12 +363,14 @@ export class MapView {
       lc.setTransform(dpr * this.cam.scale, 0, 0, dpr * this.cam.scale, -this.cam.x * dpr * this.cam.scale, -this.cam.y * dpr * this.cam.scale);
       // Hairline borders: provinces in a soft dark line, seas in a faint dashed one.
       const hair = 1 / this.cam.scale;
+      // Only the tiles on screen are stroked.
+      const view: [number, number, number, number] = [this.cam.x - 2, this.cam.y - 2, this.cam.x + w / this.cam.scale + 2, this.cam.y + h / this.cam.scale + 2];
       lc.lineWidth = hair;
       lc.strokeStyle = 'rgba(16, 20, 24, 0.4)';
-      lc.stroke(this.provinceLines);
+      this.provinceLines.stroke(lc, ...view);
       lc.setLineDash([3 * hair, 3 * hair]);
       lc.strokeStyle = 'rgba(200, 225, 245, 0.35)';
-      lc.stroke(this.seaLines);
+      this.seaLines.stroke(lc, ...view);
       lc.setLineDash([]);
       // Country outlines: two screen pixels in a darker shade of the country's colour.
       lc.lineWidth = 2 * hair;
@@ -376,7 +378,7 @@ export class MapView {
         const rgb = this.territoryRgb?.[o];
         if (!rgb) continue;
         lc.strokeStyle = `rgb(${Math.round(rgb[0] * 0.75)}, ${Math.round(rgb[1] * 0.75)}, ${Math.round(rgb[2] * 0.75)})`;
-        lc.stroke(p);
+        p.stroke(lc, ...view);
       }
     }
     this.ctx.save();
@@ -430,37 +432,31 @@ export class MapView {
     }
   }
 
-  /** Every country's outline as hairline runs along pixel edges (see borderLines). */
-  private outlines(owners: number[]): Map<number, Path2D> {
+  /** Border runs between each pair of touching regions (water too), from the fixed grid:
+   * key a * 65536 + b (a < b), value [x0, y0, x1, y1, ...]. Found once; outlines only pick them. */
+  private pairRuns: Map<number, number[]> | null = null;
+
+  private findPairRuns(): Map<number, number[]> {
     const W = this.map.width;
     const H = this.map.height;
-    const own = new Int16Array(this.grid.length);
-    for (let i = 0; i < own.length; i++) own[i] = this.grid[i] === WATER ? -2 : owners[this.grid[i]];
-    const paths = new Map<number, Path2D>();
-    const path = (o: number) => {
-      let p = paths.get(o);
-      if (!p) paths.set(o, (p = new Path2D()));
-      return p;
-    };
-    // Each run of edges between the same two sides goes to the owned side(s).
-    const run = (a: number, b: number, x0: number, y0: number, x1: number, y1: number) => {
-      for (const o of [a, b]) {
-        if (o < 0) continue;
-        const p = path(o);
-        p.moveTo(x0, y0);
-        p.lineTo(x1, y1);
-      }
+    const g = this.grid;
+    const runs = new Map<number, number[]>();
+    const add = (a: number, b: number, x0: number, y0: number, x1: number, y1: number) => {
+      const k = a < b ? a * 65536 + b : b * 65536 + a;
+      let list = runs.get(k);
+      if (!list) runs.set(k, (list = []));
+      list.push(x0, y0, x1, y1);
     };
     for (let x = 0; x + 1 < W; x++) {
       let start = -1;
       let a = 0;
       let b = 0;
       for (let y = 0; y <= H; y++) {
-        const l = y < H ? own[y * W + x] : 0;
-        const r = y < H ? own[y * W + x + 1] : 0;
-        const on = y < H && l !== r && (l >= 0 || r >= 0);
+        const l = y < H ? g[y * W + x] : 0;
+        const r = y < H ? g[y * W + x + 1] : 0;
+        const on = y < H && l !== r;
         if (start >= 0 && (!on || l !== a || r !== b)) {
-          run(a, b, x + 1, start, x + 1, y);
+          add(a, b, x + 1, start, x + 1, y);
           start = -1;
         }
         if (on && start < 0) [start, a, b] = [y, l, r];
@@ -471,14 +467,34 @@ export class MapView {
       let a = 0;
       let b = 0;
       for (let x = 0; x <= W; x++) {
-        const t = x < W ? own[y * W + x] : 0;
-        const u = x < W ? own[(y + 1) * W + x] : 0;
-        const on = x < W && t !== u && (t >= 0 || u >= 0);
+        const t = x < W ? g[y * W + x] : 0;
+        const u = x < W ? g[(y + 1) * W + x] : 0;
+        const on = x < W && t !== u;
         if (start >= 0 && (!on || t !== a || u !== b)) {
-          run(a, b, start, y + 1, x, y + 1);
+          add(a, b, start, y + 1, x, y + 1);
           start = -1;
         }
         if (on && start < 0) [start, a, b] = [x, t, u];
+      }
+    }
+    return runs;
+  }
+
+  /** Every country's outline as hairline runs along pixel edges: the borders between two
+   * regions with different owners (or a region and the water), for each owning side. */
+  private outlines(owners: number[]): Map<number, TiledPath> {
+    this.pairRuns ??= this.findPairRuns();
+    const paths = new Map<number, TiledPath>();
+    const own = (id: number) => (id === WATER ? -2 : owners[id]);
+    for (const [k, runs] of this.pairRuns) {
+      const oa = own(Math.floor(k / 65536));
+      const ob = own(k % 65536);
+      if (oa === ob || (oa < 0 && ob < 0)) continue;
+      for (const o of [oa, ob]) {
+        if (o < 0) continue;
+        let p = paths.get(o);
+        if (!p) paths.set(o, (p = new TiledPath()));
+        for (let i = 0; i < runs.length; i += 4) p.line(runs[i], runs[i + 1], runs[i + 2], runs[i + 3]);
       }
     }
     return paths;
@@ -2585,8 +2601,36 @@ export function colorOf(players: GamePlayer[], id: number): string {
  * one path of straight runs along pixel edges: each run joins neighbouring pixels' edges that
  * separate the same two regions.
  */
-function borderLines(grid: Uint16Array, W: number, H: number): Path2D {
-  const path = new Path2D();
+/**
+ * Line runs kept in tiles of the map, so stroking only touches the tiles on screen (the whole
+ * map's borders are a lot of runs). A run goes in the tile where it starts; each tile knows
+ * how far its runs reach.
+ */
+class TiledPath {
+  private static readonly TILE = 128;
+  private readonly tiles = new Map<number, { path: Path2D; x0: number; y0: number; x1: number; y1: number }>();
+
+  line(x0: number, y0: number, x1: number, y1: number): void {
+    const T = TiledPath.TILE;
+    const key = Math.floor(y0 / T) * 1024 + Math.floor(x0 / T);
+    let t = this.tiles.get(key);
+    if (!t) this.tiles.set(key, (t = { path: new Path2D(), x0, y0, x1, y1 }));
+    t.path.moveTo(x0, y0);
+    t.path.lineTo(x1, y1);
+    t.x0 = Math.min(t.x0, x0, x1);
+    t.y0 = Math.min(t.y0, y0, y1);
+    t.x1 = Math.max(t.x1, x0, x1);
+    t.y1 = Math.max(t.y1, y0, y1);
+  }
+
+  /** Strokes the runs in tiles that reach into the given map rectangle. */
+  stroke(ctx: CanvasRenderingContext2D, x0: number, y0: number, x1: number, y1: number): void {
+    for (const t of this.tiles.values()) if (t.x1 >= x0 && t.x0 <= x1 && t.y1 >= y0 && t.y0 <= y1) ctx.stroke(t.path);
+  }
+}
+
+function borderLines(grid: Uint16Array, W: number, H: number): TiledPath {
+  const path = new TiledPath();
   const differ = (a: number, b: number) => a !== b && a !== WATER && b !== WATER;
   // Vertical edges, between (x, y) and (x + 1, y), run down each column of edges.
   for (let x = 0; x + 1 < W; x++) {
@@ -2595,8 +2639,7 @@ function borderLines(grid: Uint16Array, W: number, H: number): Path2D {
       const on = y < H && differ(grid[y * W + x], grid[y * W + x + 1]);
       if (on && start < 0) start = y;
       if (!on && start >= 0) {
-        path.moveTo(x + 1, start);
-        path.lineTo(x + 1, y);
+        path.line(x + 1, start, x + 1, y);
         start = -1;
       }
     }
@@ -2608,8 +2651,7 @@ function borderLines(grid: Uint16Array, W: number, H: number): Path2D {
       const on = x < W && differ(grid[y * W + x], grid[(y + 1) * W + x]);
       if (on && start < 0) start = x;
       if (!on && start >= 0) {
-        path.moveTo(start, y + 1);
-        path.lineTo(x, y + 1);
+        path.line(start, y + 1, x, y + 1);
         start = -1;
       }
     }
