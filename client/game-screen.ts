@@ -73,6 +73,8 @@ const TABS: Array<{ name: string; kinds: BuildingKind[] }> = [
 /** Region row fields of the economic buildings. */
 const ECON_FIELD: Record<EconKind, number> = { farm: 9, mine: 10, well: 11, market: 12, lab: 14 };
 const tech = (id: TechId): Tech => TECHS.find((t) => t.id === id) as Tech;
+/** How fast WASD and the arrow keys pan the map, in screen pixels per second. */
+const PAN_SPEED = 800;
 const UNIT_NAME: Record<UnitType, string> = { infantry: 'Infantry', tank: 'Tanks', artillery: 'Artillery', warship: 'Warships' };
 /** The key that orders each unit at the selected region. */
 const UNIT_KEY: Record<UnitType, string> = { infantry: 'q', tank: 'e', artillery: 'r', warship: 'f' };
@@ -281,6 +283,7 @@ export class GameScreen {
         const r = this.map.regions[region];
         return this.view.toScreen(r.x, r.y);
       },
+      cam: () => ({ ...this.view.cam }),
       focus: (region: number) => {
         const r = this.map.regions[region];
         this.view.focus(r.x, r.y, 1.3);
@@ -799,9 +802,15 @@ export class GameScreen {
     });
   }
 
+  /** When the keys last moved the camera (so it pans at the same speed at any frame rate). */
+  private panAt = 0;
+
   private panWithKeys(): void {
     const k = this.keys;
-    const step = 12;
+    const now = performance.now();
+    // Screen pixels per second; a hitch doesn't turn into a jump.
+    const step = (PAN_SPEED * Math.min(50, now - (this.panAt || now))) / 1000;
+    this.panAt = now;
     const dx = (k.has('a') || k.has('arrowleft') ? step : 0) - (k.has('d') || k.has('arrowright') ? step : 0);
     const dy = (k.has('w') || k.has('arrowup') ? step : 0) - (k.has('s') || k.has('arrowdown') ? step : 0);
     if (dx || dy) this.view.pan(dx, dy);
