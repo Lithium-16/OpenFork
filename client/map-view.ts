@@ -130,6 +130,9 @@ export class MapView {
   /** Terrain, territory and towns flattened into one image; rebuilt when any of them change. */
   private readonly base: HTMLCanvasElement;
   private baseKey = '';
+  private territoryRev = 0;
+  private miniBase: HTMLCanvasElement | null = null;
+  private miniKey = '';
   /** developLayer pre-dimmed, so the filter only runs when towns change. */
   private readonly developShown: HTMLCanvasElement;
   private developKey = '';
@@ -322,6 +325,49 @@ export class MapView {
 
   private view: [number, number, number, number] = [0, 0, 1, 1];
 
+  private readonly lineCanvas = document.createElement('canvas');
+  private lineKey = '';
+  private linesOf: unknown = null;
+
+  /** Borders and outlines, re-stroked into a screen-sized cache only when the camera or owners change. */
+  private drawBorders(w: number, h: number, dpr: number): void {
+    const key = `${this.cam.x},${this.cam.y},${this.cam.scale},${w},${h},${dpr}`;
+    if (key !== this.lineKey || this.linesOf !== this.countryLines) {
+      this.lineKey = key;
+      this.linesOf = this.countryLines;
+      const c = this.lineCanvas;
+      if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) {
+        c.width = Math.round(w * dpr);
+        c.height = Math.round(h * dpr);
+      }
+      const lc = c.getContext('2d') as CanvasRenderingContext2D;
+      lc.setTransform(1, 0, 0, 1, 0, 0);
+      lc.clearRect(0, 0, c.width, c.height);
+      lc.setTransform(dpr * this.cam.scale, 0, 0, dpr * this.cam.scale, -this.cam.x * dpr * this.cam.scale, -this.cam.y * dpr * this.cam.scale);
+      // Hairline borders: provinces in a soft dark line, seas in a faint dashed one.
+      const hair = 1 / this.cam.scale;
+      lc.lineWidth = hair;
+      lc.strokeStyle = 'rgba(16, 20, 24, 0.4)';
+      lc.stroke(this.provinceLines);
+      lc.setLineDash([3 * hair, 3 * hair]);
+      lc.strokeStyle = 'rgba(200, 225, 245, 0.35)';
+      lc.stroke(this.seaLines);
+      lc.setLineDash([]);
+      // Country outlines: two screen pixels in a darker shade of the country's colour.
+      lc.lineWidth = 2 * hair;
+      for (const [o, p] of this.countryLines) {
+        const rgb = this.territoryRgb?.[o];
+        if (!rgb) continue;
+        lc.strokeStyle = `rgb(${Math.round(rgb[0] * 0.75)}, ${Math.round(rgb[1] * 0.75)}, ${Math.round(rgb[2] * 0.75)})`;
+        lc.stroke(p);
+      }
+    }
+    this.ctx.save();
+    this.ctx.setTransform(1, 0, 0, 1, 0, 0);
+    this.ctx.drawImage(this.lineCanvas, 0, 0);
+    this.ctx.restore();
+  }
+
   /** Draws the on-screen part of a map-sized layer (in map space). */
   private blitLayer(layer: CanvasImageSource): void {
     const [x, y, w, h] = this.view;
@@ -468,6 +514,7 @@ export class MapView {
     if (!this.sweeps.size || !this.territorySnap || !this.territoryImg) return;
     const ctx = this.territory.getContext('2d') as CanvasRenderingContext2D;
     this.baseKey = '';
+    this.territoryRev++;
     for (const [r, sw] of [...this.sweeps]) {
       const t = Math.min(1, (now - sw.start) / SWEEP_MS);
       const upto = Math.floor(sw.order.length * (1 - (1 - t) ** 2));
@@ -526,6 +573,7 @@ export class MapView {
     const W = this.map.width;
     const ctx = this.territory.getContext('2d') as CanvasRenderingContext2D;
     this.baseKey = '';
+    this.territoryRev++;
     this.territoryImg ??= ctx.createImageData(W, this.map.height);
     let [x0, y0, x1, y1] = [W, this.map.height, -1, -1];
     const grow = (r: number) => {
@@ -1295,23 +1343,7 @@ export class MapView {
     }
     this.blitLayer(this.base);
     ctx.imageSmoothingEnabled = false;
-    // Hairline borders: provinces in a soft dark line, seas in a faint dashed one.
-    const hair = 1 / this.cam.scale;
-    ctx.lineWidth = hair;
-    ctx.strokeStyle = 'rgba(16, 20, 24, 0.4)';
-    ctx.stroke(this.provinceLines);
-    ctx.setLineDash([3 * hair, 3 * hair]);
-    ctx.strokeStyle = 'rgba(200, 225, 245, 0.35)';
-    ctx.stroke(this.seaLines);
-    ctx.setLineDash([]);
-    // Country outlines: two screen pixels in a darker shade of the country's colour.
-    ctx.lineWidth = 2 * hair;
-    for (const [o, p] of this.countryLines) {
-      const c = this.territoryRgb?.[o];
-      if (!c) continue;
-      ctx.strokeStyle = `rgb(${Math.round(c[0] * 0.75)}, ${Math.round(c[1] * 0.75)}, ${Math.round(c[2] * 0.75)})`;
-      ctx.stroke(p);
-    }
+    this.drawBorders(w, h, dpr);
     ctx.imageSmoothingEnabled = false;
     this.updateFrontLayer(snap, players);
     this.blitLayer(this.frontLayer);
@@ -2038,8 +2070,19 @@ export class MapView {
     ctx.imageSmoothingEnabled = true;
     ctx.fillStyle = '#101418';
     ctx.fillRect(0, 0, w, h);
-    ctx.drawImage(this.terrain, 0, 0, w, h);
-    ctx.drawImage(this.territory, 0, 0, w, h);
+    const key = `${w},${h},${this.territoryRev}`;
+    if (key !== this.miniKey) {
+      // Terrain and territory shrunk once per change, not every frame.
+      this.miniKey = key;
+      this.miniBase ??= document.createElement('canvas');
+      this.miniBase.width = w;
+      this.miniBase.height = h;
+      const mc = this.miniBase.getContext('2d') as CanvasRenderingContext2D;
+      mc.imageSmoothingEnabled = true;
+      mc.drawImage(this.terrain, 0, 0, w, h);
+      mc.drawImage(this.territory, 0, 0, w, h);
+    }
+    ctx.drawImage(this.miniBase as HTMLCanvasElement, 0, 0);
     // Battles.
     if (Math.floor(performance.now() / 400) % 2 === 0) {
       const owners = new Map<number, Set<number>>();
