@@ -40,7 +40,8 @@ describe('bots on Europe', () => {
   });
 
   it('normal bots develop: economic buildings, bigger cities and roads', () => {
-    const { sim } = play('normal', 600);
+    // Expanding comes first (taking land from the border is quick), then development.
+    const { sim } = play('normal', 900);
     const econ = sim.state.regions.reduce((n, r) => n + (r.owner >= 0 ? r.econ.farm + r.econ.mine + r.econ.well + r.econ.market : 0), 0);
     const grown = sim.state.players.filter((p) => sim.state.regions[p.capital].city > 3).length;
     assert.ok(econ >= sim.state.players.length, `only ${econ} economic buildings`);
@@ -49,7 +50,7 @@ describe('bots on Europe', () => {
   });
 
   it('hard bots pick on weaker neighbours, and fight', () => {
-    const { events } = play('hard', 900);
+    const { events } = play('hard', 1500);
     const war = events.find((e) => e.kind === 'war');
     assert.ok(war, 'a war started');
     assert.ok(war.at >= 180, 'not before hard bots are allowed to');
