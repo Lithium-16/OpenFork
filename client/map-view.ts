@@ -126,6 +126,9 @@ export class MapView {
   private shownValid = new Uint8Array(0);
   /** Towns, buildings and roads, painted at map resolution (they zoom with the terrain). */
   private readonly developLayer: HTMLCanvasElement;
+  /** developLayer pre-dimmed, so the filter isn't run every frame. */
+  private readonly developShown: HTMLCanvasElement;
+  private developDirty = true;
   private developKey = '';
   private developSnap: Snapshot | null = null;
   /** Per region: free spots for building sprites, nearest the label point first. */
@@ -146,6 +149,7 @@ export class MapView {
     this.placeLayer = offscreen(map.width, map.height);
     this.frontLayer = offscreen(map.width, map.height);
     this.developLayer = offscreen(map.width, map.height);
+    this.developShown = offscreen(map.width, map.height);
     // Border pixels never change; only who owns each side does.
     const W = map.width;
     const edges: number[] = [];
@@ -898,6 +902,7 @@ export class MapView {
     for (const r of snap.regions) key += `${r[2]}${r[9]}${r[10]}${r[11]}${r[12]}${r[14]}${r[3] & 8},`;
     if (key === this.developKey) return;
     this.developKey = key;
+    this.developDirty = true;
     const ctx = this.developLayer.getContext('2d') as CanvasRenderingContext2D;
     ctx.clearRect(0, 0, this.map.width, this.map.height);
     ctx.imageSmoothingEnabled = false;
@@ -1270,12 +1275,16 @@ export class MapView {
     }
     this.updateDevelopLayer(snap);
     ctx.imageSmoothingEnabled = this.cam.scale < 1;
-    // Towns, roads and buildings a little darker and see-through, so they sit in the map.
-    ctx.globalAlpha = 0.8;
-    ctx.filter = 'brightness(0.85)';
-    ctx.drawImage(this.developLayer, 0, 0);
-    ctx.filter = 'none';
-    ctx.globalAlpha = 1;
+    if (this.developDirty) {
+      // Towns, roads and buildings a little darker and see-through, so they sit in the map.
+      this.developDirty = false;
+      const dc = this.developShown.getContext('2d') as CanvasRenderingContext2D;
+      dc.clearRect(0, 0, this.map.width, this.map.height);
+      dc.globalAlpha = 0.8;
+      dc.filter = 'brightness(0.85)';
+      dc.drawImage(this.developLayer, 0, 0);
+    }
+    ctx.drawImage(this.developShown, 0, 0);
     ctx.imageSmoothingEnabled = false;
     this.updateFrontLayer(snap, players);
     ctx.drawImage(this.frontLayer, 0, 0);
