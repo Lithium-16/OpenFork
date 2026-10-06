@@ -19,7 +19,8 @@ function order(v: unknown): Order | null {
   if (!isObj(v)) return null;
   switch (v.o) {
     case 'move':
-      return isIds(v.blobs) && isInt(v.to) ? { o: 'move', blobs: v.blobs, to: v.to } : null;
+      if (!isIds(v.blobs) || !isInt(v.to) || (v.then !== undefined && typeof v.then !== 'boolean')) return null;
+      return { o: 'move', blobs: v.blobs, to: v.to, ...(v.then ? { then: true } : {}) };
     case 'stop':
       return isIds(v.blobs) ? { o: 'stop', blobs: v.blobs } : null;
     case 'split':
@@ -55,6 +56,8 @@ function order(v: unknown): Order | null {
       return TECHS.some((t) => t.id === v.tech) ? { o: 'research', tech: v.tech as TechId } : null;
     case 'unresearch':
       return { o: 'unresearch' };
+    case 'pause':
+      return typeof v.on === 'boolean' ? { o: 'pause', on: v.on } : null;
     case 'cancel':
       return isInt(v.region) && isProd(v.building) ? { o: 'cancel', region: v.region, building: v.building } : null;
     case 'unbuild':

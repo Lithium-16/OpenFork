@@ -1,6 +1,6 @@
 // Every gameplay number lives here (DESIGN.md has the rules in words). Rates are per second
 // unless they say otherwise; the server multiplies by the tick length.
-import type { Region, RegionSize, Terrain } from './map.ts';
+import { type Region, type RegionSize, type Terrain, TERRAINS } from './map.ts';
 
 export const TICK_MS = 100;
 /** How often clients get a full state snapshot. */
@@ -331,6 +331,7 @@ export function econYield(kind: EconKind, region: Region, city = 0): Partial<Res
 export function regionYield(region: Region, city: number, econ: Record<EconKind, number>, techs: Techs = []): Resources {
   const out: Resources = { money: 0, manpower: 0, steel: 0, oil: 0, research: 0 };
   const bank = techs.includes('banking') ? 1.25 : 1;
+  const men = techs.includes('totalWar') ? 1.25 : 1;
   out.money += CITY_YIELD.money * city * bank;
   out.manpower += CITY_YIELD.manpower * city;
   const boost: Record<EconKind, number> = {
@@ -344,6 +345,8 @@ export function regionYield(region: Region, city: number, econ: Record<EconKind,
     const y = econYield(kind, region, city);
     for (const k of RESOURCES) out[k] += (y[k] ?? 0) * econ[kind] * boost[kind];
   }
+  out.manpower *= men;
+  if (techs.includes('exchange')) out.money *= 1.15;
   return out;
 }
 
@@ -504,7 +507,7 @@ export function supplyCapacity(region: Region, city: number, techs: Techs = []):
 
 /** How many hops a city of this level supplies. */
 export function supplyReach(city: number, techs: Techs = []): number {
-  return SUPPLY_REACH_BASE + city + (techs.includes('railways') ? 1 : 0);
+  return SUPPLY_REACH_BASE + city + (techs.includes('railways') ? 1 : 0) + (techs.includes('radio') ? 1 : 0);
 }
 
 // -- research -------------------------------------------------------------------------------
@@ -514,14 +517,19 @@ export type TechId =
   | 'tanks' | 'engines' | 'armour' | 'fuel'
   | 'shells' | 'rangefinders' | 'longGuns'
   | 'farming' | 'industry' | 'banking'
-  | 'warehouses' | 'railways' | 'kitchens';
+  | 'warehouses' | 'railways' | 'kitchens'
+  | 'stormtroops' | 'mountaineers' | 'barrage' | 'generalStaff'
+  | 'blitz' | 'mechanized' | 'heavyTanks' | 'combinedArms'
+  | 'massProduction' | 'assemblyLines' | 'totalWar' | 'exchange'
+  | 'motorPool' | 'radio' | 'supplyCorps' | 'hospitals'
+  | 'shipyards' | 'navalGuns' | 'coastalDefence' | 'fleetTrain' | 'amphibious' | 'dreadnoughts' | 'navalAviation';
 /** A country's researched techs. */
 export type Techs = readonly TechId[];
 
 export interface Tech {
   id: TechId;
   branch: string;
-  /** 1-3: its row in the tree. */
+  /** 1-5: its row in the tree. */
   tier: number;
   name: string;
   effect: string;
@@ -529,7 +537,7 @@ export interface Tech {
   needs: TechId[];
 }
 
-/** The tech tree: one root (what every country starts with) splits into four lines, and
+/** The tech tree: one root (what every country starts with) splits into five lines, and
  * each tech opens one or two more. Every tech has a single parent; `tier` is its depth. */
 export const TECHS: readonly Tech[] = [
   { id: 'rifles', branch: 'Army', tier: 1, name: 'Rifles', effect: 'Infantry +20% attack', needs: [] },
@@ -537,17 +545,40 @@ export const TECHS: readonly Tech[] = [
   { id: 'shells', branch: 'Army', tier: 2, name: 'Heavy shells', effect: 'Artillery +30% shelling', needs: ['rifles'] },
   { id: 'rangefinders', branch: 'Army', tier: 3, name: 'Rangefinders', effect: 'Forts no help against shells', needs: ['shells'] },
   { id: 'longGuns', branch: 'Army', tier: 3, name: 'Long guns', effect: 'Artillery range 3', needs: ['shells'] },
+  { id: 'stormtroops', branch: 'Army', tier: 3, name: 'Storm troops', effect: 'Infantry +15% attack; land taken 25% faster', needs: ['trenches'] },
+  { id: 'mountaineers', branch: 'Army', tier: 4, name: 'Mountain troops', effect: 'Infantry +30% attack in forest, hills and mountains', needs: ['stormtroops'] },
+  { id: 'barrage', branch: 'Army', tier: 4, name: 'Creeping barrage', effect: 'Artillery +25% shelling', needs: ['longGuns'] },
+  { id: 'generalStaff', branch: 'Army', tier: 5, name: 'General staff', effect: 'All troops +10% attack; drill up to 75 training', needs: ['mountaineers'] },
   { id: 'tanks', branch: 'Armour', tier: 1, name: 'Tanks', effect: 'Factories can build tanks', needs: [] },
   { id: 'engines', branch: 'Armour', tier: 2, name: 'Engines', effect: 'Tanks +20% speed', needs: ['tanks'] },
   { id: 'armour', branch: 'Armour', tier: 2, name: 'Armour plate', effect: 'Tanks +30% defence', needs: ['tanks'] },
   { id: 'fuel', branch: 'Armour', tier: 3, name: 'Synthetic fuel', effect: 'Tanks −50% oil', needs: ['armour'] },
+  { id: 'blitz', branch: 'Armour', tier: 3, name: 'Blitzkrieg', effect: 'Tanks +20% attack', needs: ['engines'] },
+  { id: 'mechanized', branch: 'Armour', tier: 4, name: 'Mechanized infantry', effect: 'Infantry +25% speed', needs: ['blitz'] },
+  { id: 'heavyTanks', branch: 'Armour', tier: 4, name: 'Heavy tanks', effect: 'Tanks +30% defence; rough ground hurts them half as much', needs: ['fuel'] },
+  { id: 'combinedArms', branch: 'Armour', tier: 5, name: 'Combined arms', effect: 'Infantry and tanks +15% attack', needs: ['heavyTanks'] },
   { id: 'farming', branch: 'Economy', tier: 1, name: 'Farming', effect: 'Farms +30%', needs: [] },
   { id: 'conscription', branch: 'Economy', tier: 2, name: 'Conscription', effect: 'Infantry −30% manpower', needs: ['farming'] },
   { id: 'industry', branch: 'Economy', tier: 2, name: 'Industry', effect: 'Mines and oil wells +30%', needs: ['farming'] },
   { id: 'banking', branch: 'Economy', tier: 3, name: 'Banking', effect: 'Markets and city tax +25%', needs: ['industry'] },
+  { id: 'totalWar', branch: 'Economy', tier: 3, name: 'Total war', effect: 'Manpower +25%', needs: ['conscription'] },
+  { id: 'massProduction', branch: 'Economy', tier: 4, name: 'Mass production', effect: 'Units are made 25% faster', needs: ['banking'] },
+  { id: 'exchange', branch: 'Economy', tier: 4, name: 'Stock exchange', effect: 'Money +15%', needs: ['banking'] },
+  { id: 'assemblyLines', branch: 'Economy', tier: 5, name: 'Assembly lines', effect: 'Units cost 15% less money', needs: ['massProduction'] },
   { id: 'warehouses', branch: 'Logistics', tier: 1, name: 'Warehouses', effect: 'Storage +50%', needs: [] },
   { id: 'railways', branch: 'Logistics', tier: 2, name: 'Railways', effect: 'Supply reaches 1 region further', needs: ['warehouses'] },
   { id: 'kitchens', branch: 'Logistics', tier: 3, name: 'Field kitchens', effect: 'Regions feed +30% troops', needs: ['railways'] },
+  { id: 'motorPool', branch: 'Logistics', tier: 3, name: 'Motor pool', effect: 'Roads cut crossing time by 55% (not 40%)', needs: ['railways'] },
+  { id: 'radio', branch: 'Logistics', tier: 4, name: 'Radio', effect: 'Supply reaches 1 more region', needs: ['motorPool'] },
+  { id: 'supplyCorps', branch: 'Logistics', tier: 4, name: 'Supply corps', effect: 'Units out of supply wither half as fast', needs: ['kitchens'] },
+  { id: 'hospitals', branch: 'Logistics', tier: 5, name: 'Field hospitals', effect: 'Units refill twice as fast', needs: ['supplyCorps'] },
+  { id: 'shipyards', branch: 'Naval', tier: 1, name: 'Shipyards', effect: 'Warships built 30% faster, −25% steel', needs: [] },
+  { id: 'navalGuns', branch: 'Naval', tier: 2, name: 'Naval guns', effect: 'Warships +25% attack and shelling', needs: ['shipyards'] },
+  { id: 'coastalDefence', branch: 'Naval', tier: 2, name: 'Coastal defence', effect: 'Coastal batteries +50% shelling; +25% more against landings', needs: ['shipyards'] },
+  { id: 'fleetTrain', branch: 'Naval', tier: 3, name: 'Fleet train', effect: 'Ships supplied 2 more sea regions out, and mend at sea', needs: ['navalGuns'] },
+  { id: 'amphibious', branch: 'Naval', tier: 3, name: 'Amphibious assault', effect: 'Landings hit at 80% (not 50%); boarding takes half as long', needs: ['coastalDefence'] },
+  { id: 'dreadnoughts', branch: 'Naval', tier: 4, name: 'Dreadnoughts', effect: 'Warships +30% defence, +15% speed', needs: ['fleetTrain'] },
+  { id: 'navalAviation', branch: 'Naval', tier: 5, name: 'Naval aviation', effect: 'Warships shell 2 regions out', needs: ['dreadnoughts'] },
 ];
 /** What every country starts with: the root of the tree. */
 export const TECH_ROOT = { name: 'Modern State', effect: 'Where every country starts' };
@@ -555,7 +586,7 @@ export const TECH_ROOT = { name: 'Modern State', effect: 'Where every country st
 /** Research points a tech of a tier takes. They're paid in as research goes: from the stock
  * first, then as labs and cities make them, so more labs mean faster research. */
 export function techCost(tier: number): number {
-  return [0, 60, 150, 300, 450][Math.min(4, Math.max(1, tier))];
+  return [0, 60, 150, 300, 480, 700][Math.min(5, Math.max(1, tier))];
 }
 
 /** Why a tech can't be researched (given what's done), or null. */
@@ -575,7 +606,18 @@ export const UNIT_TECH: Partial<Record<UnitType, TechId>> = { tank: 'tanks' };
 export function unitStats(type: UnitType, techs: Techs = []): UnitStats {
   const base = UNITS[type];
   if (!techs.length) return base;
-  const s = { ...base, cost: { ...base.cost }, refillCost: { ...base.refillCost } };
+  const s = { ...base, cost: { ...base.cost }, refillCost: { ...base.refillCost }, terrainAttack: { ...base.terrainAttack } };
+  const has = (t: TechId) => techs.includes(t);
+  // Every unit: cheaper and quicker to make with the economy line, harder hitting troops.
+  if (has('massProduction')) s.buildTime *= 0.75;
+  if (has('assemblyLines')) s.cost.money = Math.round(s.cost.money * 0.85);
+  if (has('generalStaff') && !base.naval) s.attack *= 1.1;
+  if (type === 'infantry') {
+    if (has('stormtroops')) s.attack *= 1.15;
+    if (has('combinedArms')) s.attack *= 1.15;
+    if (has('mechanized')) s.speed *= 1.25;
+    if (has('mountaineers')) for (const t of ['forest', 'hills', 'mountains'] as const) s.terrainAttack[t] *= 1.3;
+  }
   if (type === 'infantry') {
     if (techs.includes('rifles')) s.attack *= 1.2;
     if (techs.includes('conscription')) {
@@ -590,10 +632,32 @@ export function unitStats(type: UnitType, techs: Techs = []): UnitStats {
       s.cost.oil = Math.round(s.cost.oil * 0.5);
       s.refillCost.oil *= 0.5;
     }
+    if (has('blitz')) s.attack *= 1.2;
+    if (has('combinedArms')) s.attack *= 1.15;
+    if (has('heavyTanks')) {
+      s.defense *= 1.3;
+      for (const t of TERRAINS) if (s.terrainAttack[t] < 1) s.terrainAttack[t] = 1 - (1 - s.terrainAttack[t]) / 2;
+    }
   }
   if (type === 'artillery') {
     if (techs.includes('shells') && s.bombard) s.bombard *= 1.3;
     if (techs.includes('longGuns') && s.range) s.range += 1;
+    if (has('barrage') && s.bombard) s.bombard *= 1.25;
+  }
+  if (type === 'warship') {
+    if (has('shipyards')) {
+      s.buildTime *= 0.7;
+      s.cost.steel = Math.round(s.cost.steel * 0.75);
+    }
+    if (has('navalGuns')) {
+      s.attack *= 1.25;
+      if (s.bombard) s.bombard *= 1.25;
+    }
+    if (has('dreadnoughts')) {
+      s.defense *= 1.3;
+      s.speed *= 1.15;
+    }
+    if (has('navalAviation') && s.range) s.range += 1;
   }
   return s;
 }
@@ -606,6 +670,16 @@ export function entrenchBonus(techs: Techs = []): number {
   return techs.includes('trenches') ? ENTRENCH_BONUS * 1.5 : ENTRENCH_BONUS;
 }
 /** The share of a fort's bonus that counts against a country's shells. */
+/** Crossing a border with a road takes this share of the time. */
+export function roadSpeed(techs: Techs = []): number {
+  return techs.includes('motorPool') ? 0.45 : ROAD_SPEED;
+}
+
+/** Highest training drilling reaches (combat goes higher). */
+export function drillCap(techs: Techs = []): number {
+  return techs.includes('generalStaff') ? 75 : DRILL_CAP;
+}
+
 export function bombardFortShare(techs: Techs = []): number {
   return techs.includes('rangefinders') ? 0 : BOMBARD_FORT_SHARE;
 }
