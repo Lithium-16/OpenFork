@@ -195,7 +195,7 @@ export class Game {
       r.owner,
       r.fort,
       r.city,
-      (r.barracks ? 1 : 0) | (r.factory ? 2 : 0) | (r.supplied ? 4 : 0) | (r.port ? 8 : 0),
+      (r.barracks ? 1 : 0) | (r.factory ? 2 : 0) | (r.supplied ? 4 : 0) | (r.port ? 8 : 0) | (r.battery ? 16 : 0),
       r.capture ? r.capture.by : -1,
       r.capture ? round(r.capture.progress, 2) : 0,
       r.construction ? BUILDING_INDEX.indexOf(r.construction.kind) : -1,
@@ -222,7 +222,7 @@ export class Game {
         round(b.progress, 3),
         round(b.entrench, 2),
         round(b.supply, 2),
-        (b.hold ? 1 : 0) | (b.crossedRiver ? 2 : 0) | (b.attacking >= 0 ? 4 : 0),
+        (b.waiting ? 1 : 0) | (b.crossedRiver ? 2 : 0) | (b.attacking >= 0 ? 4 : 0),
         b.from,
         b.bombarding,
       ]);
@@ -234,7 +234,8 @@ export class Game {
       .filter(([, until]) => until > st.time)
       .map(([k, until]) => [...pair(k, ':'), Math.ceil(until - st.time)] as [number, number, number]);
     const roads = [...st.roads].map((k) => pair(k, ':'));
-    return { time: round(st.time, 1), players, regions, blobs, events, wars, offers, truces, roads };
+    const shelling = [...this.sim.batteryTargets];
+    return { time: round(st.time, 1), players, regions, blobs, events, wars, offers, truces, roads, shelling };
   }
 
   /** The remaining route of each of `player`'s moving units: [blob id, ...regions]. */
