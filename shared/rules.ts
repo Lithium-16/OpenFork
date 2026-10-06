@@ -137,6 +137,11 @@ export const SEA_STACK = 12;
 
 /** Shells hit dug-in units as hard as any (no digging-in bonus), and forts count this share. */
 export const BOMBARD_FORT_SHARE = 0.5;
+/** A coastal battery shells enemy ships and troops at sea in the seas off its coast with this
+ * much bombard power (about 10 strength of artillery), while its region is supplied and not fought over. */
+export const BATTERY_BOMBARD = 20;
+/** Defenders of a region with a coastal battery: extra defence against troops landing from the sea. */
+export const BATTERY_LANDING_BONUS = 0.5;
 
 /** What a production building makes: the first is what it makes unless told otherwise. */
 export function unitsOf(building: ProductionBuilding): UnitType[] {
@@ -176,6 +181,20 @@ export const FORT_BONUS = 0.5; // per fort level
 export const ENTRENCH_BONUS = 0.5; // when fully dug in
 export const ENTRENCH_SECONDS = 60;
 export const RIVER_BONUS = 0.25;
+/** Units standing in rough ground take less damage in battles (added to the defence bonus). */
+export const TERRAIN_DEFENSE: Record<Terrain, number> = { plains: 0, forest: 0.15, hills: 0.25, mountains: 0.4 };
+/** Attacking a region from more than one neighbouring region: each attacking side's damage
+ * there goes up this much per extra region it attacks from, up to FLANK_MAX_EXTRA extra regions. */
+export const FLANK_BONUS = 0.15;
+export const FLANK_MAX_EXTRA = 3;
+/** Defenders rout (flee to their nearest region with room, losing ROUT_LOSS of their strength,
+ * and the attackers take the region at once) when they are down to ROUT_SHARE of their
+ * strength in the fight and outnumbered ROUT_ODDS to 1. Nowhere to flee: they're destroyed. */
+export const ROUT_SHARE = 0.25;
+export const ROUT_ODDS = 3;
+export const ROUT_LOSS = 0.1;
+/** How far (hops through their own land) routed units may flee. */
+export const ROUT_HOPS = 3;
 /** At 100 training: damage dealt ×(1 + this), damage taken ×(1 - this). */
 export const TRAINING_DAMAGE = 0.5;
 export const TRAINING_PROTECTION = 0.33;
@@ -241,8 +260,9 @@ export type ProductionBuilding = 'barracks' | 'factory' | 'port';
 export type EconKind = 'farm' | 'mine' | 'well' | 'market' | 'lab';
 export const ECON_KINDS: readonly EconKind[] = ['farm', 'mine', 'well', 'market', 'lab'];
 /** 'city' founds a city, or expands one that's there; 'road' is built across a border. */
-export type BuildingKind = EconKind | 'city' | 'fort' | ProductionBuilding | 'road' | 'depot';
-export const BUILDING_KINDS: readonly BuildingKind[] = ['farm', 'mine', 'well', 'market', 'city', 'fort', 'barracks', 'factory', 'road', 'depot', 'lab', 'port'];
+export type BuildingKind = EconKind | 'city' | 'fort' | ProductionBuilding | 'road' | 'depot' | 'battery';
+/** Order matters: snapshots send a building's index here (new kinds go at the end). */
+export const BUILDING_KINDS: readonly BuildingKind[] = ['farm', 'mine', 'well', 'market', 'city', 'fort', 'barracks', 'factory', 'road', 'depot', 'lab', 'port', 'battery'];
 export const MAX_FORT = 3;
 export const MAX_CITY = 5;
 /** Builds a region can have waiting behind the one under way. */
@@ -339,6 +359,7 @@ export function canBuildOn(kind: BuildingKind, region: Region, city: number): bo
     case 'lab':
       return city > 0;
     case 'port':
+    case 'battery':
       return region.coast.length > 0;
     default:
       return true;
@@ -354,6 +375,7 @@ export const BUILD_NEEDS: Partial<Record<BuildingKind, string>> = {
   factory: 'a city',
   lab: 'a city',
   port: 'a coast',
+  battery: 'a coast',
 };
 
 const res = (money: number, steel = 0): Resources => ({ money, manpower: 0, steel, oil: 0, research: 0 });
@@ -385,6 +407,8 @@ export function buildCost(kind: BuildingKind, level = 1): { cost: Resources; sec
       return { cost: res(150, 30), seconds: 60 };
     case 'port':
       return { cost: res(150, 40), seconds: 90 };
+    case 'battery':
+      return { cost: res(120, 40), seconds: 75 };
   }
 }
 
@@ -546,15 +570,21 @@ export const UNIT_TECH: Partial<Record<UnitType, TechId>> = { tank: 'tanks' };
 export function unitStats(type: UnitType, techs: Techs = []): UnitStats {
   const base = UNITS[type];
   if (!techs.length) return base;
-  const s = { ...base, cost: { ...base.cost } };
+  const s = { ...base, cost: { ...base.cost }, refillCost: { ...base.refillCost } };
   if (type === 'infantry') {
     if (techs.includes('rifles')) s.attack *= 1.2;
-    if (techs.includes('conscription')) s.cost.manpower = Math.round(s.cost.manpower * 0.7);
+    if (techs.includes('conscription')) {
+      s.cost.manpower = Math.round(s.cost.manpower * 0.7);
+      s.refillCost.manpower *= 0.7;
+    }
   }
   if (type === 'tank') {
     if (techs.includes('engines')) s.speed *= 1.2;
     if (techs.includes('armour')) s.defense *= 1.3;
-    if (techs.includes('fuel')) s.cost.oil = Math.round(s.cost.oil * 0.5);
+    if (techs.includes('fuel')) {
+      s.cost.oil = Math.round(s.cost.oil * 0.5);
+      s.refillCost.oil *= 0.5;
+    }
   }
   if (type === 'artillery') {
     if (techs.includes('shells') && s.bombard) s.bombard *= 1.3;

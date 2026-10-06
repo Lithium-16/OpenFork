@@ -725,6 +725,7 @@ const seas: Region[] = Array.from({ length: S }, (_, z) => {
   };
 });
 dedupeNames(seas, new Set());
+joinBasins(seas);
 regions.push(...seas);
 const seaGrid = new Uint16Array(N).fill(WATER);
 for (let i = 0; i < N; i++) if (seaOf[i] !== -1) seaGrid[i] = R + seaOf[i];
@@ -1057,4 +1058,51 @@ function saturate(c: number[], k: number): number[] {
 
 function clamp(v: number): number {
   return Math.max(0, Math.min(255, Math.round(v)));
+}
+
+/**
+ * Straits too narrow for the raster (the Bosporus and Dardanelles at 3 km a pixel) leave a
+ * sea cut off from the rest. Joins every smaller basin to the others through its closest pair
+ * of sea regions, so fleets can sail out of it.
+ */
+function joinBasins(seas: Region[]): void {
+  const byId = new Map(seas.map((s) => [s.id, s]));
+  for (;;) {
+    const basin = new Map<number, number>();
+    let count = 0;
+    for (const s of seas) {
+      if (basin.has(s.id)) continue;
+      const queue = [s.id];
+      basin.set(s.id, count);
+      for (let q = 0; q < queue.length; q++) {
+        for (const n of (byId.get(queue[q]) as Region).neighbors) {
+          if (!basin.has(n.id)) {
+            basin.set(n.id, count);
+            queue.push(n.id);
+          }
+        }
+      }
+      count++;
+    }
+    if (count <= 1) return;
+    const size = new Array<number>(count).fill(0);
+    for (const b of basin.values()) size[b]++;
+    const smallest = size.indexOf(Math.min(...size));
+    let best: [Region, Region] | null = null;
+    let bestDist = Infinity;
+    for (const a of seas) {
+      if (basin.get(a.id) !== smallest) continue;
+      for (const b of seas) {
+        if (basin.get(b.id) === smallest) continue;
+        const d = Math.hypot(a.x - b.x, a.y - b.y);
+        if (d < bestDist) [best, bestDist] = [[a, b], d];
+      }
+    }
+    if (!best) return;
+    const [a, b] = best;
+    const dist = Math.round(bestDist * 10) / 10;
+    a.neighbors.push({ id: b.id, border: 1, river: false, dist });
+    b.neighbors.push({ id: a.id, border: 1, river: false, dist });
+    log(`strait: ${a.name} - ${b.name}`);
+  }
 }

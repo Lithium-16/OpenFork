@@ -15,6 +15,7 @@ import {
   type EconKind,
   LANDING_ATTACK,
   MAX_CITY,
+  MERGE_MIN_STRENGTH,
   OPPORTUNISM,
   type Opportunism,
   RESOURCES,
@@ -230,7 +231,15 @@ export class Bot {
       .filter((x) => x.threat > 0 && regions[x.r].fort < this.style.forts && regions[x.r].supplied && !regions[x.r].construction)
       .sort((a, b) => b.threat - a.threat);
     if (threatened.length && sim.build(this.player, threatened[0].r, 'fort') === null) return;
-
+    // Coastal batteries at ports with enemy ships off them.
+    const shore = mine.find(
+      (r) =>
+        regions[r].port &&
+        !regions[r].battery &&
+        sim.whyNotBuild(this.player, r, 'battery') === null &&
+        sim.world.regions[r].coast.some((c) => sim.blobsIn(c.id).some((x) => UNITS[x.type].naval && sim.atWar(this.player, x.owner))),
+    );
+    if (shore !== undefined && sim.build(this.player, shore, 'battery') === null) return;
 
     const cities = mine.filter((r) => regions[r].city > 0);
     const can = (r: number, kind: BuildingKind, target = -1) => sim.whyNotBuild(this.player, r, kind, target) === null;
@@ -406,8 +415,8 @@ export class Bot {
     const blobs = [...sim.state.blobs.values()].filter((b) => b.owner === this.player);
     if (this.style.merges) this.mergeSmall(sim, blobs);
 
-    // Units stuck at the edge of a full region count as free again.
-    const busy = (b: Blob) => (b.path.length > 0 && b.progress < 1) || (b.progress === 0 && sim.besieged(b.region, b.owner));
+    // Units waiting (the next region is full, or a fleet blocks the sea) count as free again.
+    const busy = (b: Blob) => (b.path.length > 0 && !b.waiting) || sim.besieged(b.region, b.owner);
     let idle = blobs.filter((b) => sim.state.blobs.has(b.id) && !busy(b) && !UNITS[b.type].naval && !sim.world.isSea(b.region));
     // Guns stay out of assaults and land grabs: they go one region behind the front.
     const guns = idle.filter((b) => UNITS[b.type].range);
@@ -574,7 +583,7 @@ export class Bot {
         if (dist[v] >= 0) continue;
         const o = sim.state.regions[v].owner;
         if (o !== NEUTRAL && o !== this.player && !sim.atWar(this.player, o)) continue;
-        if (sim.world.isSea(v) && sim.hostileIn(v, this.player)) continue;
+        if (sim.world.isSea(v) && sim.blockaded(v, this.player)) continue;
         dist[v] = dist[u] + 1;
         queue.push(v);
       }
@@ -586,8 +595,8 @@ export class Bot {
    * way: back to the nearest own land. */
   private turnBackBlockaded(sim: Sim, blobs: Blob[]): void {
     for (const b of blobs) {
-      if (UNITS[b.type].naval || !sim.world.isSea(b.region) || b.progress > 0) continue;
-      if (b.path.length && !sim.hostileIn(b.path[0], this.player)) continue;
+      if (UNITS[b.type].naval || !sim.world.isSea(b.region)) continue;
+      if (b.path.length && !b.waiting) continue;
       const dist = this.seaBfs(sim, b.region);
       let best = -1;
       sim.state.regions.forEach((rs, i) => {
@@ -603,7 +612,7 @@ export class Bot {
    * They stay within supply reach of our ports.
    */
   private navy(sim: Sim, blobs: Blob[]): void {
-    const ships = blobs.filter((b) => UNITS[b.type].naval && sim.state.blobs.has(b.id) && !b.path.length && b.progress === 0);
+    const ships = blobs.filter((b) => UNITS[b.type].naval && sim.state.blobs.has(b.id) && (!b.path.length || b.waiting));
     if (!ships.length) return;
     const regions = sim.state.regions;
     const ports = regions.flatMap((rs, i) => (rs.port && rs.owner === this.player ? [i] : []));
@@ -643,7 +652,11 @@ export class Bot {
       if (b.strength < 0.5 * b.size) {
         // Mend in port.
         if (home >= 0) continue;
-        go = ports.find((p) => sim.world.regions[p].coast.some((c) => c.id === b.region)) ?? ports[0];
+        // The nearest port it can actually sail to (seas can be separate basins).
+        go =
+          ports.find((p) => sim.world.regions[p].coast.some((c) => c.id === b.region)) ??
+          ports.find((p) => sim.route(b.type, this.player, b.training, b.region, p) !== null) ??
+          -1;
       } else if (go < 0) {
         // Peacetime: off the nearest port.
         if (sim.world.isSea(b.region) && reach.get(b.region) === 0) continue;
@@ -810,7 +823,7 @@ export class Bot {
   private mergeSmall(sim: Sim, blobs: Blob[]): void {
     const groups = new Map<string, Blob[]>();
     for (const b of blobs) {
-      if (b.progress > 0 || b.path.length) continue;
+      if (b.progress > 0 || b.path.length || sim.inFight(b) || b.strength < MERGE_MIN_STRENGTH * b.size) continue;
       const k = `${b.region}:${b.type}`;
       groups.set(k, [...(groups.get(k) ?? []), b]);
     }

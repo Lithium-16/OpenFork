@@ -246,6 +246,20 @@ export const ICONS = {
     ],
     { r: '#b5653a', y: '#c19a5b' },
   ),
+  /** Coastal battery: a big gun on a concrete emplacement, over the waves. */
+  battery: art(
+    [
+      '......OOOOO',
+      '..OOOOGGGGO',
+      '.OGGGGOOOOO',
+      'OGGgGGGO...',
+      'OOOOOOOOO..',
+      'OcccccccO..',
+      'OOOOOOOOO..',
+      '.B.B.B.B.B.',
+    ],
+    { c: '#9a9a8e', B: '#3f6f9e' },
+  ),
   fort: art([
     'OOO.OOO.OOO',
     'OGO.OGO.OGO',

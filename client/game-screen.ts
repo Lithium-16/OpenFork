@@ -4,6 +4,7 @@ import type { BlobRow, GameEvent, GamePlayer, Order, ProductionView, Snapshot } 
 import { BUILDING_INDEX, UNIT_INDEX } from '../shared/protocol.ts';
 import {
   BASE_RESEARCH,
+  BATTERY_LANDING_BONUS,
   BUILD_NEEDS,
   BUILD_QUEUE,
   type BuildingKind,
@@ -61,18 +62,14 @@ const BUILD_LABEL: Record<BuildingKind, string> = {
   depot: 'Depot',
   lab: 'Lab',
   port: 'Port',
+  battery: 'Coast guns',
 };
-/** The build bar, in groups; hotkeys 1-9 then - follow this order. */
-const BAR: Array<{ group: string; kinds: BuildingKind[] }> = [
-  { group: 'Economy', kinds: ['farm', 'mine', 'well', 'market', 'lab'] },
-  { group: 'City', kinds: ['city'] },
-  { group: 'Military', kinds: ['fort', 'barracks', 'factory'] },
-  { group: 'Logistics', kinds: ['road', 'depot'] },
-  { group: 'Sea', kinds: ['port'] },
+/** The build bar's tabs; in the open one, keys 1-9 pick its buildings in this order. */
+const TABS: Array<{ name: string; kinds: BuildingKind[] }> = [
+  { name: 'Economy', kinds: ['farm', 'mine', 'well', 'market', 'lab', 'city', 'depot', 'road'] },
+  { name: 'Military', kinds: ['fort', 'barracks', 'factory'] },
+  { name: 'Naval', kinds: ['port', 'battery'] },
 ];
-const HOTKEYS: BuildingKind[] = BAR.flatMap((g) => g.kinds);
-/** The key for each of HOTKEYS. */
-const HOTKEY_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '-', '=', 'p'];
 /** Region row fields of the economic buildings. */
 const ECON_FIELD: Record<EconKind, number> = { farm: 9, mine: 10, well: 11, market: 12, lab: 14 };
 const tech = (id: TechId): Tech => TECHS.find((t) => t.id === id) as Tech;
@@ -94,6 +91,7 @@ const BUILD_HELP: Record<BuildingKind, string> = {
   barracks: 'Barracks: trains infantry (Q). In a city.',
   factory: 'Factory: builds tanks (E) and artillery (R). In a city.',
   port: 'Port: builds warships (F); your troops board here to cross the sea, and ships mend and resupply here. On a coast.',
+  battery: `Coastal battery: shells enemy ships and troops at sea off this coast, and defenders get +${BATTERY_LANDING_BONUS * 100}% against landings. On a coast.`,
   road: 'Road: drag across your regions. Crossing is faster and supply reaches further.',
   lab: `Lab: +${gives('lab')} research points/s for the tech tree (without labs a country makes ${BASE_RESEARCH}/s). In a city.`,
   depot: `Depot: stores ${STORE_PER_DEPOT.money} more money and manpower, ${STORE_PER_DEPOT.steel} more steel and oil (cities store ${STORE_PER_CITY_LEVEL.money} / ${STORE_PER_CITY_LEVEL.steel} per level). Anywhere you own; if it's taken, the enemy takes its share of your stock.`,
@@ -114,6 +112,8 @@ export class GameScreen {
   /** The region under the cursor. */
   private hover = -1;
   private buildbarKey = '';
+  /** The build bar's open tab. */
+  private tab = 0;
   private researchOpen = false;
   private researchKey = '';
   /** Where the building being placed can go: worked out once per snapshot. */
@@ -123,6 +123,7 @@ export class GameScreen {
   /** The region panel's Details fold is open. */
   private detailsOpen = false;
   private slotCache: { snap: Snapshot; map: Map<number, [number, number]> } | null = null;
+  private attackedCache: { snap: Snapshot; set: Set<number> } | null = null;
   private miniSnap: Snapshot | null = null;
   private miniCam = '';
   private miniAt = 0;
@@ -512,6 +513,12 @@ export class GameScreen {
     }
     // Build bar and the region panel's cancel buttons: also act on press (redrawn often).
     on($('#buildbar'), 'pointerdown', (e: PointerEvent) => {
+      const tab = (e.target as HTMLElement).closest('[data-tab]') as HTMLElement | null;
+      if (tab) {
+        e.preventDefault();
+        this.setTab(Number(tab.dataset.tab));
+        return;
+      }
       const b = (e.target as HTMLElement).closest('[data-kind]') as HTMLElement | null;
       if (!b) return;
       e.preventDefault();
@@ -758,7 +765,12 @@ export class GameScreen {
   }
 
   private async order(x: number, y: number): Promise<void> {
-    const to = this.view.regionAt(x, y);
+    let to = this.view.regionAt(x, y);
+    // Only ships selected: a click on land (not your port) or open water means the sea nearby.
+    const ships = [...this.selected].every((id) => this.snap?.blobs.find((b) => b[0] === id)?.[2] === UNIT_INDEX.indexOf('warship'));
+    if (ships && this.snap && (to < 0 || (!this.map.regions[to].sea && !(this.snap.regions[to][0] === this.you && this.snap.regions[to][3] & 8)))) {
+      to = this.view.seaNear(x, y);
+    }
     if (to < 0 || this.selected.size === 0) return;
     const blobs = [...this.selected];
     const owner = this.snap?.regions[to][0] ?? -1;
@@ -861,9 +873,11 @@ export class GameScreen {
       e.preventDefault();
       this.centreOnCapital();
     } else if (k >= '1' && k <= '9' && k.length === 1) {
-      this.setPlacing(HOTKEYS[Number(k) - 1]);
-    } else if (k === '-' || k === '=' || k === 'p') {
-      this.setPlacing(HOTKEYS[HOTKEY_KEYS.indexOf(k)]);
+      const kind = TABS[this.tab].kinds[Number(k) - 1];
+      if (kind) this.setPlacing(kind);
+    } else if (k === 'tab') {
+      e.preventDefault();
+      this.setTab((this.tab + (e.shiftKey ? TABS.length - 1 : 1)) % TABS.length);
     } else if (k === 'q' && this.region >= 0) {
       this.send({ o: 'produce', region: this.region, building: 'barracks' });
     } else if (k === 'e' && this.region >= 0) {
@@ -911,8 +925,19 @@ export class GameScreen {
 
   // -- placement mode ---------------------------------------------------------------------------
 
+  /** Opens a tab of the build bar (leaving placement mode for a building on another tab). */
+  private setTab(tab: number): void {
+    this.tab = tab;
+    if (this.placing && !TABS[tab].kinds.includes(this.placing)) this.setPlacing(null);
+    this.renderBuildbar();
+  }
+
   /** Enters placement mode for a building, or leaves it (same building again, or null). */
   private setPlacing(kind: BuildingKind | null): void {
+    if (kind) {
+      const tab = TABS.findIndex((t) => t.kinds.includes(kind));
+      if (tab >= 0) this.tab = tab;
+    }
     this.placing = kind === this.placing ? null : kind;
     if (this.placing && this.you === null) this.placing = null;
     this.roadPath = null;
@@ -988,7 +1013,7 @@ export class GameScreen {
   /** Slots taken in a region, counting builds under way and waiting (mirrors Sim.slotsUsed). */
   private slotsUsed(region: number): number {
     const rr = (this.snap as Snapshot).regions[region];
-    let n = rr[9] + rr[10] + rr[11] + rr[12] + rr[13] + rr[14] + (rr[1] > 0 ? 1 : 0) + (rr[3] & 1 ? 1 : 0) + (rr[3] & 2 ? 1 : 0);
+    let n = rr[9] + rr[10] + rr[11] + rr[12] + rr[13] + rr[14] + (rr[1] > 0 ? 1 : 0) + (rr[3] & 1 ? 1 : 0) + (rr[3] & 2 ? 1 : 0) + (rr[3] & 8 ? 1 : 0) + (rr[3] & 16 ? 1 : 0);
     let fort = rr[1] > 0;
     for (const [kind] of this.pending(region)) {
       if (kind === 'fort') {
@@ -1039,19 +1064,22 @@ export class GameScreen {
     const map = this.map.regions[region];
     if (rr[0] !== this.you) return 'not your region';
     if (!(rr[3] & 4)) return 'region is out of supply';
+    if (this.attacked().has(region)) return 'region is under attack';
     if (!canBuildOn(kind, map, rr[2])) return `a ${BUILD_LABEL[kind].toLowerCase()} needs ${BUILD_NEEDS[kind]}`;
     const pending = this.pending(region);
     if (ECON_KINDS.includes(kind as EconKind) && !this.near(region, HINTERLAND_HOPS).some((r) => snap.regions[r][0] === this.you && snap.regions[r][2] > 0)) {
       return `only within ${HINTERLAND_HOPS} regions of one of your cities`;
     }
     if (kind === 'fort' && this.nextLevel(kind, region) > MAX_FORT) return 'the fort is at its highest level';
-    if ((kind === 'barracks' || kind === 'factory') && (rr[3] & (kind === 'barracks' ? 1 : 2) || pending.some(([k]) => k === kind))) {
-      return `already has a ${kind}`;
+    const flag: Partial<Record<BuildingKind, number>> = { barracks: 1, factory: 2, port: 8, battery: 16 };
+    if (flag[kind] && (rr[3] & (flag[kind] as number) || pending.some(([k]) => k === kind))) {
+      return `already has a ${BUILD_LABEL[kind].toLowerCase()}`;
     }
     if (kind === 'city') {
       const level = this.nextLevel(kind, region);
       if (level > MAX_CITY) return 'the city is at its highest level';
-      if (level === 1 && this.near(region, FOUND_CITY_MIN_HOPS - 1).some((r) => r !== region && snap.regions[r][2] > 0)) return 'too close to another city';
+      const city = (r: number) => snap.regions[r][2] > 0 || this.pending(r).some(([k]) => k === 'city');
+      if (level === 1 && this.near(region, FOUND_CITY_MIN_HOPS - 1).some((r) => r !== region && city(r))) return 'too close to another city';
     }
     if (kind === 'road' && target >= 0) {
       if (!map.neighbors.some((n) => n.id === target)) return 'a road needs a neighbouring region';
@@ -1063,8 +1091,32 @@ export class GameScreen {
     const needsSlot = kind !== 'city' && kind !== 'road' && !(kind === 'fort' && (rr[1] > 0 || pending.some(([k]) => k === 'fort')));
     if (needsSlot && this.slotsUsed(region) >= slotsOf(map, rr[2])) return 'no free slot';
     if (rr[6] >= 0 && pending.length - 1 >= BUILD_QUEUE) return 'build queue is full';
-    if (!afford(this.resources(), buildCost(kind, this.nextLevel(kind, region)).cost)) return 'not enough resources';
+    const cost = buildCost(kind, this.nextLevel(kind, region)).cost;
+    if (!afford(this.resources(), cost)) {
+      // More than the stores hold: no amount of waiting will do.
+      const cap = snap.players[this.you].cap;
+      if (RESOURCES.some((k, i) => cost[k] > cap[i])) return 'costs more than your stores hold: build a depot';
+      return 'not enough resources';
+    }
     return null;
+  }
+
+  /** Regions fought over or being taken (no building there), once per snapshot. */
+  private attacked(): Set<number> {
+    const snap = this.snap as Snapshot;
+    if (this.attackedCache?.snap === snap) return this.attackedCache.set;
+    const set = new Set<number>();
+    const atWar = (a: number, b: number) => snap.wars.some(([x, y]) => (x === a && y === b) || (x === b && y === a));
+    snap.regions.forEach((rr, i) => {
+      if (rr[4] >= 0 && rr[4] !== rr[0]) set.add(i);
+    });
+    for (const b of snap.blobs) {
+      const owner = snap.regions[b[6]][0];
+      if (owner >= 0 && atWar(b[1], owner)) set.add(b[6]);
+      if (b[11] & 4 && b[7] >= 0 && snap.regions[b[7]][0] >= 0 && atWar(b[1], snap.regions[b[7]][0])) set.add(b[7]);
+    }
+    this.attackedCache = { snap, set };
+    return set;
   }
 
   /** Slots of each of your regions, [used, all] (once per snapshot). */
@@ -1120,15 +1172,15 @@ export class GameScreen {
     const cell = (kind: BuildingKind) => {
       const { cost, seconds } = buildCost(kind, 1);
       const poor = !afford(res, cost);
-      return { kind, n: HOTKEY_KEYS[HOTKEYS.indexOf(kind)] ?? '', name: BUILD_LABEL[kind], cost, seconds, poor };
+      return { kind, n: String(TABS[this.tab].kinds.indexOf(kind) + 1), name: BUILD_LABEL[kind], cost, seconds, poor };
     };
-    const groups = BAR.map((g) => ({ group: g.group, cells: g.kinds.map(cell) }));
+    const groups = [{ group: TABS[this.tab].name, cells: TABS[this.tab].kinds.map(cell) }];
     const slots = mine >= 0 ? `${this.map.regions[mine].name}: ${this.slotsUsed(mine)}/${slotsOf(this.map.regions[mine], snap.regions[mine][2])} slots` : '';
     // Redrawn only when something on it changed (what you can afford included).
     const can = RESOURCES.map((k) => groups.map((g) => g.cells.map((c) => res[k] >= c.cost[k])));
     // Only while placing: what it does, here, on one line above the dock (no hover popups).
     const about = this.placing;
-    const key = `${this.placing}|${about}|${slots}|${JSON.stringify(groups)}|${JSON.stringify(can)}`;
+    const key = `${this.tab}|${this.placing}|${about}|${slots}|${JSON.stringify(groups)}|${JSON.stringify(can)}`;
     if (key === this.buildbarKey) return;
     this.buildbarKey = key;
     // A dock of buttons, each with its cost under its name. While placing, one line above says
@@ -1170,14 +1222,14 @@ export class GameScreen {
           el('span', { class: 'time' }, [`${c.seconds}s`]),
         ],
       );
-    bar.replaceChildren(
-      ...strip,
-      el(
-        'div',
-        { class: 'slots' },
-        groups.flatMap((g, i) => [...(i ? [el('i', { class: 'sep' })] : []), ...g.cells.map(slot)]),
+    const tabs = el(
+      'div',
+      { class: 'tabs', role: 'tablist' },
+      TABS.map((t, i) =>
+        el('button', { class: `tab${i === this.tab ? ' on' : ''}`, 'data-tab': String(i), role: 'tab', 'aria-selected': String(i === this.tab) }, [t.name]),
       ),
     );
+    bar.replaceChildren(...strip, tabs, el('div', { class: 'slots' }, groups.flatMap((g) => g.cells.map(slot))));
   }
 
   /** Selects all your units standing in a region (Shift adds to the selection). */
@@ -1370,6 +1422,10 @@ export class GameScreen {
           this.say(`${name(e.by)} took ${region(e.region)}${from}`, [`took:${e.by}:${e.from}`, `${name(e.by)} took `, region(e.region), from]);
         }
         break;
+      case 'routed':
+        if (e.owner === this.you) text = `Our troops at ${region(e.region)} broke and fled`;
+        else if (e.by === this.you) text = `${name(e.owner)}'s defenders at ${region(e.region)} broke and fled`;
+        break;
       case 'looted': {
         const what = RESOURCES.filter((k) => e.got[k] >= 1).map((k) => `${Math.floor(e.got[k])} ${k}`).join(', ');
         if (what && e.by === this.you) text = `Seized ${what} in ${region(e.region)}`;
@@ -1500,8 +1556,21 @@ export class GameScreen {
   /** One unit; `inRegion`: listed under that region, so standing there goes unsaid. */
   private unitRow(b: BlobRow, selectable: boolean, inRegion = -1): HTMLElement {
     const type = UNIT_INDEX[b[2]];
+    // Attacking enemies next door, or taking empty land from the border.
+    const fought = (r: number) => !!this.snap?.blobs.some((x) => x[6] === r && this.atWar(x[1], b[1]));
+    const next = b[7] >= 0 ? this.map.regions[b[7]].name : '';
     const where =
-      b[8] > 0 ? `to ${this.map.regions[b[7]].name}` : b[11] & 4 && b[7] >= 0 ? `attacking ${this.map.regions[b[7]].name}` : b[6] === inRegion ? '' : this.map.regions[b[6]].name;
+      b[8] > 0
+        ? `to ${next}`
+        : b[11] & 4 && b[7] >= 0
+          ? `${fought(b[7]) ? 'attacking' : 'taking'} ${next}`
+          : b[13] >= 0
+            ? `shelling ${this.map.regions[b[13]].name}`
+            : b[11] & 1 && b[7] >= 0
+              ? `waiting to go to ${next}`
+              : b[6] === inRegion
+                ? ''
+                : this.map.regions[b[6]].name;
     // Only what's worth saying: full supply, no training and not dug in go unmentioned.
     const status: string[] = [];
     if (b[5] > 0) status.push(`trained ${b[5]}`);
@@ -1610,7 +1679,7 @@ export class GameScreen {
     }
     // The stack cap counts every token in the region, moving out or waiting included.
     const myCount = snap.blobs.filter((b) => b[6] === region.id && b[1] === this.you).length;
-    const used = rr[9] + rr[10] + rr[11] + rr[12] + rr[13] + rr[14] + (rr[1] > 0 ? 1 : 0) + (rr[3] & 1 ? 1 : 0) + (rr[3] & 2 ? 1 : 0) + (rr[3] & 8 ? 1 : 0);
+    const used = rr[9] + rr[10] + rr[11] + rr[12] + rr[13] + rr[14] + (rr[1] > 0 ? 1 : 0) + (rr[3] & 1 ? 1 : 0) + (rr[3] & 2 ? 1 : 0) + (rr[3] & 8 ? 1 : 0) + (rr[3] & 16 ? 1 : 0);
     // The essentials up front; the rest folds under Details (remembered while you play).
     const info: Array<[string, string]> = [
       ['Owner', owner >= 0 ? (this.players[owner]?.name ?? '?') : 'Neutral'],
@@ -1645,6 +1714,7 @@ export class GameScreen {
       if (rr[3] & 1) built.push(['barracks', 'Barracks']);
       if (rr[3] & 2) built.push(['factory', 'Factory']);
       if (rr[3] & 8) built.push(['port', 'Port']);
+      if (rr[3] & 16) built.push(['battery', 'Coast guns']);
       for (let i = 0; i < rr[13]; i++) built.push(['depot', 'Depot']);
       // One wrapped row: each building's name with × to demolish it.
       if (built.length) {
