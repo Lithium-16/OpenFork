@@ -25,7 +25,7 @@ export interface Particle {
   ambient?: boolean;
 }
 
-const MAX_PARTICLES = 400;
+const MAX_PARTICLES = 900;
 
 export class Fx {
   level: 'full' | 'reduced' = 'full';
