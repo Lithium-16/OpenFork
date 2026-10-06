@@ -659,49 +659,84 @@ export class MapView {
     return r.cityAt ?? [r.x, r.y];
   }
 
-  /** Where a town's houses go, in order: [x, y, variant]. Spots are picked by a seeded
-   * scatter that's densest in the middle, plus spots along the roads leaving the town; houses
-   * may touch side by side, rows keep a pixel apart, and all stay on the region's land. */
-  private townLots(region: number, snap: Snapshot): Array<[number, number, number]> {
+  /**
+   * A city's buildings at its level, as [sprite, x, y] back to front. From the middle out:
+   * skyscrapers (a landmark tower at level 5), office towers, apartment blocks, then houses,
+   * which also line the roads out of town. Each level adds a ring and builds higher:
+   *   1: 5 houses · 2: + 3 blocks · 3: + 2 offices · 4: + 2 skyscrapers · 5: a skyline.
+   * Spots come from a seeded scatter densest in the middle; buildings may touch side by side,
+   * keep a pixel between rows (their bases; tall ones rise over what's behind), and stand on
+   * the region's land.
+   */
+  private townLots(region: number, snap: Snapshot, level: number): Array<[Sprite, number, number]> {
     const roads = snap.roads.filter(([a, b]) => a === region || b === region).map(([a, b]) => (a === region ? b : a));
-    const key = `${region}|${roads.join(',')}`;
+    const key = `${region}|${level}|${roads.join(',')}`;
     const cached = this.lotCache.get(region);
     if (cached && cached.key === key) return cached.lots;
-    const [cx, cy] = this.townAt(region);
-    const rand = seeded(region * 9973 + 17);
-    const taken: Array<[number, number, number, number]> = [];
-    const lots: Array<[number, number, number]> = [];
-    const tryAt = (x: number, y: number) => {
-      x = Math.round(x);
-      y = Math.round(y);
-      // Room for a tower (3×5 from y - 2) or a house (3×3), with a pixel between neighbours.
-      if (!this.within(region, x, y - 2, 3, 5)) return;
-      // Houses may touch side by side (a street), with a pixel between rows.
-      if (taken.some(([tx, ty, tw, th]) => x < tx + tw && x + 3 > tx && y - 2 < ty + th + 1 && y + 3 + 1 > ty)) return;
-      taken.push([x, y - 2, 3, 5]);
-      lots.push([x - 1, y - 1, Math.floor(rand() * 3)]);
+    const plan: Record<number, [number, number, number, number, number]> = {
+      // landmark, skyscrapers, offices, blocks, houses
+      1: [0, 0, 0, 0, 5],
+      2: [0, 0, 0, 3, 6],
+      3: [0, 0, 2, 5, 7],
+      4: [0, 2, 3, 7, 8],
+      5: [1, 3, 4, 9, 9],
     };
-    // Along the roads: a few spots on the way out of town.
-    const ribbons = roads.map((o) => this.roadPixels(region, o).filter(([x, y]) => this.landOf(x, y) === region));
-    for (let n = 0; n < 140; n++) {
-      // The core: a scatter densest in the middle, growing outward with n.
-      const reach = 2 + Math.sqrt(n) * 1.5;
-      const a = rand() * Math.PI * 2;
-      const d = Math.sqrt(rand()) * reach;
-      tryAt(cx + Math.cos(a) * d, cy + Math.sin(a) * d * 0.8);
-      // Every few, one beside a road, nearest the town first.
-      if (n % 4 === 3) {
-        const road = ribbons[n % Math.max(1, ribbons.length)];
-        const step = 4 + Math.floor(n / 4) * 2;
-        const p = road?.[Math.min(road.length - 1, step)];
-        if (p) tryAt(p[0] + (rand() < 0.5 ? -4 : 2), p[1] - 1);
+    const [nl, ns, no, nb, nh] = plan[Math.min(5, Math.max(1, level))];
+    const want: Sprite[] = [];
+    const rand = seeded(region * 9973 + 17);
+    const pick = <T,>(xs: T[]) => xs[Math.floor(rand() * xs.length)];
+    for (let k = 0; k < nl; k++) want.push(MAP_ART.landmark);
+    for (let k = 0; k < ns; k++) want.push(pick(MAP_ART.skyscraper));
+    for (let k = 0; k < no; k++) want.push(pick(MAP_ART.office));
+    for (let k = 0; k < nb; k++) want.push(pick(MAP_ART.blocks));
+    const houses = Array.from({ length: nh }, () => pick(MAP_ART.houses));
+    const [cx, cy] = this.townAt(region);
+    const bases: Array<[number, number, number, number]> = [];
+    const lots: Array<[Sprite, number, number]> = [];
+    // A building's base is its bottom 3 rows; it stands on (x, y) = the base's top left.
+    const tryAt = (sprite: Sprite, x: number, y: number): boolean => {
+      x = Math.round(x - sprite.width / 2);
+      y = Math.round(y - 1);
+      const w = sprite.width;
+      if (!this.within(region, x, y, w, 3)) return false;
+      if (bases.some(([bx, by, bw, bh]) => x < bx + bw && x + w > bx && y < by + bh + 1 && y + 3 + 1 > by)) return false;
+      bases.push([x, y, w, 3]);
+      lots.push([sprite, x, y + 3 - sprite.height]);
+      return true;
+    };
+    // The core, tallest first, from a scatter that widens as it goes.
+    let n = 0;
+    for (const sprite of want) {
+      for (let tries = 0; tries < 60; tries++, n++) {
+        const reach = 1 + Math.sqrt(n) * 1.4;
+        const a = rand() * Math.PI * 2;
+        const d = Math.sqrt(rand()) * reach;
+        if (tryAt(sprite, cx + Math.cos(a) * d, cy + Math.sin(a) * d * 0.8)) break;
       }
     }
+    // Houses: the outskirts, and along the roads out of town.
+    const ribbons = roads.map((o) => this.roadPixels(region, o).filter(([x, y]) => this.landOf(x, y) === region));
+    let h = 0;
+    for (let tries = 0; h < houses.length && tries < 200; tries++, n++) {
+      const road = ribbons.length && tries % 3 === 2 ? ribbons[tries % ribbons.length] : null;
+      let ok: boolean;
+      if (road) {
+        const p = road[Math.min(road.length - 1, 6 + tries)];
+        ok = !!p && tryAt(houses[h], p[0] + (rand() < 0.5 ? -3 : 3), p[1]);
+      } else {
+        const reach = 1 + Math.sqrt(n) * 1.4;
+        const a = rand() * Math.PI * 2;
+        const d = Math.sqrt(rand()) * reach;
+        ok = tryAt(houses[h], cx + Math.cos(a) * d, cy + Math.sin(a) * d * 0.8);
+      }
+      if (ok) h++;
+    }
+    lots.sort((p, q) => p[2] + p[0].height - (q[2] + q[0].height));
     this.lotCache.set(region, { key, lots });
     return lots;
   }
 
-  private readonly lotCache = new Map<number, { key: string; lots: Array<[number, number, number]> }>();
+  private readonly lotCache = new Map<number, { key: string; lots: Array<[Sprite, number, number]> }>();
   private readonly roadCache = new Map<string, Array<[number, number]>>();
 
   /** The pixels of the road between two regions' towns, through the middle of their border. */
@@ -908,14 +943,8 @@ export class MapView {
       // same order every time, so a growing town only adds houses.
       const level = r[2];
       if (level <= 0) return;
-      const houses = 2 + 3 * level;
-      const lots = this.townLots(i, snap);
-      for (let k = 0; k < Math.min(houses, lots.length); k++) {
-        const [x, y, v] = lots[k];
-        const tall = level >= 3 && k < level - 1;
-        const sprite = tall ? MAP_ART.tower : MAP_ART.houses[v % MAP_ART.houses.length];
-        ctx.drawImage(sprite, x, tall ? y - 2 : y);
-      }
+      // Back to front, so taller buildings stand behind the ones below them.
+      for (const [sprite, x, y] of this.townLots(i, snap, level)) ctx.drawImage(sprite, x, y);
     });
   }
 

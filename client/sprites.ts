@@ -336,9 +336,38 @@ const LAND = {
   A: '#b5483e', // awning
 };
 
+/** Modern buildings: concrete, flat roofs, glass and windows. */
+const CITY = {
+  ...LAND,
+  C: '#cfcdc6', // concrete
+  c: '#8a877f', // concrete in shade
+  F: '#b9b5aa', // flat roof
+  f: '#8f8b81',
+  W: '#56758f', // window
+  w: '#e3cf7a', // lit window
+  G: '#8fb7d4', // glass, lit
+  g: '#3f5e7a', // glass in shade
+  k: '#3d434a', // base, spire
+};
+
 export const MAP_ART = {
   houses: [art(['RRR', 'HHH', 'HdH'], LAND), art(['rrr', 'HHH', 'HHd'], LAND), art(['.R.', 'RRR', 'HdH'], LAND)],
   tower: art(['.S.', 'SSS', 'SsS', 'SSS', 'SsS'], LAND),
+  /** Apartment blocks (4×4): the middle ring of a city from level 2. Lit on the left, the
+   * right side in shade, so they read as boxes. */
+  blocks: [
+    art(['FFFf', 'CWCc', 'CCCc', 'CWCc'], CITY),
+    art(['FFFf', 'WCWc', 'CCCc', 'WCwc'], CITY),
+    art(['.FFf', 'CWCc', 'CCCc', 'CwCc'], CITY),
+  ],
+  /** Office towers (3×6): the centre from level 3. */
+  office: [art(['GGg', 'Gwg', 'GGg', 'GWg', 'Gwg', 'kkk'], CITY), art(['FFf', 'WCc', 'CCc', 'WCc', 'wCc', 'kkk'], CITY)],
+  /** Skyscrapers (3×9) from level 4, and a landmark tower (4×12) at the heart of a capital-size city. */
+  skyscraper: [
+    art(['.k.', 'GGg', 'Gwg', 'GGg', 'GWg', 'GGg', 'Gwg', 'GGg', 'kkk'], CITY),
+    art(['GGg', 'GWg', 'GGg', 'Gwg', 'GGg', 'GWg', 'GGg', 'Gwg', 'kkk'], CITY),
+  ],
+  landmark: art(['.k..', '.k..', 'GGGg', 'GwGg', 'GGWg', 'GGGg', 'GWwg', 'GGGg', 'GwGg', 'GGWg', 'GGGg', 'kkkk'], CITY),
   farm: art(['YYYYYY', 'TTTTTT', 'YYYYYY', 'TTTTTT'], LAND),
   mine: art(['.KKK.', '.K.K.', 'KKKKK', 'kkkkk'], LAND),
   well: art(['.K.', '.K.', 'KKK', 'K.K', 'KKK'], LAND),
