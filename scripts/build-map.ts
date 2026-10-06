@@ -604,7 +604,9 @@ dedupeNames(regions, new Set(regions.filter((r) => names[r.id]).map((r) => r.id)
 
 // Open sea: water that isn't inside any country (so not lakes), in bodies big enough, and
 // not the Caspian (east of 45°E). Each body is split into compact sea regions: k-means
-// seeds, grown outward through the water so every sea region is one piece.
+// seeds, grown outward through the water so every sea region is one piece. The growth runs
+// over a noisy cost, so the borders between sea regions wander like real ones instead of
+// running straight.
 const admin0 = await naturalEarth('ne_10m_admin_0_countries');
 const land0 = new Uint8Array(N);
 for (const f of admin0) for (const rings of polygons(f.geometry)) fillPolygon(grid, rings, (i) => (land0[i] = 1));
@@ -658,14 +660,7 @@ let S = 0;
     });
     const inBody = new Uint8Array(N);
     for (const i of px) inBody[i] = 1;
-    for (let q = 0; q < queue.length; q++) {
-      for (const j of neighbors4(queue[q], W, H)) {
-        if (inBody[j] && seaOf[j] === -1) {
-          seaOf[j] = seaOf[queue[q]];
-          queue.push(j);
-        }
-      }
-    }
+    growNoisy(queue, (j) => inBody[j] === 1 && seaOf[j] === -1, (j, from) => (seaOf[j] = seaOf[from]));
     S += k;
   }
 }
@@ -818,6 +813,92 @@ console.log(`  traits: ${tally((r) => r.traits.join('+') || '-')}`);
 console.log(`  river borders: ${regions.reduce((s, r) => s + r.neighbors.filter((n) => n.river).length, 0) / 2}`);
 
 // -- helpers ---------------------------------------------------------------------------------
+
+/**
+ * Grows regions from `seeds` like a flood, cheapest first, where crossing a pixel costs more
+ * or less by smooth noise: borders meet where the costs balance, which wanders instead of
+ * making the straight lines of an even flood. `free(j)` says a pixel can be taken, `take(j,
+ * from)` gives it the region of the pixel it was reached from.
+ */
+function growNoisy(seeds: number[], free: (j: number) => boolean, take: (j: number, from: number) => void): void {
+  const cost = new Float64Array(N).fill(Infinity);
+  // A binary heap of [cost, pixel].
+  const heap: Array<[number, number]> = [];
+  const push = (c: number, i: number) => {
+    heap.push([c, i]);
+    for (let n = heap.length - 1; n > 0; ) {
+      const p = (n - 1) >> 1;
+      if (heap[p][0] <= heap[n][0]) break;
+      [heap[p], heap[n]] = [heap[n], heap[p]];
+      n = p;
+    }
+  };
+  const pop = (): [number, number] => {
+    const top = heap[0];
+    const last = heap.pop() as [number, number];
+    if (heap.length) {
+      heap[0] = last;
+      for (let n = 0; ; ) {
+        const l = 2 * n + 1;
+        const r = l + 1;
+        let m = n;
+        if (l < heap.length && heap[l][0] < heap[m][0]) m = l;
+        if (r < heap.length && heap[r][0] < heap[m][0]) m = r;
+        if (m === n) break;
+        [heap[m], heap[n]] = [heap[n], heap[m]];
+        n = m;
+      }
+    }
+    return top;
+  };
+  for (const sd of seeds) {
+    cost[sd] = 0;
+    push(0, sd);
+  }
+  while (heap.length) {
+    const [c, i] = pop();
+    if (c > cost[i]) continue;
+    for (const j of neighbors4(i, W, H)) {
+      if (!free(j)) continue;
+      const nc = c + 0.2 + 9 * fbm(j % W, Math.floor(j / W)) ** 2;
+      if (nc < cost[j]) {
+        cost[j] = nc;
+        take(j, i);
+        push(nc, j);
+      }
+    }
+  }
+}
+
+/** Smooth noise in [0, 1): value noise over a few octaves (deterministic). */
+function fbm(x: number, y: number): number {
+  let sum = 0;
+  let amp = 0.5;
+  let f = 1 / 48;
+  for (let o = 0; o < 4; o++) {
+    sum += amp * valueNoise(x * f, y * f, o);
+    amp *= 0.5;
+    f *= 2;
+  }
+  return sum / 0.9375;
+}
+
+function valueNoise(x: number, y: number, seed: number): number {
+  const x0 = Math.floor(x);
+  const y0 = Math.floor(y);
+  const sx = x - x0;
+  const sy = y - y0;
+  const u = sx * sx * (3 - 2 * sx);
+  const v = sy * sy * (3 - 2 * sy);
+  const h = (a: number, b: number) => {
+    let n = (a * 374761393 + b * 668265263 + seed * 2147483647) | 0;
+    n = Math.imul(n ^ (n >>> 13), 1274126177);
+    return ((n ^ (n >>> 16)) >>> 0) / 4294967296;
+  };
+  const top = h(x0, y0) + (h(x0 + 1, y0) - h(x0, y0)) * u;
+  const bot = h(x0, y0 + 1) + (h(x0 + 1, y0 + 1) - h(x0, y0 + 1)) * u;
+  return top + (bot - top) * v;
+}
 
 function neighbors4(i: number, w: number, h: number): number[] {
   const x = i % w;
