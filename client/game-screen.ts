@@ -170,6 +170,7 @@ export class GameScreen {
     $('#menu').classList.add('hidden');
     $('#menu-resume').onclick = () => this.toggleMenu(false);
     $('#menu-surrender').onclick = () => void this.surrender();
+    $('#menu-save').onclick = () => this.net.send({ t: 'game.save' });
     $('#menu-leave').onclick = () => void this.leaveAsked();
     // UI size: one scale for every box on the map, remembered on this browser.
     this.setUiScale(Number(stored(UI_SCALE)) || 1);
@@ -231,6 +232,8 @@ export class GameScreen {
     const id = this.you !== null ? this.players[this.you]?.country : '';
     const country = this.map.countries.find((c) => c.id === id)?.name ?? 'your country';
     ($('#menu-surrender') as HTMLButtonElement).classList.toggle('hidden', !this.playing);
+    // Only a game you're alone in can be saved.
+    $('#menu-save').classList.toggle('hidden', !(this.solo && this.playing));
     $('#menu-note').textContent = this.playing
       ? `Leaving hands ${country} to a bot, which plays on. Surrendering ends ${country}: its land goes neutral and its units disband, and you watch the rest.`
       : 'You are watching. Leaving takes you back to the main menu.';

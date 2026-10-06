@@ -1,5 +1,6 @@
 // Checks untrusted client messages. Anything malformed comes back as null.
 import type { ClientMessage, LobbySettings, Order } from '../../shared/protocol.ts';
+import { MAX_SAVE_CHARS } from './save.ts';
 import { BOT_SETTINGS, type BotSetting, BUILDING_KINDS, type BuildingKind, MAX_PLAYERS, MIN_PLAYERS, type TechId, TECHS, UNIT_TYPES, type UnitType } from '../../shared/rules.ts';
 
 const MAX_IDS = 64;
@@ -105,7 +106,10 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
     case 'lobby.create':
     case 'lobby.leave':
     case 'lobby.start':
+    case 'game.save':
       return { t: raw.t };
+    case 'lobby.load':
+      return typeof raw.data === 'string' && raw.data.length <= MAX_SAVE_CHARS ? { t: 'lobby.load', data: raw.data } : null;
     case 'lobby.join':
       return typeof raw.code === 'string' && /^[A-Z0-9]{4,8}$/i.test(raw.code)
         ? { t: 'lobby.join', code: raw.code.toUpperCase() }

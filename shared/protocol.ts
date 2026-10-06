@@ -59,7 +59,11 @@ export type ClientMessage =
   | { t: 'lobby.settings'; settings: Partial<LobbySettings> }
   | { t: 'lobby.pick'; country: string | null }
   | { t: 'lobby.start' }
-  | { t: 'order'; order: Order };
+  | { t: 'order'; order: Order }
+  /** Save the game you're alone in: the server answers with a 'saved' file. */
+  | { t: 'game.save' }
+  /** Play a saved game again (the text of a save file). */
+  | { t: 'lobby.load'; data: string };
 
 // -- server → client --------------------------------------------------------------------------
 
@@ -171,7 +175,9 @@ export type ServerMessage =
   | { t: 'lobby'; lobby: LobbyView | null }
   | { t: 'game.start'; map: string; you: number | null; players: GamePlayer[] }
   | { t: 'snap'; snap: Snapshot }
-  | { t: 'game.over'; winner: number | null };
+  | { t: 'game.over'; winner: number | null }
+  /** A save file to download. */
+  | { t: 'saved'; name: string; data: string };
 
 export const BUILDING_INDEX: readonly BuildingKind[] = BUILDING_KINDS;
 export const UNIT_INDEX: readonly UnitType[] = ['infantry', 'tank', 'artillery', 'warship'];

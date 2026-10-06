@@ -15,7 +15,9 @@ import {
 import { type BotDifficulty, type BotSetting, DISCONNECT_BOT_SECONDS, type StartingResources, unitStats } from '../../shared/rules.ts';
 import { Bot } from './bot.ts';
 import { mulberry32 } from './rng.ts';
+import { dumpState, SAVE_VERSION, type SaveFile } from './save.ts';
 import { type PlayerSetup, Sim } from './sim.ts';
+import type { SimState } from './state.ts';
 import type { World } from './world.ts';
 
 export interface Seat {
@@ -47,8 +49,13 @@ export class Game {
   private pending: GameEvent[] = [];
   over = false;
 
+  private readonly starting: StartingResources;
+  private readonly botSetting: BotSetting;
+
   constructor(world: World, seats: Seat[], starting: StartingResources, bots: BotSetting, seed: number, now: number) {
     this.mapId = world.map.id;
+    this.starting = starting;
+    this.botSetting = bots;
     // Pure PvP: no bot ever attacks anyone; a defensive one only holds the land of a person
     // who dropped or left.
     this.difficulty = bots === 'none' ? 'defensive' : bots;
@@ -167,6 +174,37 @@ export class Game {
   /** One person plays; the rest are bots. */
   get solo(): boolean {
     return this.humans.size === 1;
+  }
+
+  /** The game as a save file (a one-person game), or null if it can't be saved. */
+  save(): SaveFile | null {
+    if (!this.solo || this.over) return null;
+    const human = [...this.humans.values()][0];
+    if (!this.sim.state.players[human].alive) return null;
+    return {
+      v: SAVE_VERSION,
+      map: this.mapId,
+      starting: this.starting,
+      bots: this.botSetting,
+      seed: this.seed,
+      players: this.players,
+      human,
+      sim: dumpState(this.sim.state),
+    };
+  }
+
+  /** A saved game, back again: `identity` plays the saved person's country. It starts paused. */
+  static restore(world: World, save: SaveFile, state: SimState, identity: string, now: number): Game {
+    const seats: Seat[] = save.players.map((p, i) => ({
+      human: i === save.human ? identity : null,
+      setup: { name: p.name, country: p.country, color: p.color, control: i === save.human ? 'human' : 'bot', difficulty: state.players[i].difficulty },
+    }));
+    const game = new Game(world, seats, save.starting, save.bots, save.seed, now);
+    game.sim.load(state);
+    // Bots for countries already out of the game have nothing to do.
+    for (const [id] of game.bots) if (!state.players[id].alive) game.bots.delete(id);
+    game.paused = true;
+    return game;
   }
 
   /** Stops the game with no winner (nobody left to play or watch it). */
