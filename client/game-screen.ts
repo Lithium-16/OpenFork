@@ -398,7 +398,7 @@ export class GameScreen {
     const eta = (owed: number) => {
       const left = owed - res.research;
       if (left <= 0) return 'ready now';
-      return rate > 0 ? `${Math.ceil(left / rate)} s` : 'build labs';
+      return rate > 0 ? `~${Math.ceil(left / rate)} s` : 'build labs';
     };
     const nodes = TECHS.map((t) => {
       const st = state(t.id);
