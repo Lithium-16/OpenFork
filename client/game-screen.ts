@@ -116,8 +116,6 @@ export class GameScreen {
   private buildbarKey = '';
   private researchOpen = false;
   private researchKey = '';
-  /** The build bar button under the pointer. */
-  private barHover: BuildingKind | null = null;
   /** Where the building being placed can go: worked out once per snapshot. */
   private valid: { snap: Snapshot; kind: BuildingKind; set: Set<number> } | null = null;
   /** The country in the list whose actions are open. */
@@ -513,18 +511,6 @@ export class GameScreen {
       });
     }
     // Build bar and the region panel's cancel buttons: also act on press (redrawn often).
-    // What a building does: shown in the bar for the one under the pointer.
-    on($('#buildbar'), 'pointerover', (e: PointerEvent) => {
-      const b = (e.target as HTMLElement).closest('[data-kind]') as HTMLElement | null;
-      const kind = (b?.dataset.kind as BuildingKind | undefined) ?? null;
-      if (kind === this.barHover) return;
-      this.barHover = kind;
-      this.renderBuildbar();
-    });
-    on($('#buildbar'), 'pointerleave', () => {
-      this.barHover = null;
-      this.renderBuildbar();
-    });
     on($('#buildbar'), 'pointerdown', (e: PointerEvent) => {
       const b = (e.target as HTMLElement).closest('[data-kind]') as HTMLElement | null;
       if (!b) return;
@@ -1143,15 +1129,15 @@ export class GameScreen {
     const slots = mine >= 0 ? `${this.map.regions[mine].name}: ${this.slotsUsed(mine)}/${slotsOf(this.map.regions[mine], snap.regions[mine][2])} slots` : '';
     // Redrawn only when something on it changed (what you can afford included).
     const can = RESOURCES.map((k) => groups.map((g) => g.cells.map((c) => res[k] >= c.cost[k])));
-    const about = this.barHover ?? this.placing;
+    // Only while placing: what it does, here, on one line above the dock (no hover popups).
+    const about = this.placing;
     const key = `${this.placing}|${about}|${slots}|${JSON.stringify(groups)}|${JSON.stringify(can)}`;
     if (key === this.buildbarKey) return;
     this.buildbarKey = key;
-    // A dock of icons; pointing at one (or placing it) opens a strip above with its name, cost,
-    // build time, the region's slots and what it does (its exact yield here).
+    // A dock of buttons, each with its cost under its name. While placing, one line above says
+    // what the building does (its exact yield here) and how to place it.
     const strip: HTMLElement[] = [];
     if (about) {
-      const c = groups.flatMap((g) => g.cells).find((x) => x.kind === about);
       let text = BUILD_HELP[about].replace(/^[^:]+: /, '');
       if (mine >= 0 && !canBuildOn(about, this.map.regions[mine], snap.regions[mine][2])) text += ` Not here: needs ${BUILD_NEEDS[about]}.`;
       if (ECON_KINDS.includes(about as EconKind) && mine >= 0) {
@@ -1159,15 +1145,13 @@ export class GameScreen {
         const here = RESOURCES.filter((k) => (y[k] ?? 0) > 0).map((k) => `+${round1(y[k] ?? 0)} ${k}/s`);
         if (here.length) text += ` Here: ${here.join(', ')}.`;
       }
-      const how = this.placing === 'road' ? 'drag across your regions · shift: more · esc: stop' : this.placing ? 'click a region · shift: more · esc: stop' : '';
+      const how = this.placing === 'road' ? 'drag across your regions' : 'click a region';
       strip.push(
         el('div', { class: 'strip' }, [
-          el('b', {}, [c?.name ?? BUILD_LABEL[about]]),
-          c ? costChips(c.cost, res) : '',
-          c ? el('span', { class: 'time' }, [`${c.seconds}s`]) : '',
-          el('span', { class: 'where' }, [how || slots]),
+          el('b', {}, [BUILD_LABEL[about]]),
+          el('span', { class: 'what' }, [text]),
+          el('span', { class: 'how' }, [`${slots ? `${slots} · ` : ''}${how} · shift: more · esc`]),
         ]),
-        el('div', { class: 'about' }, [text]),
       );
     }
     const slot = (c: (typeof groups)[number]['cells'][number]) =>
@@ -1178,7 +1162,13 @@ export class GameScreen {
           'data-kind': c.kind,
           'aria-label': `${c.name}${c.note ? ` (${c.note})` : c.poor ? ' (short of resources)' : ''}`,
         },
-        [el('img', { src: buildingIcon(c.kind), alt: '' }), el('span', { class: 'key' }, [c.n]), el('span', { class: 'name' }, [c.name])],
+        [
+          el('img', { src: buildingIcon(c.kind), alt: '' }),
+          el('span', { class: 'key' }, [c.n]),
+          el('span', { class: 'name' }, [c.name]),
+          c.note ? el('span', { class: 'note' }, [c.note]) : costChips(c.cost, res),
+          el('span', { class: 'time' }, [`${c.seconds}s`]),
+        ],
       );
     bar.replaceChildren(
       ...strip,
@@ -1708,32 +1698,44 @@ export class GameScreen {
   }
 
   private productionLine(line: ProductionView, res: Resources): HTMLElement[] {
-    // A heading with the queue, Repeat and Cancel last; a bar; then one line per unit it makes:
-    // the order button with what an order costs beside it (short resources boxed in red).
-    const status = line.queue.length
-      ? `${line.queue.map((t) => UNIT_NAME[t].toLowerCase()).join(', ')}${line.progress < 0 ? ' (awaiting resources)' : ''}`
-      : 'idle';
+    // The building on one line (what it's doing, Repeat, × to cancel the last order), then one
+    // button per unit it makes: hotkey, unit, how many are queued and the cost, filled from the
+    // left as the one under way gets made.
+    const waiting = line.progress < 0;
+    const status = line.queue.length ? (waiting ? 'waiting for resources' : `${line.queue.length} queued`) : 'idle';
     const repeat = el('button', { class: `x${line.repeat ? ' on' : ''}`, 'aria-pressed': String(line.repeat) }, ['Repeat']);
     repeat.onclick = () => this.send({ o: 'repeat', region: line.region, building: line.building, on: !line.repeat });
-    const cancel = el('button', { class: 'x', 'aria-label': 'Cancel last' }, ['×']) as HTMLButtonElement;
+    const cancel = el('button', { class: 'x', 'aria-label': 'Cancel last order' }, ['×']) as HTMLButtonElement;
     cancel.disabled = line.queue.length === 0;
     cancel.onclick = () => this.send({ o: 'cancel', region: line.region, building: line.building });
     const out: HTMLElement[] = [
-      el('div', { class: 'line build' }, [el('span', {}, [`${BUILD_LABEL[line.building]}: ${status}`]), el('span', {}, [repeat, cancel])]),
-      cellBar(Math.max(0, line.progress)),
+      el('div', { class: 'prodhead' }, [el('b', {}, [BUILD_LABEL[line.building]]), el('span', { class: waiting ? 'warn' : '' }, [status]), repeat, cancel]),
     ];
     for (const type of unitsOf(line.building)) {
       const stats = unitStats(type, this.myTechs());
-      // Locked behind research: say which tech, and the button stays off.
       const needs = UNIT_TECH[type];
       const locked = needs !== undefined && !this.myTechs().includes(needs);
-      const add = el('button', {}, [locked ? `${UNIT_NAME[type]}: research ${tech(needs as TechId).name} (T)` : `${UNIT_KEY[type].toUpperCase()} + ${stats.batch} ${UNIT_NAME[type].toLowerCase()}`]) as HTMLButtonElement;
+      const queued = line.queue.filter((t) => t === type).length;
+      const making = line.queue[0] === type ? Math.max(0, line.progress) : 0;
+      const add = el(
+        'button',
+        { class: 'prod', style: `--p:${Math.round(making * 100)}%` },
+        locked
+          ? [`${UNIT_NAME[type]}: research ${tech(needs as TechId).name} first (T)`]
+          : [
+              el('b', {}, [UNIT_KEY[type].toUpperCase()]),
+              `${stats.batch} ${UNIT_NAME[type].toLowerCase()}`,
+              queued ? el('span', { class: 'n' }, [`×${queued}`]) : '',
+              el('span', { class: 'right' }, [costChips(stats.cost, res), `${stats.buildTime}s`]),
+            ],
+      ) as HTMLButtonElement;
       add.disabled = locked || line.queue.length >= 5;
       add.onclick = () => this.send({ o: 'produce', region: line.region, building: line.building, unit: type });
-      out.push(el('div', { class: 'costline' }, locked ? [add] : [add, costChips(stats.cost, res), `${stats.buildTime}s`]));
+      out.push(add);
     }
     return out;
   }
+
 
 }
 

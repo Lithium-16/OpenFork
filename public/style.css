@@ -860,31 +860,28 @@ button.primary:hover:not(:disabled) {
   padding: 6px 8px;
 }
 
-/* What's pointed at in the dock: name, cost, time and the region's slots, then what it does. */
+/* While placing: one line above the dock, what it does and how to place it. */
 .buildbar .strip {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 10px;
-  padding: 0 2px 2px;
-  font-size: 13px;
-}
-
-.buildbar .strip .time,
-.buildbar .strip .where {
-  color: var(--muted);
-}
-
-.buildbar .strip .where {
-  margin-left: auto;
-}
-
-.buildbar .about {
-  padding: 0 2px 6px;
-  font-size: 13px;
-  color: var(--muted);
-  max-width: 640px;
-  border-bottom: 2px solid var(--line);
+  padding: 0 4px 6px;
   margin-bottom: 6px;
+  border-bottom: 2px solid var(--line);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.buildbar .strip .what {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1;
+}
+
+.buildbar .strip .how {
+  color: var(--accent);
 }
 
 /* The dock: one row of icons, groups apart by a thin line; wraps on a narrow screen. */
@@ -908,8 +905,8 @@ button.primary:hover:not(:disabled) {
   flex-direction: column;
   align-items: center;
   gap: 2px;
-  width: 70px;
-  padding: 6px 2px 3px;
+  width: 84px;
+  padding: 6px 2px 4px;
   margin: 0;
   font-size: 13px;
   text-transform: none;
@@ -930,14 +927,21 @@ button.primary:hover:not(:disabled) {
   image-rendering: pixelated;
 }
 
-/* Less room (a laptop, or a bigger UI size): icons and hotkeys only; pointing at one shows
-   its name and cost in the strip above. */
+/* Less room (a laptop, or a bigger UI size): icon, hotkey and cost only. */
 @container hud (max-width: 1500px) {
   .buildbar .slot {
-    width: 44px;
-    padding: 8px 2px 6px;
+    width: 52px;
+    padding: 8px 1px 4px;
   }
-  .buildbar .slot .name {
+  .buildbar .sep {
+    display: none;
+  }
+  .buildbar .slots {
+    gap: 2px;
+  }
+  .buildbar .slot .name,
+  .buildbar .slot .time,
+  .buildbar .slot .note {
     display: none;
   }
 }
@@ -947,6 +951,29 @@ button.primary:hover:not(:disabled) {
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 100%;
+}
+
+/* Cost and build time under the name, always shown. */
+.buildbar .slot .cost {
+  justify-content: center;
+  gap: 1px 5px;
+  font-size: 13px;
+}
+
+.buildbar .slot .cost .chip img {
+  width: 10px;
+  height: 10px;
+}
+
+.buildbar .slot .time,
+.buildbar .slot .note {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.buildbar .slot.active .cost,
+.buildbar .slot.active .time {
+  color: var(--accent-ink);
 }
 
 .buildbar .slot .key {
@@ -1587,4 +1614,69 @@ select:focus-visible {
 .menu-card .opts button.on {
   background: var(--accent);
   color: var(--accent-ink);
+}
+
+/* Production in the region panel: a heading line per building, then one button per unit. */
+.panel .prodhead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.panel .prodhead b {
+  font-weight: 400;
+  color: var(--accent);
+}
+
+.panel .prodhead span {
+  color: var(--muted);
+  margin-right: auto;
+}
+
+.panel .prodhead span.warn {
+  color: var(--warn);
+}
+
+.panel .prodhead button {
+  margin: 0;
+}
+
+.panel button.prod {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: calc(100% - 24px);
+  margin: 4px 12px 0;
+  padding: 4px 8px;
+  font-size: 13px;
+  text-transform: none;
+  letter-spacing: 0;
+  text-align: left;
+  /* The order under way fills the button from the left. */
+  background: linear-gradient(90deg, rgba(79, 209, 255, 0.28) var(--p, 0%), var(--raised) var(--p, 0%));
+}
+
+.panel button.prod b {
+  color: var(--accent);
+  font-weight: 400;
+}
+
+.panel button.prod .n {
+  color: var(--accent);
+}
+
+.panel button.prod .right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+}
+
+.panel button.prod:hover:not(:disabled) .right,
+.panel button.prod:hover:not(:disabled) b,
+.panel button.prod:hover:not(:disabled) .n {
+  color: var(--ink);
 }
