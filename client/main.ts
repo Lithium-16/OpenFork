@@ -265,6 +265,8 @@ net.onMessage = async (msg: ServerMessage) => {
     case 'lobby':
       lobby = msg.lobby;
       if (!lobby) {
+        // Not something they did: say why the game is gone.
+        if (game && !game.finished && !game.leaving) toast('The game was closed (the server restarted or everyone left)', 'info');
         game?.destroy();
         game = null;
         history.replaceState(null, '', location.pathname);
@@ -295,6 +297,11 @@ net.onMessage = async (msg: ServerMessage) => {
       }
       loadingGame = false;
       const { map, terrain } = loaded;
+      // Back after a dropped connection: keep the screen as it was (camera, selection, panels).
+      if (game?.sameGame(msg.map, msg.you, msg.players)) {
+        show('game');
+        return;
+      }
       game?.destroy();
       game = new GameScreen(net, map, terrain, msg.you, msg.players, () => {
         game?.destroy();
