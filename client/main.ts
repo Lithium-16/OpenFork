@@ -65,6 +65,20 @@ $('#join').onclick = () => {
   asked = true;
   net.send({ t: 'lobby.join', code });
 };
+// A saved game: pick its file, and it opens where it was left (paused).
+const loadInput = $('#load-file') as HTMLInputElement;
+$('#load').onclick = () => {
+  if (!ensureConnected()) return;
+  loadInput.value = '';
+  loadInput.click();
+};
+loadInput.onchange = async () => {
+  const file = loadInput.files?.[0];
+  if (!file) return;
+  if (file.size > 2_000_000) return toast('That file is too big to be a save');
+  asked = true;
+  net.send({ t: 'lobby.load', data: await file.text() });
+};
 codeInput.onkeydown = (e) => {
   if (e.key === 'Enter') $('#join').click();
 };
@@ -319,5 +333,16 @@ net.onMessage = async (msg: ServerMessage) => {
     case 'game.over':
       game?.onOver(msg.winner);
       return;
+    case 'saved': {
+      // Hand the save file to the browser to download.
+      const url = URL.createObjectURL(new Blob([msg.data], { type: 'application/json' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = msg.name;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      toast(`Saved: ${msg.name}`, 'info');
+      return;
+    }
   }
 };

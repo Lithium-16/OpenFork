@@ -12,6 +12,10 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
 - Real-time and continuous. Target length is 15–25 min. No time limit. A game with one person
   in it (the rest bots) can be **paused** (P; the menu pauses it while open); games with more
   people can't.
+- A one-person game can be **saved to a file** (Menu: Save game) and **loaded** from the main
+  screen (Load a saved game): it opens where it was, paused, with you in your country again.
+  A save holds the whole game (land, units, buildings, research, diplomacy); bots pick up
+  afresh. Loaded files are checked, so a damaged or edited one is refused, not played.
 - 4–15 countries per match. Humans join a **private lobby link**; bots fill the rest. The host
   sets lobby size, starting resources (low/normal/high), country pick (free or random) and
   bots (defensive/easy/normal/hard, or **none: pure PvP**).

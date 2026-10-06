@@ -241,6 +241,15 @@ export class Sim {
     return index;
   }
 
+  /** Takes on a whole state (a loaded save): caches are dropped and supply worked out again. */
+  load(state: SimState): void {
+    Object.assign(this.state, state);
+    this.index = null;
+    this.yields.length = 0;
+    this.updateCaps();
+    this.updateSupply();
+  }
+
   /** Call after a blob changes region, spawns or leaves the game. */
   private touch(): void {
     this.index = null;
