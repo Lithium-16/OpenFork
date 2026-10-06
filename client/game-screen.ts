@@ -138,8 +138,11 @@ export class GameScreen {
   private readonly cleanup: Array<() => void> = [];
   private centred = false;
   finished = false;
-  /** A HUD button is held down: its panel waits to be redrawn. */
+  /** A HUD button is held down (since when): its panel waits to be redrawn. */
   private pressing = false;
+  private pressedAt = 0;
+  /** Repeat toggles clicked, shown at once until the server agrees (or 2 s pass). */
+  private readonly repeatAsked = new Map<string, { on: boolean; until: number }>();
   private readonly minimap: HTMLCanvasElement;
   private readonly sfx = new Sfx();
   private readonly meter = new FrameMeter();
@@ -320,6 +323,8 @@ export class GameScreen {
       this.centreOnCapital();
     }
     for (const e of snap.events) this.addEvent(e);
+    // A press held for long (or lost, say the pointer left the window) stops holding things up.
+    if (this.pressing && performance.now() - this.pressedAt > 1000) this.pressing = false;
     if (!this.pressing) this.renderTopbar();
     this.renderPlayers();
     this.renderOffers();
@@ -518,9 +523,12 @@ export class GameScreen {
     // While a button in the HUD is held down, the panels aren't redrawn under it (a snapshot
     // landing between press and release would swallow the click); they catch up after.
     for (const sel of ['#topbar', '#panel', '#research']) {
-      on($(sel), 'pointerdown', () => (this.pressing = true));
+      on($(sel), 'pointerdown', () => {
+        this.pressing = true;
+        this.pressedAt = performance.now();
+      });
     }
-    on(window, 'pointerup', () => {
+    const release = () => {
       if (!this.pressing) return;
       setTimeout(() => {
         this.pressing = false;
@@ -528,7 +536,10 @@ export class GameScreen {
         this.renderPanel();
         this.renderResearch();
       }, 0);
-    });
+    };
+    on(window, 'pointerup', release);
+    on(window, 'pointercancel', release);
+    on(window, 'blur', release);
     // The controls panel folds to its strip and back (remembered).
     on($('#help-fold'), 'click', () => this.foldHelp(!$('#help').classList.contains('folded')));
     // Open for a first game; folded to its "? Keys" strip after that, unless you chose.
@@ -1839,8 +1850,17 @@ export class GameScreen {
     // left as the one under way gets made.
     const waiting = line.queue.length > 0 && line.progress < 0;
     const status = line.queue.length ? (waiting ? 'waiting for resources' : `${line.queue.length} queued`) : 'idle';
-    const repeat = el('button', { class: `x${line.repeat ? ' on' : ''}`, 'aria-pressed': String(line.repeat) }, ['Repeat']);
-    repeat.onclick = () => this.send({ o: 'repeat', region: line.region, building: line.building, on: !line.repeat });
+    // Shown as clicked at once (the server's answer comes with the next snapshot).
+    const key = `${line.region}:${line.building}`;
+    const asked = this.repeatAsked.get(key);
+    if (asked && (asked.on === line.repeat || performance.now() > asked.until)) this.repeatAsked.delete(key);
+    const on = this.repeatAsked.get(key)?.on ?? line.repeat;
+    const repeat = el('button', { class: `x${on ? ' on' : ''}`, 'aria-pressed': String(on) }, ['Repeat']);
+    repeat.onclick = () => {
+      this.repeatAsked.set(key, { on: !on, until: performance.now() + 2000 });
+      this.send({ o: 'repeat', region: line.region, building: line.building, on: !on });
+      this.renderPanel();
+    };
     const cancel = el('button', { class: 'x', 'aria-label': 'Cancel last order' }, ['×']) as HTMLButtonElement;
     cancel.disabled = line.queue.length === 0;
     cancel.onclick = () => this.send({ o: 'cancel', region: line.region, building: line.building });
