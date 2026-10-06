@@ -75,7 +75,9 @@ const http = createServer(async (req, res) => {
   }
 });
 
-const wss = new WebSocketServer({ server: http, path: '/ws', maxPayload: 32 * 1024, perMessageDeflate: { threshold: 1024 } });
+// Messages are small, except a save file being loaded (checked per message below).
+const MAX_MESSAGE = 32 * 1024;
+const wss = new WebSocketServer({ server: http, path: '/ws', maxPayload: 2_100_000, perMessageDeflate: { threshold: 1024 } });
 const alive = new WeakSet<WebSocket>();
 /** Open sockets per address: generous (players behind one proxy share an address), but one
  * script can't open hundreds. */
@@ -110,9 +112,14 @@ wss.on('connection', (ws, req) => {
       ws.close(1008, 'rate limit');
       return;
     }
+    const text = data.toString();
+    if (text.length > MAX_MESSAGE && !text.startsWith('{"t":"lobby.load"')) {
+      ws.close(1009, 'message too big');
+      return;
+    }
     let raw: unknown;
     try {
-      raw = JSON.parse(data.toString());
+      raw = JSON.parse(text);
     } catch {
       return;
     }
