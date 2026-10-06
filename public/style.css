@@ -50,6 +50,9 @@
   --ink: #0b0f13;
   /* The menu's UI scale (1, 1.25 or 1.5); every HUD box zooms by it. */
   --ui-scale: 1;
+  /* Widths of the left (selection) and right (countries, minimap) columns. */
+  --side-l: 360px;
+  --side-r: 290px;
   color-scheme: dark;
 }
 
@@ -408,20 +411,29 @@ button.primary:hover:not(:disabled) {
 .hud .classbar {
   margin: 0 0 6px;
   font-size: 13px;
-  padding: 2px 8px;
+  padding: 4px 10px 3px;
+  background: transparent;
+  color: var(--muted);
+  border-bottom: 2px solid var(--line);
+}
+
+/* Panel headers are quiet: the title in the accent, the rest muted; no solid cyan strips. */
+.hud .classbar > span:first-child {
+  color: var(--accent);
 }
 
 .topbar {
   top: 10px;
-  left: 50%;
-  transform: translateX(-50%);
+  left: 10px;
+  right: calc(var(--side-r) + 20px);
+  margin: 0 auto;
+  width: fit-content;
   display: flex;
-  gap: 8px;
-  padding: 5px 8px;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  padding: 5px 10px;
   align-items: center;
   white-space: nowrap;
-  max-width: calc(100% - 20px);
-  overflow-x: auto;
 }
 
 .res {
@@ -493,27 +505,43 @@ button.primary:hover:not(:disabled) {
   }
 }
 
-/* The right column: ORBAT, then any peace offers below it. */
+/* The layout: a left column (keys, then the selection at the bottom), a right column
+   (countries and offers at the top, the sitrep and minimap at the bottom), and between them the
+   top bar and the build dock. Columns stack their boxes, so nothing can overlap; a box that
+   doesn't fit scrolls. */
+.leftcol,
 .rightcol {
   position: absolute;
-  top: 10px;
-  right: 10px;
+  bottom: 10px;
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
-  gap: 12px;
+  gap: 10px;
   pointer-events: none;
 }
 
+.leftcol {
+  top: 60px;
+  left: 10px;
+  width: var(--side-l);
+}
+
+.rightcol {
+  top: 10px;
+  right: 10px;
+  width: var(--side-r);
+}
+
+.leftcol > .hud,
 .rightcol > .hud {
   position: relative;
   pointer-events: auto;
+  flex: none;
 }
 
 .players {
-  padding: 0 0 6px;
-  min-width: 210px;
-  max-height: 45%;
+  padding: 0 0 4px;
+  flex: 0 1 auto !important;
+  min-height: 0;
   overflow: auto;
 }
 
@@ -538,8 +566,32 @@ button.primary:hover:not(:disabled) {
 }
 
 .tag {
-  color: var(--warn);
+  color: var(--muted);
   font-size: 13px;
+}
+
+.players .p .name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.players .p.pick {
+  cursor: pointer;
+}
+
+.players .p.pick:hover,
+.players .p.open {
+  background: rgba(79, 209, 255, 0.08);
+}
+
+/* A country's actions, opened by clicking its row. */
+.players .acts {
+  display: flex;
+  gap: 6px;
+  padding: 2px 8px 6px 26px;
+  background: rgba(79, 209, 255, 0.08);
 }
 
 .players .num {
@@ -555,9 +607,9 @@ button.primary:hover:not(:disabled) {
 }
 
 .panel {
-  left: 10px;
-  bottom: 10px;
-  width: min(380px, calc(100% - 20px));
+  margin-top: auto;
+  flex: 0 1 auto !important;
+  min-height: 0;
   max-height: 62%;
   overflow: auto;
   padding: 0 0 10px;
@@ -671,12 +723,9 @@ button.primary:hover:not(:disabled) {
 }
 
 .feed {
-  right: 10px;
-  bottom: 222px;
-  width: min(320px, calc(100% - 20px));
+  margin-top: auto;
   padding: 0 0 6px;
   font-size: 13px;
-  max-height: 32%;
   overflow: hidden;
 }
 
@@ -690,8 +739,6 @@ button.primary:hover:not(:disabled) {
 }
 
 .minimap {
-  right: 10px;
-  bottom: 10px;
   padding: 0;
   line-height: 0;
 }
@@ -703,7 +750,7 @@ button.primary:hover:not(:disabled) {
 
 .minimap canvas {
   display: block;
-  width: 240px;
+  width: 100%;
   image-rendering: pixelated;
   cursor: pointer;
 }
@@ -759,12 +806,10 @@ button.primary:hover:not(:disabled) {
 
 /* Below the top bar, so the two never meet; folds down to its strip. */
 .help {
-  left: 10px;
-  top: 52px;
   padding: 0 0 6px;
   font-size: 13px;
   color: var(--muted);
-  max-width: 360px;
+  align-self: flex-start;
 }
 
 .help div:not(.classbar) {
@@ -778,15 +823,12 @@ button.primary:hover:not(:disabled) {
   margin: 0 0 6px;
   box-shadow: none;
   text-align: left;
+  display: flex;
 }
 
 .help .fold:hover:not(:disabled) {
   background: var(--text);
   color: var(--ink);
-}
-
-.help.folded {
-  max-width: none;
 }
 
 .help.folded {
@@ -808,27 +850,141 @@ button.primary:hover:not(:disabled) {
   padding: 0 4px;
 }
 
-/* Build bar: placement mode. Sits between the unit panel (left) and the minimap (right). */
+/* The build dock: between the two columns, at the bottom. */
 .buildbar {
-  left: 404px;
-  right: 264px;
+  left: calc(var(--side-l) + 20px);
+  right: calc(var(--side-r) + 20px);
   bottom: 10px;
   margin: 0 auto;
   width: fit-content;
-  max-width: calc(100% - 668px);
-  padding: 0 0 6px;
+  padding: 6px 8px;
 }
 
-.buildbar .classbar {
-  margin: 0 0 4px;
+/* What's pointed at in the dock: name, cost, time and the region's slots, then what it does. */
+.buildbar .strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 2px 2px;
+  font-size: 13px;
 }
 
-/* What the building under the pointer (or being placed) does. */
+.buildbar .strip .time,
+.buildbar .strip .where {
+  color: var(--muted);
+}
+
+.buildbar .strip .where {
+  margin-left: auto;
+}
+
 .buildbar .about {
-  padding: 0 10px 4px;
+  padding: 0 2px 6px;
   font-size: 13px;
   color: var(--muted);
-  min-height: 1.4em;
+  max-width: 640px;
+  border-bottom: 2px solid var(--line);
+  margin-bottom: 6px;
+}
+
+/* The dock: one row of icons, groups apart by a thin line; wraps on a narrow screen. */
+.buildbar .slots {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: stretch;
+  gap: 4px;
+}
+
+.buildbar .sep {
+  width: 2px;
+  background: var(--line);
+  margin: 4px 3px;
+}
+
+.buildbar .slot {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  width: 70px;
+  padding: 6px 2px 3px;
+  margin: 0;
+  font-size: 13px;
+  text-transform: none;
+  letter-spacing: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.buildbar .slot:hover:not(:disabled) {
+  background: var(--raised);
+  color: var(--text);
+}
+
+.buildbar .slot img {
+  height: 24px;
+  width: auto;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+
+/* Less room (a laptop, or a bigger UI size): icons and hotkeys only; pointing at one shows
+   its name and cost in the strip above. */
+@container hud (max-width: 1500px) {
+  .buildbar .slot {
+    width: 44px;
+    padding: 8px 2px 6px;
+  }
+  .buildbar .slot .name {
+    display: none;
+  }
+}
+
+.buildbar .slot .name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.buildbar .slot .key {
+  position: absolute;
+  top: 1px;
+  left: 3px;
+  color: var(--accent);
+  font-size: 13px;
+}
+
+/* Can't afford it: the name in red and a dotted red line under the slot (not colour alone). */
+.buildbar .slot.poor .name {
+  color: var(--bad);
+}
+
+.buildbar .slot.poor::after {
+  content: '';
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 1px;
+  height: 2px;
+  background: repeating-linear-gradient(90deg, var(--bad) 0 3px, transparent 3px 5px);
+}
+
+/* Can't go in the region under the pointer, or at its top level: faded. */
+.buildbar .slot.off {
+  opacity: 0.4;
+}
+
+.buildbar .slot.active {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.buildbar .slot.active .key,
+.buildbar .slot.active .name {
+  color: var(--accent-ink);
 }
 
 /* Hotkey hints on HUD buttons. */
@@ -836,89 +992,6 @@ button.primary:hover:not(:disabled) {
   margin-left: 3px;
   opacity: 0.6;
   font-size: 13px;
-}
-
-.buildbar .groups {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 10px;
-  padding: 0 8px;
-}
-
-.buildbar .gname {
-  font-size: 13px;
-  color: var(--muted);
-  margin: 0 2px 1px;
-}
-
-.buildbar .slots {
-  display: flex;
-  gap: 4px;
-}
-
-.buildbar .slot {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  grid-template-rows: auto auto;
-  column-gap: 5px;
-  align-items: center;
-  text-align: left;
-  padding: 3px 6px 3px 4px;
-  min-width: 104px;
-  font-size: 13px;
-  letter-spacing: 0.02em;
-}
-
-.buildbar .slot img {
-  grid-row: span 3;
-  width: 18px;
-  image-rendering: pixelated;
-}
-
-.buildbar .slot .name {
-  white-space: nowrap;
-  overflow: hidden;
-}
-
-.buildbar .slot .name b {
-  color: var(--accent);
-  font-weight: 400;
-}
-
-.buildbar .slot:hover:not(:disabled) .name b {
-  color: var(--ink);
-}
-
-.buildbar .slot .price {
-  font-size: 13px;
-  color: var(--muted);
-  text-transform: none;
-  letter-spacing: 0;
-  white-space: nowrap;
-  overflow: hidden;
-}
-
-.buildbar .slot:hover:not(:disabled) .price {
-  color: var(--ink);
-}
-
-.buildbar .slot.poor .price {
-  color: var(--warn);
-}
-
-.buildbar .slot.active {
-  background: var(--accent);
-  color: var(--accent-ink);
-  box-shadow:
-    0 -2px 0 0 var(--accent),
-    0 2px 0 0 var(--accent),
-    -2px 0 0 0 var(--accent),
-    2px 0 0 0 var(--accent);
-}
-
-.buildbar .slot.active .price,
-.buildbar .slot.active .name b {
-  color: var(--accent-ink);
 }
 
 /* Costs and yields as resource icons with amounts. */
@@ -945,18 +1018,8 @@ button.primary:hover:not(:disabled) {
   image-rendering: pixelated;
 }
 
-.buildbar .slot .cost .chip img {
-  grid-row: auto;
-  width: 12px;
-}
-
 .cost .chip.short {
   color: var(--bad);
-}
-
-.buildbar .slot.active .cost,
-.buildbar .slot.active .cost .chip.short {
-  color: var(--accent-ink);
 }
 
 .panel .costline {
@@ -1269,31 +1332,31 @@ button.primary:hover:not(:disabled) {
 
 /* Narrow screens (or a big UI size on a small one): the HUD layer's own width decides. */
 @container hud (max-width: 900px) {
-  .help {
-    display: none;
-  }
-  .topbar {
-    top: auto;
-    bottom: 10px;
-    left: 10px;
-    transform: none;
-  }
+  /* Phones and small windows: no keys, sitrep or minimap; the top bar across the top, the
+     countries under it on the right, the selection above the dock on the left. */
+  .help,
   .feed,
   .minimap {
-    display: none;
+    display: none !important;
+  }
+  .topbar {
+    right: 10px;
+  }
+  .rightcol {
+    top: 84px;
+    bottom: auto;
+    max-height: 35%;
+    width: 200px;
+  }
+  .leftcol {
+    top: auto;
+    bottom: 84px;
+    width: calc(100% - 20px);
+    max-height: 45%;
   }
   .buildbar {
-    top: 10px;
-    bottom: auto;
     left: 10px;
     right: 10px;
-    max-width: none;
-  }
-  .buildbar .slot {
-    width: auto;
-  }
-  .buildbar .slot .price {
-    display: none;
   }
 }
 
@@ -1404,9 +1467,9 @@ button.danger:hover:not(:disabled) {
 }
 
 .players .act {
-  padding: 0 4px;
+  padding: 2px 8px;
   font-size: 13px;
-  margin: 0 0 0 2px;
+  margin: 0;
 }
 
 .players .act.war {
@@ -1446,32 +1509,6 @@ button.danger:hover:not(:disabled) {
   zoom: var(--ui-scale);
   pointer-events: none;
   container: hud / size;
-}
-
-/* A mid-size HUD (a laptop, or a bigger UI size): the top bar moves left of the country list
-   (wrapping if it must), and the build bar drops its group names and flows as one grid. */
-@container hud (max-width: 1400px) {
-  .topbar {
-    left: 10px;
-    transform: none;
-    max-width: calc(100% - 340px);
-    flex-wrap: wrap;
-  }
-  .help {
-    top: 92px;
-  }
-  .buildbar .gname {
-    display: none;
-  }
-  .buildbar .group,
-  .buildbar .slots {
-    display: contents;
-  }
-}
-
-/* The Controls box open: the selection panel stops short of it. */
-.hud-layer:has(.help:not(.folded)) .panel {
-  max-height: calc(100% - 270px);
 }
 
 .hud-layer > * {

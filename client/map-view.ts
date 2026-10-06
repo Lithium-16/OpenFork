@@ -1170,12 +1170,11 @@ export class MapView {
           ix += width(icon) + gap;
         }
         if (extra) {
-          // "+N" on a dark plate, level with the icons' feet.
+          // "+N", level with the icons' feet.
           ix += ipx;
+          // Small outlined digits, no plate: a footnote to the icons, not another icon.
           const h = 7 * ipx;
-          ctx.fillStyle = INK;
-          ctx.fillRect(ix, iconBottom - h, plusW, h);
-          pixelDigits(ctx, plus, ix + plusW / 2, iconBottom - h / 2, ipx, '#ffffff');
+          outlinedDigits(ctx, plus, ix + plusW / 2, iconBottom - h / 2, Math.max(1, ipx - 1));
         }
       } else if (capitals.has(region.id)) {
         blitCentred(ctx, ICONS.capital, x, y, 1);
@@ -1189,15 +1188,15 @@ export class MapView {
         // Sea names in sea blue, without the number that tells same-named parts apart (the
         // panel keeps it).
         if (zoom >= 0.8 && (!busy || zoom >= 1.8)) {
-          const size = zoom >= 1.8 ? 16 : 12;
-          pixelText(ctx, region.name.replace(/ \d+$/, '').toUpperCase(), x, y + tokenTop - 3 - size / 2, size, '#8fb8d8');
+          pixelText(ctx, region.name.replace(/ \d+$/, '').toUpperCase(), x, y + tokenTop - 9, 12, 'rgba(143, 184, 216, 0.7)');
         }
         continue;
       }
       // Names: your regions and capitals from further out; everyone else's once zoomed in.
       const named = (you !== null && rr[0] === you) || capitals.has(region.id) || zoom >= 1.4;
       if (named && zoom >= 0.9 && (!busy || zoom >= 1.8)) {
-        const size = zoom >= 1.8 ? 16 : 12;
+        // One modest size at every zoom: names label the map, they don't shout over it.
+        const size = 12;
         const top = showIcons ? iconBottom - 10 * ipx : y + tokenTop;
         pixelText(ctx, region.name.toUpperCase(), x, top - 3 - size / 2, size, '#e6edf2');
       }
