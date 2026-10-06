@@ -1585,7 +1585,8 @@ export class Sim {
       if (rs.owner === NEUTRAL || !rs.supplied || this.hostileIn(i, rs.owner)) return;
       add(players[rs.owner].income, regionYield(this.world.regions[i], rs.city, rs.econ, players[rs.owner].techs));
     });
-    for (const b of this.state.blobs.values()) players[b.owner].upkeep += b.size * UNITS[b.type].upkeep;
+    // Upkeep on what's left of each unit, so an army withering for lack of money costs less.
+    for (const b of this.state.blobs.values()) players[b.owner].upkeep += b.strength * UNITS[b.type].upkeep;
     this.updateCaps();
     for (const p of players) {
       if (!p.alive) continue;
