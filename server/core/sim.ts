@@ -1590,9 +1590,9 @@ export class Sim {
     this.updateCaps();
     for (const p of players) {
       if (!p.alive) continue;
-      // Income fills the stores up to their size; the rest is lost (a stock already over the
-      // size, after losing a depot, stays but doesn't grow).
-      for (const k of RESOURCES) p.resources[k] = Math.max(p.resources[k], Math.min(p.cap[k], p.resources[k] + p.income[k] * dt));
+      // Income fills the stores up to their size; the rest is lost. Stores shrink with the
+      // cities and depots that hold them: losing one loses what no longer fits.
+      for (const k of RESOURCES) p.resources[k] = Math.min(p.cap[k], p.resources[k] + p.income[k] * dt);
       // Research takes its points from the stock as they come.
       if (p.research) {
         const pay = Math.min(p.resources.research, p.research.cost - p.research.paid);
