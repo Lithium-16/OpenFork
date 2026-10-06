@@ -8,10 +8,9 @@ import { parseClientMessage } from './parse.ts';
 import type { Auth, Clock, ConnId, Identity, MatchLog, Transport } from './ports.ts';
 import { World } from './world.ts';
 
-/** Lobbies with nobody connected are closed after this long. */
+/** Lobbies with nobody connected are closed after this long (a game in one stands still
+ * meanwhile, so everyone can come back to it). */
 const EMPTY_LOBBY_MS = 10 * 60_000;
-/** A running game nobody is playing or watching for this long ends (no point bots playing to nobody). */
-const ABANDONED_GAME_MS = 30_000;
 /** People in one lobby (players and watchers). */
 const MAX_MEMBERS = 16;
 /** Games running at once on this server (each costs CPU every tick). */
@@ -402,22 +401,23 @@ export class GameServer {
     const now = this.deps.clock.now();
     for (const lobby of [...this.lobbies.values()]) {
       const anyone = [...lobby.members.values()].some((m) => m.conns.size > 0);
+      const game = lobby.game;
       if (!anyone) {
         lobby.emptySince ??= now;
         if (now - lobby.emptySince > EMPTY_LOBBY_MS) {
+          if (game && !game.over) {
+            game.end();
+            this.finish(lobby, game);
+          }
           for (const id of lobby.members.keys()) this.memberOf.delete(id);
           this.lobbies.delete(lobby.code);
           this.log(`lobby ${lobby.code} closed (empty)`);
-          continue;
         }
-      }
-      const game = lobby.game;
-      if (!game || game.over) continue;
-      if (lobby.emptySince !== null && now - lobby.emptySince > ABANDONED_GAME_MS) {
-        game.end();
-        this.finish(lobby, game);
+        // Nobody here: the game stands still until someone's back.
         continue;
       }
+      lobby.emptySince = null;
+      if (!game || game.over) continue;
       try {
         game.tick();
       } catch (e) {

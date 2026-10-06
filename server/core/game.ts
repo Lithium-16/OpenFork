@@ -87,12 +87,16 @@ export class Game {
     if (id === undefined) return;
     const p = this.sim.state.players[id];
     if (connected) {
+      // A one-person game that stood still while they were gone goes on.
+      if (this.autoPaused) this.paused = this.autoPaused = false;
       this.away.delete(id);
       if (p.control === 'bot') {
         this.bots.delete(id);
         p.control = 'human';
       }
     } else if (!this.away.has(id)) {
+      // Alone in it: the game waits for them rather than a bot taking over.
+      if (this.solo && !this.paused) this.paused = this.autoPaused = true;
       this.away.set(id, this.sim.state.time);
     }
   }
@@ -114,7 +118,7 @@ export class Game {
     const s = this.sim;
     switch (order.o) {
       case 'move':
-        return s.move(id, order.blobs, order.to);
+        return s.move(id, order.blobs, order.to, order.then ?? false);
       case 'stop':
         return s.stop(id, order.blobs);
       case 'split':
@@ -147,7 +151,22 @@ export class Game {
         return s.research(id, order.tech);
       case 'unresearch':
         return s.unresearch(id);
+      case 'pause':
+        if (!this.solo) return 'only a game with one person in it can be paused';
+        this.paused = order.on;
+        this.autoPaused = false;
+        return null;
     }
+  }
+
+  /** Paused by its one player (time stands still). */
+  paused = false;
+  /** Paused because its one player dropped (it goes on when they're back). */
+  private autoPaused = false;
+
+  /** One person plays; the rest are bots. */
+  get solo(): boolean {
+    return this.humans.size === 1;
   }
 
   /** Stops the game with no winner (nobody left to play or watch it). */
@@ -156,7 +175,7 @@ export class Game {
   }
 
   tick(): void {
-    if (this.over) return;
+    if (this.over || this.paused) return;
     for (const [id, since] of this.away) {
       const p = this.sim.state.players[id];
       if (p.control === 'human' && this.sim.state.time - since >= DISCONNECT_BOT_SECONDS) {
@@ -253,7 +272,7 @@ export class Game {
       .map(([k, until]) => [...pair(k, ':'), Math.ceil(until - st.time)] as [number, number, number]);
     const roads = [...st.roads].map((k) => pair(k, ':'));
     const shelling = [...this.sim.batteryTargets];
-    return { time: round(st.time, 1), players, regions, blobs, events, wars, offers, truces, roads, shelling };
+    return { time: round(st.time, 1), players, regions, blobs, events, wars, offers, truces, roads, shelling, paused: this.paused };
   }
 
   /** The remaining route of each of `player`'s moving units: [blob id, ...regions]. */

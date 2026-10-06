@@ -910,6 +910,12 @@ button.primary:hover:not(:disabled) {
   border: 3px solid #7bd389;
 }
 
+/* The top bar says when time stands still. */
+.topbar .paused {
+  color: var(--accent);
+  animation: blink 1.2s steps(1) infinite;
+}
+
 /* The dock's tabs: Economy, Military, Naval (Tab cycles them). */
 .buildbar .tabs {
   display: flex;

@@ -109,6 +109,24 @@ describe('movement', () => {
     assert.equal(s.state.regions[4].owner, 0);
   });
 
+  it('waypoints: a move "then" goes on from the end of the route it is on, taking land region by region', () => {
+    const s = duel();
+    clearBlobs(s);
+    for (const r of [1, 2]) s.state.regions[r].owner = 0;
+    const b = place(s, 0, 'infantry', 0);
+    assert.equal(s.move(0, [b.id], 2), null);
+    assert.deepEqual(b.path, [1, 2]);
+    assert.equal(s.move(0, [b.id], 4, true), null);
+    assert.deepEqual(b.path, [1, 2, 3, 4], 'queued after the first leg');
+    run(s, 80);
+    assert.equal(s.state.regions[3].owner, 0, 'took 3 on the way');
+    assert.equal(s.state.regions[4].owner, 0);
+    assert.equal(b.region, 4);
+    // With no route under way, a waypoint is just a move.
+    assert.equal(s.move(0, [b.id], 3, true), null);
+    assert.deepEqual(b.path, [3]);
+  });
+
   it('turns back mid-hop at once instead of finishing the hop', () => {
     const s = duel();
     clearBlobs(s);
