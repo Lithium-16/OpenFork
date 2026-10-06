@@ -126,9 +126,12 @@ export class MapView {
   private shownValid = new Uint8Array(0);
   /** Towns, buildings and roads, painted at map resolution (they zoom with the terrain). */
   private readonly developLayer: HTMLCanvasElement;
-  /** developLayer pre-dimmed, so the filter isn't run every frame. */
-  private readonly developShown: HTMLCanvasElement;
   private developDirty = true;
+  /** Terrain, territory and towns flattened into one image; rebuilt when any of them change. */
+  private readonly base: HTMLCanvasElement;
+  private baseKey = '';
+  /** developLayer pre-dimmed, so the filter only runs when towns change. */
+  private readonly developShown: HTMLCanvasElement;
   private developKey = '';
   private developSnap: Snapshot | null = null;
   /** Per region: free spots for building sprites, nearest the label point first. */
@@ -149,6 +152,7 @@ export class MapView {
     this.placeLayer = offscreen(map.width, map.height);
     this.frontLayer = offscreen(map.width, map.height);
     this.developLayer = offscreen(map.width, map.height);
+    this.base = offscreen(map.width, map.height);
     this.developShown = offscreen(map.width, map.height);
     // Border pixels never change; only who owns each side does.
     const W = map.width;
@@ -316,6 +320,14 @@ export class MapView {
     return null;
   }
 
+  private view: [number, number, number, number] = [0, 0, 1, 1];
+
+  /** Draws the on-screen part of a map-sized layer (in map space). */
+  private blitLayer(layer: CanvasImageSource): void {
+    const [x, y, w, h] = this.view;
+    if (w > 0 && h > 0) this.ctx.drawImage(layer, x, y, w, h, x, y, w, h);
+  }
+
   /** Every unit drawn under a stack key this frame (its stack, or its expanded tokens). */
   groupIds(group: string): number[] {
     return this.placed.filter((p) => p.group === group).flatMap((p) => p.ids);
@@ -455,6 +467,7 @@ export class MapView {
   private animateSweeps(now: number): void {
     if (!this.sweeps.size || !this.territorySnap || !this.territoryImg) return;
     const ctx = this.territory.getContext('2d') as CanvasRenderingContext2D;
+    this.baseKey = '';
     for (const [r, sw] of [...this.sweeps]) {
       const t = Math.min(1, (now - sw.start) / SWEEP_MS);
       const upto = Math.floor(sw.order.length * (1 - (1 - t) ** 2));
@@ -512,6 +525,7 @@ export class MapView {
   private repaintRegions(dirty: number[]): void {
     const W = this.map.width;
     const ctx = this.territory.getContext('2d') as CanvasRenderingContext2D;
+    this.baseKey = '';
     this.territoryImg ??= ctx.createImageData(W, this.map.height);
     let [x0, y0, x1, y1] = [W, this.map.height, -1, -1];
     const grow = (r: number) => {
@@ -1165,7 +1179,11 @@ export class MapView {
   }
 
   /** Placement: valid regions tinted green, everything else dimmed (changed regions only). */
+  private placeShown: Set<number> | null = null;
+
   private updatePlaceLayer(valid: Set<number>): void {
+    if (valid === this.placeShown) return;
+    this.placeShown = valid;
     const W = this.map.width;
     const ctx = this.placeLayer.getContext('2d') as CanvasRenderingContext2D;
     if (!this.placeImg) {
@@ -1248,14 +1266,35 @@ export class MapView {
     ctx.save();
     ctx.scale(this.cam.scale, this.cam.scale);
     ctx.translate(-this.cam.x, -this.cam.y);
+    // Only the visible part of each full-map layer is copied each frame.
+    const vx = Math.max(0, Math.floor(this.cam.x) - 1);
+    const vy = Math.max(0, Math.floor(this.cam.y) - 1);
+    this.view = [vx, vy, Math.min(this.map.width, Math.ceil(this.cam.x + w / this.cam.scale) + 1) - vx, Math.min(this.map.height, Math.ceil(this.cam.y + h / this.cam.scale) + 1) - vy];
     ctx.imageSmoothingEnabled = this.cam.scale < 1;
-    ctx.drawImage(this.terrain, 0, 0);
-    ctx.imageSmoothingEnabled = false;
     const showSupply = this.overlay && you !== null;
     if (showSupply) this.updateSupplyLayer(snap, players, you);
-    ctx.globalAlpha = showSupply ? 0.35 : 1;
-    ctx.drawImage(this.territory, 0, 0);
-    ctx.globalAlpha = 1;
+    this.updateDevelopLayer(snap);
+    const baseKey = `${showSupply}`;
+    if (this.developDirty) {
+      // Towns, roads and buildings a little darker and see-through, so they sit in the map.
+      const dc = this.developShown.getContext('2d') as CanvasRenderingContext2D;
+      dc.clearRect(0, 0, this.map.width, this.map.height);
+      dc.globalAlpha = 0.8;
+      dc.filter = 'brightness(0.85)';
+      dc.drawImage(this.developLayer, 0, 0);
+    }
+    if (this.developDirty || baseKey !== this.baseKey) {
+      this.developDirty = false;
+      this.baseKey = baseKey;
+      const bc = this.base.getContext('2d') as CanvasRenderingContext2D;
+      bc.drawImage(this.terrain, 0, 0);
+      bc.globalAlpha = showSupply ? 0.35 : 1;
+      bc.drawImage(this.territory, 0, 0);
+      bc.globalAlpha = 1;
+      bc.drawImage(this.developShown, 0, 0);
+    }
+    this.blitLayer(this.base);
+    ctx.imageSmoothingEnabled = false;
     // Hairline borders: provinces in a soft dark line, seas in a faint dashed one.
     const hair = 1 / this.cam.scale;
     ctx.lineWidth = hair;
@@ -1273,29 +1312,17 @@ export class MapView {
       ctx.strokeStyle = `rgb(${Math.round(c[0] * 0.75)}, ${Math.round(c[1] * 0.75)}, ${Math.round(c[2] * 0.75)})`;
       ctx.stroke(p);
     }
-    this.updateDevelopLayer(snap);
-    ctx.imageSmoothingEnabled = this.cam.scale < 1;
-    if (this.developDirty) {
-      // Towns, roads and buildings a little darker and see-through, so they sit in the map.
-      this.developDirty = false;
-      const dc = this.developShown.getContext('2d') as CanvasRenderingContext2D;
-      dc.clearRect(0, 0, this.map.width, this.map.height);
-      dc.globalAlpha = 0.8;
-      dc.filter = 'brightness(0.85)';
-      dc.drawImage(this.developLayer, 0, 0);
-    }
-    ctx.drawImage(this.developShown, 0, 0);
     ctx.imageSmoothingEnabled = false;
     this.updateFrontLayer(snap, players);
-    ctx.drawImage(this.frontLayer, 0, 0);
+    this.blitLayer(this.frontLayer);
     this.drawSites(snap);
     if (this.fx.level === 'full') this.drawAmbient(snap);
-    if (showSupply) ctx.drawImage(this.supplyLayer, 0, 0);
+    if (showSupply) this.blitLayer(this.supplyLayer);
     if (place) {
       this.updatePlaceLayer(place.valid);
-      ctx.drawImage(this.placeLayer, 0, 0);
+      this.blitLayer(this.placeLayer);
     }
-    if (lit >= 0) ctx.drawImage(this.highlight, 0, 0);
+    if (lit >= 0) this.blitLayer(this.highlight);
     ctx.restore();
     this.drawGrid(w, h);
 
