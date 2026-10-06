@@ -5,7 +5,7 @@ import type { GameMap } from '../shared/map.ts';
 import type { ServerMessage } from '../shared/protocol.ts';
 import { DISCONNECT_BOT_SECONDS, MAX_PLAYERS, SNAPSHOT_EVERY_TICKS } from '../shared/rules.ts';
 import { GuestAuth } from '../server/adapters/memory.ts';
-import { GameServer } from '../server/core/game-server.ts';
+import { GameServer, type GameServerDeps } from '../server/core/game-server.ts';
 import { parseClientMessage } from '../server/core/parse.ts';
 import { mulberry32 } from '../server/core/rng.ts';
 import { chain, makeMap } from './helpers.ts';
@@ -27,7 +27,7 @@ function testMap(): GameMap {
   return map;
 }
 
-function setup(map: GameMap = testMap(), seed = 3) {
+function setup(map: GameMap = testMap(), seed = 3, extra: Partial<GameServerDeps> = {}) {
   const inbox = new Map<string, ServerMessage[]>();
   let now = 0;
   const server = new GameServer({
@@ -36,6 +36,7 @@ function setup(map: GameMap = testMap(), seed = 3) {
     clock: { now: () => now },
     maps: new Map([['europe', map]]),
     random: mulberry32(seed),
+    ...extra,
   });
   const last = <T extends ServerMessage['t']>(conn: string, t: T) =>
     (inbox.get(conn) ?? []).filter((m) => m.t === t).at(-1) as Extract<ServerMessage, { t: T }> | undefined;
@@ -310,5 +311,43 @@ describe('saving and loading', () => {
     await t.send('a', { t: 'lobby.start' });
     await t.send('a', { t: 'game.save' });
     assert.match(t.last('a', 'error')?.message ?? '', /one person/);
+  });
+
+  it('keeps an autosave of the one-person game being played (the desktop app)', async () => {
+    const t = setup();
+    assert.equal(t.server.soloSave(), null, 'no game yet');
+    await t.connect('a', 'Ann');
+    await t.send('a', { t: 'lobby.create' });
+    await t.send('a', { t: 'lobby.start' });
+    t.tick(50);
+    const save = t.server.soloSave();
+    assert.ok(save && save !== 'over', 'the game, as a save');
+    // The autosave loads like any save file.
+    await t.connect('b', 'Ben');
+    await t.send('b', { t: 'lobby.load', data: JSON.stringify(save) });
+    assert.equal(t.last('b', 'error'), undefined);
+    assert.ok(t.last('b', 'game.start'));
+    t.server.handleDisconnect('b');
+    // Once given up, there's nothing left to continue.
+    await t.send('a', { t: 'order', order: { o: 'surrender' } });
+    t.tick(2);
+    assert.equal(t.server.soloSave(), 'over');
+    // Nobody playing (gone back to the menu): nothing to write.
+    t.server.handleDisconnect('a');
+    assert.equal(t.server.soloSave(), null);
+  });
+
+  it('sends a snapshot every tick when asked to (the desktop app)', async () => {
+    const count = async (extra: Partial<GameServerDeps>) => {
+      const t = setup(testMap(), 3, extra);
+      await t.connect('a', 'Ann');
+      await t.send('a', { t: 'lobby.create' });
+      await t.send('a', { t: 'lobby.start' });
+      const before = (t.inbox.get('a') ?? []).filter((m) => m.t === 'snap').length;
+      t.tick(20);
+      return (t.inbox.get('a') ?? []).filter((m) => m.t === 'snap').length - before;
+    };
+    assert.equal(await count({ snapshotEvery: 1 }), 20);
+    assert.ok((await count({})) <= 11);
   });
 });

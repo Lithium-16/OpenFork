@@ -31,6 +31,29 @@ Set `PORT` and `HOST` to change where it listens.
 Open the page, enter a name and **Create a private lobby**. **Copy invite link** and send it
 to your friends, pick countries, and start. Bots fill the empty seats.
 
+## Desktop app (Windows, offline)
+
+**Get it:** <https://github.com/Lithium-16/OpenFork/releases/latest/download/OpenFork-Setup.exe>.
+Run it and the game installs and opens: no admin rights, no internet needed to play. That
+link always gives the newest version, so it's the one to send friends (the launcher's
+**Share** button copies it). The app isn't code-signed, so Windows may say it protected
+your PC: *More info*, then *Run anyway*.
+
+- **Launcher:** Continue (the game you were playing, autosaved every 15 s and when you
+  close or leave it), New game, Load a saved game, fullscreen, the saves folder
+  (Documents\OpenFork) and Share.
+- **Offline:** the app runs the same game server as online, on this computer only
+  (`desktop/src/server.ts` in its own process), with a snapshot every tick since there's no
+  network in between. Games are against bots, as solo games online.
+- **Updates:** every change merged to `main` that touches the game builds a new release
+  (`.github/workflows/desktop.yml`, versions `1.0.<run>`). The launcher checks for it on
+  start and every hour, downloads it in the background and offers *Restart to update*
+  (or installs it when the app is next closed). Pull requests build the installer too: it's
+  under the run's artifacts, to try before merging.
+- **Building it yourself:** `npm install` at the root, then in `desktop/`: `npm install`,
+  `npm start` (run it), or `npm run dist` (the installer, into `desktop/release/`).
+  The icon is drawn by `node desktop/make-icon.mjs`.
+
 ## Controls
 
 | | |

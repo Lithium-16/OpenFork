@@ -5,7 +5,7 @@ import type { ClientMessage, LobbyMember, LobbySettings, LobbyView, ServerMessag
 import { type BotDifficulty, MAX_PLAYERS, MIN_CAPITAL_KM, MIN_PLAYERS, MIN_PVP_PLAYERS, PLAYER_COLORS, SNAPSHOT_EVERY_TICKS } from '../../shared/rules.ts';
 import { Game, type Seat } from './game.ts';
 import { parseClientMessage } from './parse.ts';
-import { readSave } from './save.ts';
+import { readSave, type SaveFile } from './save.ts';
 import type { Auth, Clock, ConnId, Identity, MatchLog, Transport } from './ports.ts';
 import { World } from './world.ts';
 
@@ -44,6 +44,9 @@ export interface GameServerDeps {
   random?: () => number;
   matches?: MatchLog;
   log?: (msg: string) => void;
+  /** Snapshots go out every this many ticks (SNAPSHOT_EVERY_TICKS when unset). The desktop
+   * app, with no network between, sends one every tick. */
+  snapshotEvery?: number;
 }
 
 export class GameServer {
@@ -439,6 +442,20 @@ export class GameServer {
     if (game.over) this.send(conn, { t: 'game.over', winner: game.sim.state.winner });
   }
 
+  /**
+   * The one-person game someone is playing right now, as a save (the desktop app autosaves
+   * it): 'over' once it has ended, null when nobody is in such a game.
+   */
+  soloSave(): SaveFile | 'over' | null {
+    for (const lobby of this.lobbies.values()) {
+      const game = lobby.game;
+      if (!game?.solo || ![...lobby.members.values()].some((m) => m.conns.size > 0)) continue;
+      if (game.over) return 'over';
+      return game.save() ?? 'over';
+    }
+    return null;
+  }
+
   // -- the clock --------------------------------------------------------------------------
 
   tick(): void {
@@ -472,7 +489,7 @@ export class GameServer {
         continue;
       }
       lobby.ticks++;
-      if (lobby.ticks % SNAPSHOT_EVERY_TICKS !== 0 && !game.over && !lobby.urgent) continue;
+      if (lobby.ticks % (this.deps.snapshotEvery ?? SNAPSHOT_EVERY_TICKS) !== 0 && !game.over && !lobby.urgent) continue;
       lobby.urgent = false;
       const shared = game.sharedSnapshot(game.takeEvents());
       for (const m of lobby.members.values()) {
