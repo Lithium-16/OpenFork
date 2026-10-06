@@ -120,6 +120,8 @@ export class GameScreen {
   private barHover: BuildingKind | null = null;
   /** Where the building being placed can go: worked out once per snapshot. */
   private valid: { snap: Snapshot; kind: BuildingKind; set: Set<number> } | null = null;
+  /** The country in the list whose actions are open. */
+  private openCountry: number | null = null;
   /** The region panel's Details fold is open. */
   private detailsOpen = false;
   private slotCache: { snap: Snapshot; map: Map<number, [number, number]> } | null = null;
@@ -129,7 +131,7 @@ export class GameScreen {
   /** Road tool: the regions dragged across so far. */
   private roadPath: number[] | null = null;
   private box: [number, number, number, number] | null = null;
-  private feed: Array<[string, string]> = [];
+  private feed: Array<{ time: string; text: string; group?: string; items: string[] }> = [];
   /** Game time each region last got a supply warning. */
   private readonly supplyWarned = new Map<number, number>();
   private raf = 0;
@@ -259,7 +261,7 @@ export class GameScreen {
       // A struggling machine: drop the ambient effects (once, unless the player chose them).
       if (this.meter.tick(performance.now()) && this.view.fx.level === 'full' && !this.fxChosen) {
         this.setEffects('reduced');
-        toast('Effects reduced to keep the game smooth (FX in the top bar)', 'info');
+        toast('Effects reduced to keep the game smooth (change it in the menu)', 'info');
       }
       if (this.snap) {
         this.view.placement = this.placing ? { valid: this.validFor(this.placing), hover: this.hover } : null;
@@ -497,9 +499,17 @@ export class GameScreen {
     for (const sel of ['#players', '#offers']) {
       on($(sel), 'pointerdown', (e: PointerEvent) => {
         const b = (e.target as HTMLElement).closest('[data-act]') as HTMLElement | null;
-        if (!b) return;
-        e.preventDefault();
-        void this.diplomacyAction(b.dataset.act as string, Number(b.dataset.player));
+        if (b) {
+          e.preventDefault();
+          void this.diplomacyAction(b.dataset.act as string, Number(b.dataset.player));
+          return;
+        }
+        // A country's row opens its actions (war, peace) under it; again closes them.
+        const row = (e.target as HTMLElement).closest('[data-row]') as HTMLElement | null;
+        if (!row) return;
+        const id = Number(row.dataset.row);
+        this.openCountry = this.openCountry === id ? null : id;
+        this.renderPlayers();
       });
     }
     // Build bar and the region panel's cancel buttons: also act on press (redrawn often).
@@ -885,6 +895,24 @@ export class GameScreen {
     this.sfx.refuse();
   }
 
+  /** The menu's sound and effects buttons, showing what's on. */
+  private renderMenuOptions(): void {
+    const sound = $('#menu-sound');
+    sound.textContent = this.sfx.muted ? 'Off (M)' : 'On (M)';
+    sound.classList.toggle('on', !this.sfx.muted);
+    sound.setAttribute('aria-pressed', String(!this.sfx.muted));
+    sound.onclick = () => this.setMuted(!this.sfx.muted);
+    const full = this.view.fx.level === 'full';
+    const fx = $('#menu-fx');
+    fx.textContent = full ? 'Full' : 'Reduced';
+    fx.classList.toggle('on', full);
+    fx.setAttribute('aria-pressed', String(full));
+    fx.onclick = () => {
+      this.fxChosen = true;
+      this.setEffects(full ? 'reduced' : 'full');
+    };
+  }
+
   private setEffects(level: 'full' | 'reduced'): void {
     this.view.fx.level = level;
     this.renderTopbar();
@@ -1112,45 +1140,53 @@ export class GameScreen {
       return { kind, n: HOTKEY_KEYS[HOTKEYS.indexOf(kind)] ?? '', name, note, cost, seconds, poor };
     };
     const groups = BAR.map((g) => ({ group: g.group, cells: g.kinds.map(cell) }));
-    const slots = mine >= 0 ? `${this.map.regions[mine].name}: slots ${this.slotsUsed(mine)}/${slotsOf(this.map.regions[mine], snap.regions[mine][2])}` : '';
-    const hint =
-      this.placing === 'road' ? 'drag across your regions · shift: more · esc' : this.placing ? 'click a region · shift: more · esc' : '1-9 · -, =, P';
+    const slots = mine >= 0 ? `${this.map.regions[mine].name}: ${this.slotsUsed(mine)}/${slotsOf(this.map.regions[mine], snap.regions[mine][2])} slots` : '';
     // Redrawn only when something on it changed (what you can afford included).
     const can = RESOURCES.map((k) => groups.map((g) => g.cells.map((c) => res[k] >= c.cost[k])));
     const about = this.barHover ?? this.placing;
     const key = `${this.placing}|${about}|${slots}|${JSON.stringify(groups)}|${JSON.stringify(can)}`;
     if (key === this.buildbarKey) return;
     this.buildbarKey = key;
-    const head = 'Build';
-    // What the building pointed at (or being placed) does, with its exact yield here.
-    let aboutText = about ? BUILD_HELP[about] : '';
-    if (about && mine >= 0 && !canBuildOn(about, this.map.regions[mine], snap.regions[mine][2])) aboutText += ` Not here: needs ${BUILD_NEEDS[about]}.`;
-    if (about && ECON_KINDS.includes(about as EconKind) && mine >= 0) {
-      const y = econYield(about as EconKind, this.map.regions[mine], snap.regions[mine][2]);
-      const here = RESOURCES.filter((k) => (y[k] ?? 0) > 0).map((k) => `+${round1(y[k] ?? 0)} ${k}/s`);
-      if (here.length) aboutText += ` Here: ${here.join(', ')}.`;
+    // A dock of icons; pointing at one (or placing it) opens a strip above with its name, cost,
+    // build time, the region's slots and what it does (its exact yield here).
+    const strip: HTMLElement[] = [];
+    if (about) {
+      const c = groups.flatMap((g) => g.cells).find((x) => x.kind === about);
+      let text = BUILD_HELP[about].replace(/^[^:]+: /, '');
+      if (mine >= 0 && !canBuildOn(about, this.map.regions[mine], snap.regions[mine][2])) text += ` Not here: needs ${BUILD_NEEDS[about]}.`;
+      if (ECON_KINDS.includes(about as EconKind) && mine >= 0) {
+        const y = econYield(about as EconKind, this.map.regions[mine], snap.regions[mine][2]);
+        const here = RESOURCES.filter((k) => (y[k] ?? 0) > 0).map((k) => `+${round1(y[k] ?? 0)} ${k}/s`);
+        if (here.length) text += ` Here: ${here.join(', ')}.`;
+      }
+      const how = this.placing === 'road' ? 'drag across your regions · shift: more · esc: stop' : this.placing ? 'click a region · shift: more · esc: stop' : '';
+      strip.push(
+        el('div', { class: 'strip' }, [
+          el('b', {}, [c?.name ?? BUILD_LABEL[about]]),
+          c ? costChips(c.cost, res) : '',
+          c ? el('span', { class: 'time' }, [`${c.seconds}s`]) : '',
+          el('span', { class: 'where' }, [how || slots]),
+        ]),
+        el('div', { class: 'about' }, [text]),
+      );
     }
+    const slot = (c: (typeof groups)[number]['cells'][number]) =>
+      el(
+        'button',
+        {
+          class: `slot${this.placing === c.kind ? ' active' : ''}${c.poor ? ' poor' : ''}${c.note ? ' off' : ''}`,
+          'data-kind': c.kind,
+          'aria-label': `${c.name}${c.note ? ` (${c.note})` : c.poor ? ' (short of resources)' : ''}`,
+        },
+        [el('img', { src: buildingIcon(c.kind), alt: '' }), el('span', { class: 'key' }, [c.n]), el('span', { class: 'name' }, [c.name])],
+      );
     bar.replaceChildren(
-      classbar(slots ? `${head} // ${slots}` : head, hint),
-      ...(aboutText ? [el('div', { class: 'about' }, [aboutText])] : []),
-      el('div', { class: 'groups' }, [
-        ...groups.map((g) =>
-          el('div', { class: 'group' }, [
-            el('div', { class: 'gname' }, [g.group]),
-            el(
-              'div',
-              { class: 'slots' },
-              g.cells.map((c) =>
-                el('button', { class: `slot${this.placing === c.kind ? ' active' : ''}${c.poor ? ' poor' : ''}`, 'data-kind': c.kind }, [
-                  el('img', { src: buildingIcon(c.kind), alt: '' }),
-                  el('span', { class: 'name' }, [el('b', {}, [c.n]), ` ${c.name}`]),
-                  el('span', { class: 'price' }, [c.note || costChips(c.cost, res), ` · ${c.seconds}s`]),
-                ]),
-              ),
-            ),
-          ]),
-        ),
-      ]),
+      ...strip,
+      el(
+        'div',
+        { class: 'slots' },
+        groups.flatMap((g, i) => [...(i ? [el('i', { class: 'sep' })] : []), ...g.cells.map(slot)]),
+      ),
     );
   }
 
@@ -1253,16 +1289,9 @@ export class GameScreen {
     const tech = el('button', { class: `toggle${this.researchOpen ? ' on' : ''}` }, [busy ? `Tech ${Math.round(busy[1] * 100)}%` : 'Tech', el('small', {}, ['T'])]);
     tech.onclick = () => this.setResearchOpen(!this.researchOpen);
     parts.push(supply, yields, tech);
-    const sound = el('button', { class: `toggle${this.sfx.muted ? '' : ' on'}` }, [this.sfx.muted ? 'Muted' : 'Sound', el('small', {}, ['M'])]);
-    sound.onclick = () => this.setMuted(!this.sfx.muted);
-    const fx = el('button', { class: `toggle${this.view.fx.level === 'full' ? ' on' : ''}` }, [this.view.fx.level === 'full' ? 'FX' : 'FX low']);
-    fx.onclick = () => {
-      this.fxChosen = true;
-      this.setEffects(this.view.fx.level === 'full' ? 'reduced' : 'full');
-    };
-    parts.push(sound, fx, menu);
-    parts.push(el('span', { class: 'clock' }, [t]));
-    $('#topbar').replaceChildren(...parts);
+    parts.push(menu);
+    $('#topbar').replaceChildren(el('span', { class: 'clock' }, [t]), ...parts);
+    this.renderMenuOptions();
   }
 
   private renderPlayers(): void {
@@ -1272,35 +1301,44 @@ export class GameScreen {
     for (const r of snap.regions) if (r[0] >= 0) regions.set(r[0], (regions.get(r[0]) ?? 0) + 1);
     const strength = new Map<number, number>();
     for (const b of snap.blobs) strength.set(b[1], (strength.get(b[1]) ?? 0) + b[3]);
-    $('#players').replaceChildren(
-      classbar('Countries', 'Regions · Strength'),
-      ...this.players.map((p) => {
-        const row = snap.players[p.id];
-        const tag = !row.alive ? 'out' : p.id === this.you ? 'you' : !p.human ? 'bot' : row.bot ? 'away' : '';
-        const me = this.you;
-        const other = me !== null && p.id !== me && row.alive && snap.players[me]?.alive;
-        const war = other && this.atWar(me, p.id);
-        const truce = other ? this.truceLeft(me, p.id) : 0;
-        const offered = other && snap.offers.some(([f, t]) => f === p.id && t === me);
-        const pending = other && snap.offers.some(([f, t]) => f === me && t === p.id);
-        let act: HTMLElement | string = '';
-        if (other && war && !pending) {
-          act = el('button', { class: 'act peace', 'data-act': 'peace', 'data-player': String(p.id) }, [offered ? 'Accept peace' : 'Offer peace']);
-        } else if (other && !war && truce === 0) {
-          act = el('button', { class: 'act war', 'data-act': 'war', 'data-player': String(p.id) }, ['Declare war']);
-        }
-        const rel = war ? el('span', { class: 'tag war' }, [pending ? 'war · peace offered' : 'at war']) : truce > 0 ? el('span', { class: 'tag truce' }, [`truce ${truce}s`]) : '';
-        return el('div', { class: `p${row.alive ? '' : ' dead'}` }, [
+    const me = this.you;
+    const mine = me !== null && !!snap.players[me]?.alive;
+    // You first, then countries at war with you, then the rest by size; the knocked out last.
+    const order = [...this.players].sort((a, b) => {
+      const rank = (id: number) =>
+        id === me ? 0 : !snap.players[id].alive ? 3 : me !== null && this.atWar(me, id) ? 1 : 2;
+      return rank(a.id) - rank(b.id) || (regions.get(b.id) ?? 0) - (regions.get(a.id) ?? 0);
+    });
+    const rows: HTMLElement[] = [];
+    for (const p of order) {
+      const row = snap.players[p.id];
+      const other = mine && p.id !== me && row.alive;
+      const war = other && this.atWar(me as number, p.id);
+      const truce = other ? this.truceLeft(me as number, p.id) : 0;
+      const offered = other && snap.offers.some(([f, t]) => f === p.id && t === me);
+      const pending = other && snap.offers.some(([f, t]) => f === me && t === p.id);
+      // Only what's out of the ordinary: you, away, at war, a truce, an offer.
+      const tag = p.id === me ? 'you' : !row.alive ? 'out' : p.human && row.bot ? 'away' : '';
+      const rel = war ? el('span', { class: 'tag war' }, [offered ? 'offers peace' : pending ? 'war · offered' : 'war']) : truce > 0 ? el('span', { class: 'tag truce' }, [`truce ${truce}s`]) : '';
+      const open = this.openCountry === p.id && other;
+      rows.push(
+        el('div', { class: `p${row.alive ? '' : ' dead'}${open ? ' open' : ''}${other ? ' pick' : ''}`, ...(other ? { 'data-row': String(p.id) } : {}) }, [
           el('span', { class: 'swatch', style: `background:${p.color}` }),
-          el('span', {}, [p.name.replace(/ \(bot\)$/, '')]),
-          el('span', { class: 'tag' }, [tag]),
+          el('span', { class: 'name' }, [p.name.replace(/ \(bot\)$/, '')]),
+          tag ? el('span', { class: 'tag' }, [tag]) : '',
           rel,
           el('span', { class: 'num' }, [`${regions.get(p.id) ?? 0}`]),
           el('span', { class: 'num str' }, [fmt(strength.get(p.id) ?? 0)]),
-          act,
-        ]);
-      }),
-    );
+        ]),
+      );
+      if (open) {
+        const acts: HTMLElement[] = [];
+        if (war && !pending) acts.push(el('button', { class: 'act peace', 'data-act': 'peace', 'data-player': String(p.id) }, [offered ? 'Accept peace' : 'Offer peace']));
+        else if (!war && truce === 0) acts.push(el('button', { class: 'act war', 'data-act': 'war', 'data-player': String(p.id) }, ['Declare war']));
+        rows.push(el('div', { class: 'acts' }, acts.length ? acts : [el('span', { class: 'tag' }, [war ? 'peace offered, waiting' : `truce for ${truce}s more`])]));
+      }
+    }
+    $('#players').replaceChildren(classbar('Countries', 'Regions · Strength'), ...rows);
   }
 
   private addEvent(e: GameEvent): void {
@@ -1338,7 +1376,8 @@ export class GameScreen {
         break;
       case 'captured':
         if (e.by === this.you || e.from === this.you || e.from >= 0) {
-          text = `${name(e.by)} took ${region(e.region)}${e.from >= 0 ? ` from ${name(e.from)}` : ''}`;
+          const from = e.from >= 0 ? ` from ${name(e.from)}` : '';
+          this.say(`${name(e.by)} took ${region(e.region)}${from}`, [`took:${e.by}:${e.from}`, `${name(e.by)} took `, region(e.region), from]);
         }
         break;
       case 'looted': {
@@ -1348,7 +1387,10 @@ export class GameScreen {
         break;
       }
       case 'built':
-        if (e.owner === this.you) text = `${BUILD_LABEL[e.building]}${e.level > 1 ? ` ${e.level}` : ''} finished at ${region(e.region)}`;
+        if (e.owner === this.you) {
+          const what = `${BUILD_LABEL[e.building]}${e.level > 1 ? ` ${e.level}` : ''} finished at `;
+          this.say(what + region(e.region), [`built:${what}`, what, region(e.region), '']);
+        }
         break;
       case 'eliminated':
         text = e.surrendered ? `${name(e.player)} surrendered` : `${name(e.player)} knocked out by ${name(e.by)}`;
@@ -1425,13 +1467,27 @@ export class GameScreen {
     }
   }
 
-  /** A line in the sitrep feed. */
-  private say(text: string): void {
-    this.feed.unshift([clock(this.snap?.time ?? 0), text]);
-    this.feed.length = Math.min(this.feed.length, 8);
-    $('#feed').replaceChildren(classbar('SITREP'), ...this.feed.map(([t, m]) => el('div', {}, [el('time', {}, [t]), m])));
+  /**
+   * A line in the sitrep (5 at most). `group` ([key, before, item, after]) merges a run of the
+   * same news into one line: "Market finished at Aberdeen, Glasgow +2".
+   */
+  private say(text: string, group?: [string, string, string, string]): void {
+    const now = clock(this.snap?.time ?? 0);
+    const top = this.feed[0];
+    if (group && top?.group === group[0]) {
+      top.items.push(group[2]);
+      top.time = now;
+      const shown = top.items.slice(-2).reverse();
+      const more = top.items.length - shown.length;
+      top.text = `${group[1]}${shown.join(', ')}${more ? ` +${more}` : ''}${group[3]}`;
+    } else {
+      this.feed.unshift({ time: now, text, group: group?.[0], items: group ? [group[2]] : [] });
+      this.feed.length = Math.min(this.feed.length, 5);
+    }
+    $('#feed').replaceChildren(classbar('Sitrep'), ...this.feed.map((f) => el('div', {}, [el('time', {}, [f.time]), f.text])));
     $('#feed').classList.toggle('hidden', this.feed.length === 0);
   }
+
 
   private renderPanel(): void {
     const panel = $('#panel');
