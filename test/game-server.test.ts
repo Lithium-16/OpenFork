@@ -194,19 +194,39 @@ describe('lobbies', () => {
     assert.equal(t.last('a', 'error')?.message, 'already out of the game');
   });
 
-  it('a game nobody plays or watches ends after a while', async () => {
+  it('a game nobody is in stands still, and waits ten minutes for them to come back', async () => {
     const t = setup();
     const w = await t.connect('a', 'Ann');
     await t.send('a', { t: 'lobby.create' });
     await t.send('a', { t: 'lobby.start' });
+    t.tick(10);
+    const time = t.last('a', 'snap')?.snap.time ?? 0;
     t.server.handleDisconnect('a');
-    t.tick(20 * 10);
+    t.tick(5 * 60 * 10);
     await t.connect('a2', 'Ann', w?.token);
-    assert.equal(t.last('a2', 'lobby')?.lobby?.playing, true, 'a quick reload keeps it going');
+    assert.equal(t.last('a2', 'lobby')?.lobby?.playing, true, 'still there after five minutes');
+    t.tick(1);
+    assert.ok((t.last('a2', 'snap')?.snap.time ?? 0) - time < 2, 'and it waited for them');
     t.server.handleDisconnect('a2');
-    t.tick(31 * 10);
+    t.tick(11 * 60 * 10);
     await t.connect('a3', 'Ann', w?.token);
-    assert.equal(t.last('a3', 'lobby')?.lobby?.playing, false);
+    assert.equal(t.last('a3', 'lobby')?.lobby ?? null, null, 'gone after ten minutes');
+  });
+
+  it('a one-person game can be paused; a game with two people cannot', async () => {
+    const t = setup();
+    await t.connect('a', 'Ann');
+    await t.send('a', { t: 'lobby.create' });
+    await t.send('a', { t: 'lobby.start' });
+    t.tick(10);
+    await t.send('a', { t: 'order', order: { o: 'pause', on: true } });
+    const time = t.last('a', 'snap')?.snap.time ?? 0;
+    t.tick(50);
+    assert.equal(t.last('a', 'snap')?.snap.paused, true);
+    assert.ok((t.last('a', 'snap')?.snap.time ?? 0) - time < 0.5, 'time stands still');
+    await t.send('a', { t: 'order', order: { o: 'pause', on: false } });
+    t.tick(20);
+    assert.ok((t.last('a', 'snap')?.snap.time ?? 0) - time > 1.5);
   });
 
   it('keeps bot capitals at least MIN_CAPITAL_KM from taken ones', async () => {

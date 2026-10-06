@@ -501,7 +501,8 @@ export class Sim {
     return blobs.length ? blobs : 'no units';
   }
 
-  move(playerId: number, blobIds: number[], target: number): string | null {
+  /** Sends units to a region; `then`: after the route they're on (a waypoint), not instead. */
+  move(playerId: number, blobIds: number[], target: number, then = false): string | null {
     const all = this.own(playerId, blobIds);
     if (typeof all === 'string') return all;
     if (!this.world.regions[target]) return 'no such region';
@@ -522,10 +523,12 @@ export class Sim {
     for (const b of blobs) {
       // Units left in the land of a country at peace may go out through it.
       const through = this.closedTo(b.owner, b.region) ? this.state.regions[b.region].owner : -1;
-      const key = `${b.type}:${b.region}:${through}`;
-      if (!cache.has(key)) cache.set(key, this.route(b.type, b.owner, b.training, b.region, target, through, victim));
+      // A waypoint goes on from where the route it's on ends.
+      const start = then && b.path.length ? b.path[b.path.length - 1] : b.region;
+      const key = `${b.type}:${start}:${through}`;
+      if (!cache.has(key)) cache.set(key, this.route(b.type, b.owner, b.training, start, target, through, victim));
       const route = cache.get(key);
-      if (route) routes.set(b, [...route]);
+      if (route) routes.set(b, then && b.path.length ? [...b.path, ...route] : [...route]);
     }
     if (!routes.size) return 'no route';
     // Sending units into a country you're at peace with is an attack: war.
@@ -539,7 +542,9 @@ export class Sim {
       // keeps the hop's progress; any other route, or staying, turns it back at once.
       const leaving = b.progress > 0;
       b.through = this.closedTo(b.owner, b.region) ? this.state.regions[b.region].owner : -1;
-      if (leaving && route.length && route[0] === b.path[0]) {
+      // Going on the way it was already going (a hop under way, or a waypoint added on):
+      // nothing about the current step changes.
+      if ((leaving || then) && route.length && route[0] === b.path[0]) {
         b.path = route;
         continue;
       }

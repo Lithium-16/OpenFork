@@ -198,6 +198,14 @@ export class GameScreen {
     if (remember) store(UI_SCALE, String(want));
   }
 
+  /** The only person in the game (the rest are bots): it can be paused. */
+  private get solo(): boolean {
+    return this.you !== null && this.players.filter((p) => p.human).length === 1;
+  }
+
+  /** The menu paused the game (and resumes it when it closes). */
+  private menuPaused = false;
+
   /** Still in the game: alive, and it isn't over. */
   private get playing(): boolean {
     return !this.finished && this.you !== null && !!this.snap?.players[this.you]?.alive;
@@ -205,6 +213,16 @@ export class GameScreen {
 
   private toggleMenu(open = $('#menu').classList.contains('hidden')): void {
     $('#menu').classList.toggle('hidden', !open);
+    // Alone in the game: the menu stops the clock while it's open.
+    if (this.solo && this.playing) {
+      if (open && !this.snap?.paused) {
+        this.menuPaused = true;
+        this.send({ o: 'pause', on: true });
+      } else if (!open && this.menuPaused) {
+        this.menuPaused = false;
+        this.send({ o: 'pause', on: false });
+      }
+    }
     if (!open) {
       (document.activeElement as HTMLElement | null)?.blur();
       return;
@@ -681,7 +699,7 @@ export class GameScreen {
           this.box = null;
         } else this.click(x, y, e.shiftKey);
       } else if (d.button === 2 && !d.moved) {
-        void this.order(x, y);
+        void this.order(x, y, e.shiftKey);
       }
       this.renderPanel();
     });
@@ -830,7 +848,8 @@ export class GameScreen {
     if (ids.length) this.region = -1;
   }
 
-  private async order(x: number, y: number): Promise<void> {
+  /** Sends the selected units to a region; with Shift, after the route they're on (a waypoint). */
+  private async order(x: number, y: number, then = false): Promise<void> {
     let to = this.view.regionAt(x, y);
     // Only ships selected: a click on land (not your port) or open water means the sea nearby.
     const ships = [...this.selected].every((id) => this.snap?.blobs.find((b) => b[0] === id)?.[2] === UNIT_INDEX.indexOf('warship'));
@@ -849,7 +868,7 @@ export class GameScreen {
       const ok = await confirmBox('Act of war', `${this.map.regions[to].name} belongs to ${this.nameOf(owner)}. Sending units in declares war on them.`, 'Attack');
       if (!ok) return;
     }
-    this.send({ o: 'move', blobs, to });
+    this.send({ o: 'move', blobs, to, ...(then ? { then: true } : {}) });
     this.sfx.move();
     // Shown at once, until the server's routes for them arrive.
     this.view.pending.move = { ids: blobs, to, since: this.snap?.time ?? 0 };
@@ -933,6 +952,9 @@ export class GameScreen {
       this.setYields(!this.view.yields);
     } else if (k === '?' || k === '/') {
       this.foldHelp(!$('#help').classList.contains('folded'));
+    } else if (k === 'p' && this.solo && this.playing) {
+      this.menuPaused = false;
+      this.send({ o: 'pause', on: !this.snap?.paused });
     } else if (k === 't') {
       this.setResearchOpen(!this.researchOpen);
     } else if (k === ' ') {
@@ -1409,7 +1431,8 @@ export class GameScreen {
     tech.onclick = () => this.setResearchOpen(!this.researchOpen);
     parts.push(supply, yields, tech);
     parts.push(menu);
-    $('#topbar').replaceChildren(el('span', { class: 'clock' }, [t]), ...parts);
+    const paused = snap.paused ? [el('span', { class: 'paused' }, [this.solo ? 'PAUSED (P)' : 'PAUSED'])] : [];
+    $('#topbar').replaceChildren(el('span', { class: 'clock' }, [t]), ...paused, ...parts);
     this.renderMenuOptions();
   }
 
