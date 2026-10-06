@@ -9,22 +9,25 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
 `shared/rules.ts`.
 
 ## 1. Match
-- Real-time and continuous. Target length is 15–25 min. No time limit and no pause.
+- Real-time and continuous. Target length is 15–25 min. No time limit. A game with one person
+  in it (the rest bots) can be **paused** (P; the menu pauses it while open); games with more
+  people can't.
 - 4–15 countries per match. Humans join a **private lobby link**; bots fill the rest. The host
   sets lobby size, starting resources (low/normal/high), country pick (free or random) and
   bots (defensive/easy/normal/hard, or **none: pure PvP**).
 - **Pure PvP:** one country per person in the lobby (2–15), no bots; every other country
   starts as neutral land. Someone who drops or leaves is held by a defensive bot.
 - Spectating is allowed for eliminated players and visitors.
-- On disconnect a **bot takes over** the country until the player rejoins.
+- On disconnect a **bot takes over** the country until the player rejoins (alone in the game,
+  it pauses instead and waits for them).
 - **Win:** hold every capital. Alliances come after v1; allies who hold all remaining
   capitals will win together.
 - **Losing your capital** eliminates you: your land goes neutral and empty, and your blobs
   disband.
 - **Surrender** (Menu / Esc) does the same at once; you watch the rest of the game.
 - **Back to menu** leaves the lobby; in a game you're still alive in, a bot plays your
-  country on. A game nobody is playing or watching (no one connected for 30 s) ends with
-  no winner.
+  country on. A game nobody is connected to **stands still** and waits for them; after 10
+  minutes with nobody back it ends with no winner.
 
 ## 2. Map
 - v1 map: **Europe, modern countries, Atlantic to the Urals**, with Britain, Ireland and the
@@ -69,22 +72,36 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
   a city or depots takes its share of the owner's stock**: what it stores out of all their
   storage, up to the captor's own room.
 - **Research** (T, its own screen): a tech tree, one tech at a time. Every country starts at
-  the root (Modern State), which splits into four lines, and each tech opens one or two more;
-  a tech needs only its parent. It costs **research points** by depth: 60 / 150 / 300. They're
+  the root (Modern State), which splits into five lines, and each tech opens one or two more;
+  a tech needs only its parent. It costs **research points** by depth: 60 / 150 / 300 / 480 / 700. They're
   paid in as research goes, from the stock first and then as they're made, so more labs mean
   faster research and a saved-up stock finishes a tech at once; cancelling gives back what was
   paid in. The screen draws it as a tree growing down, lines green once researched and
   moving into the tech under way, which fills up (with the time left at the current rate);
   the header shows how much of the tree is done.
   - Army: Rifles (+20% infantry attack) → Trenches (dig in twice as fast, dug in +50%) and
-    Heavy shells (+30% shelling) → Rangefinders (forts no help against shells) and Long guns
-    (range 3).
+    Heavy shells (+30% shelling). Trenches → Storm troops (infantry +15%, land taken 25% faster)
+    → Mountain troops (infantry +30% in forest, hills, mountains) → General staff (all troops
+    +10% attack, drill to 75). Heavy shells → Rangefinders (forts no help against shells) and
+    Long guns (range 3) → Creeping barrage (+25% shelling).
   - Armour: **Tanks (factories can build tanks: nobody can before it)** → Engines (+20%
-    speed) and Armour plate (+30% defence) → Synthetic fuel (−50% oil).
+    speed) and Armour plate (+30% defence). Engines → Blitzkrieg (tanks +20% attack) →
+    Mechanized infantry (infantry +25% speed). Armour plate → Synthetic fuel (−50% oil) →
+    Heavy tanks (+30% defence, rough ground hurts half as much) → Combined arms (infantry and
+    tanks +15% attack).
   - Economy: Farming (farms +30%) → Conscription (infantry −30% manpower) and Industry
-    (mines and wells +30%) → Banking (markets and city tax +25%).
+    (mines and wells +30%). Conscription → Total war (manpower +25%). Industry → Banking
+    (markets and city tax +25%) → Mass production (units made 25% faster) and Stock exchange
+    (money +15%). Mass production → Assembly lines (units −15% money).
   - Logistics: Warehouses (storage +50%) → Railways (supply +1 region) → Field kitchens
-    (regions feed +30% troops).
+    (regions feed +30% troops) and Motor pool (roads cut crossing time 55%). Field kitchens →
+    Supply corps (out of supply, units wither half as fast) → Field hospitals (refill twice as
+    fast). Motor pool → Radio (supply +1 region).
+  - Naval: Shipyards (warships built 30% faster, −25% steel) → Naval guns (warships +25%
+    attack and shelling) and Coastal defence (batteries +50% shelling, +25% against landings).
+    Naval guns → Fleet train (ships supplied 2 more seas out, and mend at sea) → Dreadnoughts
+    (+30% defence, +15% speed) → Naval aviation (warships shell 2 regions out). Coastal
+    defence → Amphibious assault (landings hit at 80%, boarding twice as fast).
 - **Upkeep:** each blob costs money per second, scaled by its strength and type. Once the
   money runs out, **blobs wither**: they lose strength and training, which also lowers their
   upkeep, until you're back in the plus.
@@ -215,7 +232,9 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
 
 ## 5. Movement
 - **RTS controls:** click or box-select blobs, right-click a region to send them, and use keys
-  for split, merge and build.
+  for split, merge and build. **Shift + right-click adds a waypoint**: the units go on there
+  after the route they're on, so a chain of clicks queues moves, and queues captures (each
+  region is taken from the border in turn).
 - **Pathing:** blobs path through any region. Infantry takes about 5.5 s to cross one plains
   region; terrain changes that, and roads make it faster.
 - **Changing orders mid-hop:** a hop is a timer, and the unit stays in its region until it

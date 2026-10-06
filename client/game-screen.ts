@@ -390,7 +390,7 @@ export class GameScreen {
     // Layout: a tree growing down from the root, each parent centred over its children,
     // leaves side by side, a row per depth. In CSS pixels.
     const W = 150;
-    const H = 104;
+    const H = 116;
     const GX = 20;
     const GY = 58;
     const kids = (id: TechId | null) => TECHS.filter((t) => (t.needs[0] ?? null) === id);
