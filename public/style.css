@@ -51,7 +51,7 @@
   /* The menu's UI scale (1, 1.25 or 1.5); every HUD box zooms by it. */
   --ui-scale: 1;
   /* Widths of the left (selection) and right (countries, minimap) columns. */
-  --side-l: 360px;
+  --side-l: 300px;
   --side-r: 290px;
   color-scheme: dark;
 }
@@ -676,6 +676,7 @@ button.primary:hover:not(:disabled) {
   display: flex;
   gap: 8px;
   align-items: center;
+  white-space: nowrap;
   padding: 3px 6px;
   cursor: pointer;
   font-size: 13px;
@@ -691,6 +692,7 @@ button.primary:hover:not(:disabled) {
 }
 
 .unit .meta {
+  white-space: normal;
   color: var(--muted);
   font-size: 13px;
   margin-left: auto;
@@ -940,8 +942,7 @@ button.primary:hover:not(:disabled) {
     gap: 2px;
   }
   .buildbar .slot .name,
-  .buildbar .slot .time,
-  .buildbar .slot .note {
+  .buildbar .slot .time {
     display: none;
   }
 }
@@ -965,8 +966,7 @@ button.primary:hover:not(:disabled) {
   height: 10px;
 }
 
-.buildbar .slot .time,
-.buildbar .slot .note {
+.buildbar .slot .time {
   color: var(--muted);
   font-size: 13px;
 }
@@ -997,11 +997,6 @@ button.primary:hover:not(:disabled) {
   bottom: 1px;
   height: 2px;
   background: repeating-linear-gradient(90deg, var(--bad) 0 3px, transparent 3px 5px);
-}
-
-/* Can't go in the region under the pointer, or at its top level: faded. */
-.buildbar .slot.off {
-  opacity: 0.4;
 }
 
 .buildbar .slot.active {
@@ -1645,8 +1640,10 @@ select:focus-visible {
 
 .panel button.prod {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 2px 8px;
+  white-space: nowrap;
   width: calc(100% - 24px);
   margin: 4px 12px 0;
   padding: 4px 8px;

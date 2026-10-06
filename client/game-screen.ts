@@ -1115,15 +1115,12 @@ export class GameScreen {
     if (!snap || this.you === null || !snap.players[this.you]?.alive) return;
     const res = this.resources();
     const mine = this.hover >= 0 && snap.regions[this.hover][0] === this.you ? this.hover : -1;
+    // The dock doesn't depend on where the pointer is: press a key (or a button), then click a
+    // region; the map shows where it can go. City and fort show their first level's cost.
     const cell = (kind: BuildingKind) => {
-      const level = mine >= 0 ? this.nextLevel(kind, mine) : kind === 'city' ? 2 : 1;
-      const maxed = (kind === 'fort' && level > MAX_FORT) || (kind === 'city' && level > MAX_CITY);
-      const allowed = mine < 0 || canBuildOn(kind, this.map.regions[mine], snap.regions[mine][2]);
-      const { cost, seconds } = buildCost(kind, level);
-      const name = this.barName(kind, mine);
-      const note = maxed ? 'max' : !allowed ? 'not here' : '';
-      const poor = !maxed && allowed && !afford(res, cost);
-      return { kind, n: HOTKEY_KEYS[HOTKEYS.indexOf(kind)] ?? '', name, note, cost, seconds, poor };
+      const { cost, seconds } = buildCost(kind, 1);
+      const poor = !afford(res, cost);
+      return { kind, n: HOTKEY_KEYS[HOTKEYS.indexOf(kind)] ?? '', name: BUILD_LABEL[kind], cost, seconds, poor };
     };
     const groups = BAR.map((g) => ({ group: g.group, cells: g.kinds.map(cell) }));
     const slots = mine >= 0 ? `${this.map.regions[mine].name}: ${this.slotsUsed(mine)}/${slotsOf(this.map.regions[mine], snap.regions[mine][2])} slots` : '';
@@ -1146,9 +1143,12 @@ export class GameScreen {
         if (here.length) text += ` Here: ${here.join(', ')}.`;
       }
       const how = this.placing === 'road' ? 'drag across your regions' : 'click a region';
+      const level = mine >= 0 ? this.nextLevel(about, mine) : 1;
+      const here = mine >= 0 && level > 1 ? buildCost(about, level).cost : null;
       strip.push(
         el('div', { class: 'strip' }, [
-          el('b', {}, [BUILD_LABEL[about]]),
+          el('b', {}, [mine >= 0 ? this.barName(about, mine) : BUILD_LABEL[about]]),
+          ...(here ? [costChips(here, res)] : []),
           el('span', { class: 'what' }, [text]),
           el('span', { class: 'how' }, [`${slots ? `${slots} · ` : ''}${how} · shift: more · esc`]),
         ]),
@@ -1158,15 +1158,15 @@ export class GameScreen {
       el(
         'button',
         {
-          class: `slot${this.placing === c.kind ? ' active' : ''}${c.poor ? ' poor' : ''}${c.note ? ' off' : ''}`,
+          class: `slot${this.placing === c.kind ? ' active' : ''}${c.poor ? ' poor' : ''}`,
           'data-kind': c.kind,
-          'aria-label': `${c.name}${c.note ? ` (${c.note})` : c.poor ? ' (short of resources)' : ''}`,
+          'aria-label': `${c.name}${c.poor ? ' (short of resources)' : ''}`,
         },
         [
           el('img', { src: buildingIcon(c.kind), alt: '' }),
           el('span', { class: 'key' }, [c.n]),
           el('span', { class: 'name' }, [c.name]),
-          c.note ? el('span', { class: 'note' }, [c.note]) : costChips(c.cost, res),
+          costChips(c.cost, res),
           el('span', { class: 'time' }, [`${c.seconds}s`]),
         ],
       );
@@ -1701,7 +1701,7 @@ export class GameScreen {
     // The building on one line (what it's doing, Repeat, × to cancel the last order), then one
     // button per unit it makes: hotkey, unit, how many are queued and the cost, filled from the
     // left as the one under way gets made.
-    const waiting = line.progress < 0;
+    const waiting = line.queue.length > 0 && line.progress < 0;
     const status = line.queue.length ? (waiting ? 'waiting for resources' : `${line.queue.length} queued`) : 'idle';
     const repeat = el('button', { class: `x${line.repeat ? ' on' : ''}`, 'aria-pressed': String(line.repeat) }, ['Repeat']);
     repeat.onclick = () => this.send({ o: 'repeat', region: line.region, building: line.building, on: !line.repeat });
