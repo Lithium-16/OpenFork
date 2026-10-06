@@ -274,6 +274,23 @@ export class MapView {
     return r === WATER ? -1 : r;
   }
 
+  /** The sea region nearest a screen point (within `reach` map pixels), or -1. */
+  seaNear(sx: number, sy: number, reach = 60): number {
+    const [mx, my] = this.toMap(sx, sy);
+    const [cx, cy] = [Math.floor(mx), Math.floor(my)];
+    const W = this.map.width;
+    for (let d = 0; d <= reach; d += 2) {
+      for (let k = -d; k <= d; k += 2) {
+        for (const [x, y] of [[cx + k, cy - d], [cx + k, cy + d], [cx - d, cy + k], [cx + d, cy + k]]) {
+          if (x < 0 || y < 0 || x >= W || y >= this.map.height) continue;
+          const r = this.seaGrid[y * W + x];
+          if (r !== WATER) return r;
+        }
+      }
+    }
+    return -1;
+  }
+
   /** The units under a screen point (a stack gives all of its units), or null. */
   blobAt(sx: number, sy: number): number[] | null {
     for (let i = this.placed.length - 1; i >= 0; i--) {
@@ -1457,6 +1474,7 @@ export class MapView {
       if (rr[3] & 1) others.push(ICONS.barracks);
       if (rr[3] & 2) others.push(ICONS.factory);
       if (rr[3] & 8) others.push(ICONS.port);
+      if (rr[3] & 16) others.push(ICONS.battery);
       for (let d = 0; d < rr[13]; d++) others.push(ICONS.depot);
       if (!icons.length && others.length) icons.push({ s: others.shift() as Sprite });
       const extra = others.length;
@@ -1626,7 +1644,8 @@ export class MapView {
         const parked = rows.filter((b) => !transit(b));
         const going = new Map<number, BlobRow[]>();
         for (const b of rows) if (transit(b)) going.set(b[7], [...(going.get(b[7]) ?? []), b]);
-        if (o === holder) {
+        // Nobody holds the sea: units at sea stand in its middle, not on a border.
+        if (o === holder || reg.sea) {
           if (parked.length) middle.push(...slot(`s:${o}:${region}`, parked, o, false, `s:${o}:${region}`, single));
         } else {
           for (const b of parked) {
@@ -1921,20 +1940,26 @@ export class MapView {
         this.nextBoom.set(r, now + 2000 + Math.random() * 2000);
       } else this.nextBoom.set(r, due);
     }
-    // Guns shelling a region: a flash where they stand, then a shell bursting over there.
-    for (const b of snap.blobs) {
-      const target = b[13];
+    // Guns shelling a region (artillery, ships, coastal batteries): a flash where they stand,
+    // then a shell bursting over there.
+    const shooters: Array<[number, number, number]> = snap.blobs.map((b) => [b[0], b[6], b[13]]);
+    for (const [region, sea] of snap.shelling ?? []) shooters.push([-1 - region, region, sea]);
+    if (this.nextShell.size > shooters.length + 50) {
+      const live = new Set(shooters.map(([k]) => k));
+      for (const k of this.nextShell.keys()) if (!live.has(k)) this.nextShell.delete(k);
+    }
+    for (const [key, from, target] of shooters) {
       if (target < 0) {
-        this.nextShell.delete(b[0]);
+        this.nextShell.delete(key);
         continue;
       }
-      const due = this.nextShell.get(b[0]) ?? now + Math.random() * 1500;
+      const due = this.nextShell.get(key) ?? now + Math.random() * 1500;
       if (now < due) {
-        this.nextShell.set(b[0], due);
+        this.nextShell.set(key, due);
         continue;
       }
-      this.nextShell.set(b[0], now + 1500 + Math.random() * 1500);
-      const gun = this.map.regions[b[6]];
+      this.nextShell.set(key, now + 1500 + Math.random() * 1500);
+      const gun = this.map.regions[from];
       const [gx, gy] = this.toScreen(gun.x, gun.y);
       const pix = this.regionPixels[target];
       const i = pix[Math.floor(Math.random() * pix.length)];
