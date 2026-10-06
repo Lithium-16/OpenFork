@@ -1,0 +1,107 @@
+# The Windows desktop app (desktop/). Every pull request builds the installer (downloadable
+# from the run's artifacts, to try it). Every change merged to main publishes a release:
+# installed copies see it and update themselves, and the newest installer is always at
+# https://github.com/Lithium-16/OpenFork/releases/latest/download/OpenFork-Setup.exe
+name: Desktop app
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'client/**'
+      - 'server/**'
+      - 'shared/**'
+      - 'public/**'
+      - 'desktop/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/desktop.yml'
+  pull_request:
+    paths:
+      - 'client/**'
+      - 'server/**'
+      - 'shared/**'
+      - 'public/**'
+      - 'desktop/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/desktop.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# Releases go out one at a time, in order.
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      VERSION: 1.0.${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            desktop/package-lock.json
+
+      - name: Install the game's dependencies
+        run: npm ci
+
+      - name: Install the desktop app's dependencies
+        working-directory: desktop
+        run: npm ci
+
+      - name: Set the version
+        working-directory: desktop
+        run: npm version --no-git-tag-version --allow-same-version ${{ env.VERSION }}
+
+      - name: Build the installer
+        working-directory: desktop
+        run: npm run dist
+
+      - name: Copy it under a name that never changes (for the share link)
+        shell: bash
+        run: cp "desktop/release/OpenFork-Setup-$VERSION.exe" desktop/release/OpenFork-Setup.exe
+
+      - name: Keep the installer with this run
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenFork-Setup-${{ env.VERSION }}
+          path: desktop/release/OpenFork-Setup.exe
+          retention-days: 14
+
+      - name: Publish the release
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHANGE: ${{ github.event.head_commit.message }}
+        run: |
+          cd desktop/release
+          {
+            echo "**Download:** OpenFork-Setup.exe below. Run it and the game installs and opens (no admin needed). Windows may say it protects your PC: click *More info*, then *Run anyway*."
+            echo
+            echo "Already installed? The launcher downloads this update by itself."
+            echo
+            echo "### What changed"
+            echo
+            printf '%s\n' "${CHANGE:-Updates to the game.}"
+          } > notes.md
+          gh release create "v$VERSION" \
+            "OpenFork-Setup-$VERSION.exe" \
+            "OpenFork-Setup-$VERSION.exe.blockmap" \
+            latest.yml \
+            OpenFork-Setup.exe \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "OpenFork $VERSION" \
+            --notes-file notes.md

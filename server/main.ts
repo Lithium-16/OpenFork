@@ -1,154 +1,17 @@
-// Standalone server: serves the client from public/ and the game over a WebSocket at /ws.
-// All game logic lives in server/core.
-import { randomUUID } from 'node:crypto';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
-import { createServer } from 'node:http';
-import { extname, join, normalize, sep } from 'node:path';
+// Standalone server: serves the client from public/ and the game over a WebSocket at /ws
+// (see server/serve.ts). All game logic lives in server/core.
+import { readdirSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { WebSocket, WebSocketServer } from 'ws';
-import type { GameMap } from '../shared/map.ts';
-import type { ServerMessage } from '../shared/protocol.ts';
-import { TICK_MS } from '../shared/rules.ts';
-import { GuestAuth } from './adapters/memory.ts';
-import { GameServer } from './core/game-server.ts';
-import type { ConnId } from './core/ports.ts';
+import { startServer } from './serve.ts';
 
 const PORT = Number(process.env.PORT ?? 8090);
 const HOST = process.env.HOST ?? '0.0.0.0';
 const PUBLIC_DIR = fileURLToPath(new URL('../public/', import.meta.url));
-const TYPES: Record<string, string> = {
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.json': 'application/json',
-  '.map': 'application/json',
-  '.png': 'image/png',
-  '.svg': 'image/svg+xml',
-  '.woff2': 'font/woff2',
-  '.txt': 'text/plain; charset=utf-8',
-};
-/** Messages per second a client may send before being disconnected. */
-const MAX_MSGS_PER_SEC = 60;
-
-const maps = new Map<string, GameMap>();
-for (const f of readdirSync(join(PUBLIC_DIR, 'maps')).filter((f) => f.endsWith('.json'))) {
-  const map: GameMap = JSON.parse(readFileSync(join(PUBLIC_DIR, 'maps', f), 'utf8'));
-  maps.set(map.id, map);
-}
-
-const sockets = new Map<ConnId, WebSocket>();
-const game = new GameServer({
-  transport: {
-    send(conn: ConnId, msg: ServerMessage) {
-      const ws = sockets.get(conn);
-      if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
-    },
-  },
-  auth: new GuestAuth(),
-  clock: { now: () => Date.now() },
-  maps,
-  log: (m) => console.log(m),
-});
-
-const http = createServer(async (req, res) => {
-  const url = new URL(req.url ?? '/', 'http://localhost');
-  if (url.pathname === '/health') {
-    res.writeHead(200, { 'content-type': 'text/plain' }).end('ok');
-    return;
-  }
-  try {
-    const rel = url.pathname === '/' ? 'index.html' : decodeURIComponent(url.pathname.slice(1));
-    const file = normalize(join(PUBLIC_DIR, rel));
-    if (!file.startsWith(PUBLIC_DIR.endsWith(sep) ? PUBLIC_DIR : PUBLIC_DIR + sep)) {
-      res.writeHead(403).end();
-      return;
-    }
-    const body = await readFile(file);
-    res.writeHead(200, {
-      'content-type': TYPES[extname(file)] ?? 'application/octet-stream',
-      'cache-control': 'no-cache',
-    });
-    res.end(body);
-  } catch {
-    res.writeHead(404, { 'content-type': 'text/plain' }).end('Not found');
-  }
-});
-
-// Messages are small, except a save file being loaded (checked per message below).
-const MAX_MESSAGE = 32 * 1024;
-const wss = new WebSocketServer({ server: http, path: '/ws', maxPayload: 2_100_000, perMessageDeflate: { threshold: 1024 } });
-const alive = new WeakSet<WebSocket>();
-/** Open sockets per address: generous (players behind one proxy share an address), but one
- * script can't open hundreds. */
-const MAX_SOCKETS_PER_IP = 32;
-const perIp = new Map<string, number>();
-wss.on('error', (e) => console.error('websocket server error', e));
-
-wss.on('connection', (ws, req) => {
-  const ip = String(req.headers['x-forwarded-for'] ?? req.socket.remoteAddress ?? '?').split(',')[0].trim();
-  if ((perIp.get(ip) ?? 0) >= MAX_SOCKETS_PER_IP) {
-    ws.close(1008, 'too many connections');
-    return;
-  }
-  perIp.set(ip, (perIp.get(ip) ?? 0) + 1);
-  // A bad frame (too big, malformed) ends that connection only, never the server.
-  ws.on('error', () => ws.terminate());
-  const conn = randomUUID();
-  sockets.set(conn, ws);
-  alive.add(ws);
-  game.handleConnect(conn);
-
-  let windowStart = Date.now();
-  let count = 0;
-  ws.on('pong', () => alive.add(ws));
-  ws.on('message', (data) => {
-    const now = Date.now();
-    if (now - windowStart >= 1000) {
-      windowStart = now;
-      count = 0;
-    }
-    if (++count > MAX_MSGS_PER_SEC) {
-      ws.close(1008, 'rate limit');
-      return;
-    }
-    const text = data.toString();
-    if (text.length > MAX_MESSAGE && !text.startsWith('{"t":"lobby.load"')) {
-      ws.close(1009, 'message too big');
-      return;
-    }
-    let raw: unknown;
-    try {
-      raw = JSON.parse(text);
-    } catch {
-      return;
-    }
-    game.handleMessage(conn, raw).catch((e) => console.error('handleMessage failed', e));
-  });
-  ws.on('close', () => {
-    const n = (perIp.get(ip) ?? 1) - 1;
-    if (n > 0) perIp.set(ip, n);
-    else perIp.delete(ip);
-    sockets.delete(conn);
-    game.handleDisconnect(conn);
-  });
-});
-
-setInterval(() => {
-  for (const ws of wss.clients) {
-    if (!alive.has(ws)) {
-      ws.terminate();
-      continue;
-    }
-    alive.delete(ws);
-    ws.ping();
-  }
-}, 15_000);
-
-setInterval(() => game.tick(), TICK_MS);
 
 await buildClient();
-http.listen(PORT, HOST, () => console.log(`OpenFork on http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`));
+await startServer({ port: PORT, host: HOST, publicDir: PUBLIC_DIR });
+console.log(`OpenFork on http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
 
 /**
  * Bundles the browser game (client/ → public/app.js) on every start, so a server started any

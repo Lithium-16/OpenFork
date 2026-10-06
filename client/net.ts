@@ -12,6 +12,15 @@ export function savedName(): string {
   }
 }
 
+/** Starts as someone new next time (the desktop app: each game window is a fresh start). */
+export function forgetIdentity(): void {
+  try {
+    localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    // nothing kept
+  }
+}
+
 function save(key: string, value: string): void {
   try {
     localStorage.setItem(key, value);

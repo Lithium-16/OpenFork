@@ -3,7 +3,8 @@ import type { GameMap } from '../shared/map.ts';
 import type { LobbySettings, LobbyView, ServerMessage } from '../shared/protocol.ts';
 import { MAX_PLAYERS, MIN_PLAYERS, MIN_PVP_PLAYERS } from '../shared/rules.ts';
 import { GameScreen } from './game-screen.ts';
-import { Net, savedName } from './net.ts';
+import { desktop } from './desktop.ts';
+import { forgetIdentity, Net, savedName } from './net.ts';
 import { ICONS, spriteUrl } from './sprites.ts';
 import { $, el, toast } from './ui.ts';
 
@@ -82,8 +83,28 @@ loadInput.onchange = async () => {
 codeInput.onkeydown = (e) => {
   if (e.key === 'Enter') $('#join').click();
 };
-// Coming back with a name already saved: reconnect, so a running game picks up again.
-if (nameInput.value) ensureConnected();
+/** In the desktop app: the save the launcher asked to open (else a new game starts). */
+let desktopLoad: string | null = null;
+if (desktop) {
+  // The launcher is the home screen; this window opens straight into a game or its lobby.
+  document.body.classList.add('desktop');
+  $('#leave').textContent = 'Back';
+  forgetIdentity();
+  // Leaving a game: autosave it first (while still in it), so Continue has it.
+  const send = net.send.bind(net);
+  net.send = (m) => {
+    if (m.t === 'lobby.leave') void desktop?.flush().finally(() => send(m));
+    else send(m);
+  };
+  void desktop.start().then((s) => {
+    desktopLoad = s?.load ?? null;
+    nameInput.value = s?.name || 'Commander';
+    ensureConnected();
+  });
+} else if (nameInput.value) {
+  // Coming back with a name already saved: reconnect, so a running game picks up again.
+  ensureConnected();
+}
 
 // -- lobby ------------------------------------------------------------------------------------
 
@@ -211,7 +232,8 @@ function renderLobbyBody(map: GameMap | null): void {
     ]),
     el('span', {}, ['Bots']),
     select('difficulty', [
-      ['none', 'None: pure PvP'],
+      // Pure PvP needs other people: not in the desktop app.
+      ...(desktop ? [] : ([['none', 'None: pure PvP']] as Array<[string, string]>)),
       ['defensive', 'Defensive only'],
       ['easy', 'Easy'],
       ['normal', 'Normal'],
@@ -273,6 +295,8 @@ net.onMessage = async (msg: ServerMessage) => {
       me = { id: msg.id, name: msg.name };
       return;
     case 'error':
+      // The desktop app's game couldn't start (a refused save): back to the launcher to say so.
+      if (desktop && !lobby && !game) return desktop.toLauncher(msg.message);
       toast(msg.message);
       game?.onRefused();
       return;
@@ -284,6 +308,14 @@ net.onMessage = async (msg: ServerMessage) => {
         game?.destroy();
         game = null;
         history.replaceState(null, '', location.pathname);
+        if (desktop) {
+          // First the game the launcher asked for; after that, leaving goes back to it.
+          if (asked) return desktop.toLauncher();
+          asked = true;
+          net.send(desktopLoad ? { t: 'lobby.load', data: desktopLoad } : { t: 'lobby.create' });
+          desktopLoad = null;
+          return;
+        }
         show('home');
         // Opened an invite link with a name already saved: join straight away, once.
         if (invited && !asked && codeInput.value) {
@@ -334,6 +366,11 @@ net.onMessage = async (msg: ServerMessage) => {
       game?.onOver(msg.winner);
       return;
     case 'saved': {
+      if (desktop) {
+        const path = await desktop.saveFile(msg.name, msg.data);
+        if (path) toast(`Saved: ${path.split(/[\\/]/).pop()}`, 'info');
+        return;
+      }
       // Hand the save file to the browser to download.
       const url = URL.createObjectURL(new Blob([msg.data], { type: 'application/json' }));
       const a = document.createElement('a');
