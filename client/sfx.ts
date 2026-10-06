@@ -20,8 +20,18 @@ export class Sfx {
     }
   }
 
+  /** Done with this game's sounds: the audio device is let go (a new game makes its own). */
+  close(): void {
+    void this.ctx?.close().catch(() => {});
+    this.ctx = null;
+    this.closed = true;
+  }
+
+  private closed = false;
+
   /** Browsers only allow audio after a user gesture: call from input handlers. */
   unlock(): void {
+    if (this.closed) return;
     if (this.ctx) {
       if (this.ctx.state === 'suspended') void this.ctx.resume();
       return;

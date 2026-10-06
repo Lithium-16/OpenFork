@@ -47,7 +47,8 @@ export class Net {
         token = undefined;
       }
       ws.send(JSON.stringify({ t: 'hello', name: this.name, token }));
-      for (const m of this.queue.splice(0)) ws.send(JSON.stringify(m));
+      // Lobby actions sent while offline still go; game orders are stale by now and don't.
+      for (const m of this.queue.splice(0)) if (m.t !== 'order') ws.send(JSON.stringify(m));
       this.onStatus(true);
     };
     ws.onmessage = (e) => {
