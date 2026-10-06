@@ -303,6 +303,7 @@ export function usesSlot(kind: BuildingKind): boolean {
 }
 
 export function slotsOf(region: Region, city: number): number {
+  if (region.sea) return 0; // nothing is built at sea
   return SLOTS[region.size] + city;
 }
 
