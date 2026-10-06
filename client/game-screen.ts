@@ -1175,7 +1175,7 @@ export class GameScreen {
       return { kind, n: String(TABS[this.tab].kinds.indexOf(kind) + 1), name: BUILD_LABEL[kind], cost, seconds, poor };
     };
     const groups = [{ group: TABS[this.tab].name, cells: TABS[this.tab].kinds.map(cell) }];
-    const slots = mine >= 0 ? `${this.map.regions[mine].name}: ${this.slotsUsed(mine)}/${slotsOf(this.map.regions[mine], snap.regions[mine][2])} slots` : '';
+    const slots = mine >= 0 ? `${mine}:${this.slotsUsed(mine)}/${slotsOf(this.map.regions[mine], snap.regions[mine][2])}` : '';
     // Redrawn only when something on it changed (what you can afford included).
     const can = RESOURCES.map((k) => groups.map((g) => g.cells.map((c) => res[k] >= c.cost[k])));
     // Only while placing: what it does, here, on one line above the dock (no hover popups).
@@ -1202,7 +1202,8 @@ export class GameScreen {
           el('b', {}, [mine >= 0 ? this.barName(about, mine) : BUILD_LABEL[about]]),
           ...(here ? [costChips(here, res)] : []),
           el('span', { class: 'what' }, [text]),
-          el('span', { class: 'how' }, [`${slots ? `${slots} · ` : ''}${how} · shift: more · esc`]),
+          ...(mine >= 0 ? [this.slotBoxes(mine)] : []),
+          el('span', { class: 'how' }, [`${how} · shift: more · esc`]),
         ]),
       );
     }
@@ -1230,6 +1231,15 @@ export class GameScreen {
       ),
     );
     bar.replaceChildren(...strip, tabs, el('div', { class: 'slots' }, groups.flatMap((g) => g.cells.map(slot))));
+  }
+
+  /** A region's building slots drawn as boxes, as on the map: filled when used, hollow
+   * green when free. */
+  private slotBoxes(region: number): HTMLElement {
+    const used = this.slotsUsed(region);
+    const all = slotsOf(this.map.regions[region], (this.snap as Snapshot).regions[region][2]);
+    const boxes = Array.from({ length: all }, (_, i) => el('i', { class: i < used ? 'used' : 'free' }));
+    return el('span', { class: 'slotboxes', role: 'img', 'aria-label': `${this.map.regions[region].name}: ${used} of ${all} slots used` }, boxes);
   }
 
   /** Selects all your units standing in a region (Shift adds to the selection). */

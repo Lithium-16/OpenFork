@@ -246,6 +246,22 @@ export const ICONS = {
     ],
     { r: '#b5653a', y: '#c19a5b' },
   ),
+  /** A city nobody holds yet: a flag on a pole, white (unclaimed). */
+  flag: art(
+    [
+      'OO.......',
+      'OWOOOOO..',
+      'OWWWWWWO.',
+      'OWWWWWWWO',
+      'OWWWWWWO.',
+      'OWOOOOO..',
+      'OO.......',
+      'OO.......',
+      'OO.......',
+      'OOO......',
+    ],
+    { W: '#e6edf2' },
+  ),
   /** Coastal battery: a big gun on a concrete emplacement, over the waves. */
   battery: art(
     [

@@ -63,7 +63,8 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
   The yield overlay (B) shows what each of your regions makes; the region panel says it too.
 - **Storage:** each resource has a store size: every city level stores 250 money and
   manpower and 120 steel and oil, every **depot** 1000 / 500 more. Income past it is lost (a
-  gauge under each stock in the top bar turns orange and says FULL). A depot is a building
+  gauge under each stock in the top bar turns orange and says FULL), and so is stock past
+  it when the stores shrink: losing a city or depot region loses what no longer fits. A depot is a building
   (a slot, $120 + 20 steel, 45 s) for any region you hold in supply. **Taking a region with
   a city or depots takes its share of the owner's stock**: what it stores out of all their
   storage, up to the captor's own room.
@@ -98,7 +99,7 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
   - **Found a city** in a region of yours that's in supply and not next to another city
     ($1600, 240 steel, 4 minutes): a rare, big decision. It starts at level 1 and is a
     supply hub. Expanding to level L costs $240·L and 40·(L−1) steel and takes L minutes.
-- **Slots:** a region has 1 (2 if large), plus its city level. Every
+- **Slots:** a land region has 1 (2 if large), plus its city level (sea regions have none). Every
   building but cities and roads takes one (a fort takes one for all its levels). Choosing
   what a region is for is the trade-off; demolishing frees a slot at once, with no refund.
   Your regions show their slots as boxes (filled = used, hollow green = free) while you place
@@ -135,6 +136,8 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
     gives back what was paid. A city being founded counts as a city for "not next to another
     city", so two can't be founded side by side.
   - Towns, fields, mines, derricks, market halls and roads are drawn into the map itself.
+  - Above each region: its capital or city (a city nobody holds yet shows as a white flag
+    until someone takes it), fort and port as icons; other buildings as "+N".
   - A captured region's buildings go **intact to the captor**.
 
 ## 4. Units (blobs)
