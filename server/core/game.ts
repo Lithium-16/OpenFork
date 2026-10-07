@@ -141,6 +141,8 @@ export class Game {
         return s.move(id, order.blobs, order.to, order.then ?? false);
       case 'stop':
         return s.stop(id, order.blobs);
+      case 'aim':
+        return s.setHitBuildings(id, order.blobs, order.buildings);
       case 'split':
         return s.split(id, order.blob, order.amount);
       case 'merge':
@@ -296,6 +298,7 @@ export class Game {
       r.econ.market,
       r.depots,
       r.econ.lab,
+      round(r.damage, 2),
     ]);
     const blobs: BlobRow[] = [];
     for (const b of st.blobs.values()) {
@@ -311,7 +314,7 @@ export class Game {
         round(b.progress, 3),
         round(b.entrench, 2),
         round(b.supply, 2),
-        (b.waiting ? 1 : 0) | (b.crossedRiver ? 2 : 0) | (b.attacking >= 0 ? 4 : 0),
+        (b.waiting ? 1 : 0) | (b.crossedRiver ? 2 : 0) | (b.attacking >= 0 ? 4 : 0) | (b.hitBuildings ? 8 : 0),
         b.from,
         b.bombarding,
       ]);

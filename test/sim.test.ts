@@ -1543,3 +1543,85 @@ describe('the sea', () => {
     assert.equal(ship.supply, 1);
   });
 });
+
+describe('building damage', () => {
+  /** A at war with B on the duel chain; A owns 0-3, B owns 4-7. */
+  function war() {
+    const s = duel();
+    clearBlobs(s);
+    s.declareWar(1, 0);
+    s.state.regions.forEach((rs, i) => (rs.owner = i < 4 ? 0 : 1));
+    return s;
+  }
+  const wrecked = (s: ReturnType<typeof war>) => s.drainEvents().flatMap((e) => (e.kind === 'wrecked' ? [`${e.building}:${e.level}`] : []));
+
+  it('guns told to shell buildings knock them down a level at a time, ports first', () => {
+    const s = war();
+    const rs = s.state.regions[4];
+    Object.assign(rs, { port: true, factory: true, city: 2 });
+    rs.econ.mine = 2;
+    const gun = place(s, 0, 'artillery', 2, 20);
+    assert.equal(s.setHitBuildings(0, [gun.id], true), null);
+    run(s, 85);
+    assert.deepEqual(wrecked(s), ['port:0'], 'about 80 s a level for 20 strength, as for forts');
+    assert.equal(rs.port, false);
+    run(s, 4 * 82);
+    assert.deepEqual(wrecked(s), ['factory:0', 'mine:1', 'mine:0', 'city:1']);
+    // Nothing left: the town stays a village; the gun has nothing to aim at.
+    run(s, 90);
+    assert.equal(rs.city, 1);
+    assert.equal(gun.bombarding, -1);
+  });
+
+  it("leaves troops alone when shelling buildings, and never shrinks a capital", () => {
+    const s = war();
+    s.state.regions[7].city = 3;
+    const gun = place(s, 0, 'artillery', 3, 20);
+    gun.region = 5;
+    s.state.regions[5].owner = 0;
+    s.setHitBuildings(0, [gun.id], true);
+    const enemy = place(s, 1, 'infantry', 6, 10);
+    run(s, 100);
+    assert.equal(enemy.strength, 10);
+    assert.equal(s.state.regions[7].city, 3);
+  });
+
+  it('fighting in a region wears its buildings down too', () => {
+    const s = war();
+    const rs = s.state.regions[4];
+    rs.econ.farm = 1;
+    const a = place(s, 0, 'infantry', 4, 1000);
+    const b = place(s, 1, 'infantry', 4, 1000);
+    for (let t = 0; t < 125; t++) {
+      run(s, 1);
+      a.strength = b.strength = 1000;
+    }
+    assert.equal(rs.econ.farm, 0);
+    assert.deepEqual(wrecked(s), ['farm:0']);
+  });
+
+  it('damage mends on its own once things are quiet; damaged barracks stop working', () => {
+    const s = war();
+    const rs = s.state.regions[4];
+    rich(s);
+    rs.barracks = true;
+    rs.damage = 0.6;
+    rs.hitAt = s.state.time;
+    rs.production.barracks.queue = ['infantry'];
+    run(s, 5);
+    assert.equal(rs.production.barracks.progress, -1, 'nothing made while damaged');
+    run(s, 50);
+    assert.ok(rs.damage < 0.5, `mended to ${rs.damage}`);
+    assert.ok(rs.production.barracks.progress >= 0 || s.blobsIn(4).length > 0, 'working again');
+    run(s, 30);
+    assert.equal(rs.damage, 0);
+    assert.equal(rs.barracks, true, 'no level lost');
+  });
+
+  it('only guns take the order', () => {
+    const s = war();
+    const inf = place(s, 0, 'infantry', 1, 10);
+    assert.match(s.setHitBuildings(0, [inf.id], true) ?? '', /no guns/);
+    assert.equal(inf.hitBuildings, false);
+  });
+});

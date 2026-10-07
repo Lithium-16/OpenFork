@@ -1386,6 +1386,12 @@ button.primary:hover:not(:disabled) {
   color: var(--accent-ink);
 }
 
+/* A switch of two buttons (what guns shell): the one in force lit. */
+.panel .buttons button.on {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
 /* What's built: one wrapped row of names, each with × to demolish it. */
 .panel .built {
   display: flex;
