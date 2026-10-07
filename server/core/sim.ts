@@ -471,7 +471,7 @@ export class Sim {
         const rs = this.state.regions[v];
         if (this.closedTo(owner, v) && rs.owner !== through && rs.owner !== attacking) continue;
         let c = this.travelSeconds(type, owner, u, v);
-        if (rs.owner !== owner && !this.world.isSea(v)) c += this.world.captureSeconds(v, rs.fort, training, rs.owner === NEUTRAL);
+        if (rs.owner !== owner && !this.world.isSea(v)) c += this.captureTime(v, training);
         if (this.hostileIn(v, owner)) c += FIGHT_PATH_PENALTY;
         if (cost[u] + c < cost[v]) {
           cost[v] = cost[u] + c;
@@ -1051,7 +1051,10 @@ export class Sim {
 
   private cutOffRegions(dt: number): void {
     this.state.regions.forEach((rs, i) => {
-      if (rs.owner === NEUTRAL || rs.supplied || this.count(rs.owner, i) > 0) {
+      // Held while its owner's units stand in it or next door (a landing holds its beach while
+      // the troops push one region on).
+      const near = this.count(rs.owner, i) > 0 || this.world.neighbors(i).some((e) => !this.world.isSea(e.id) && this.count(rs.owner, e.id) > 0);
+      if (rs.owner === NEUTRAL || rs.supplied || near) {
         rs.cutOff = 0;
         return;
       }
@@ -1496,6 +1499,13 @@ export class Sim {
 
   // -- capturing --------------------------------------------------------------------------
 
+  /** Seconds to take a region (its fort, town, and a capital counted). */
+  captureTime(region: number, training: number): number {
+    const rs = this.state.regions[region];
+    const capital = this.state.players.some((p) => p.alive && p.capital === region);
+    return this.world.captureSeconds(region, rs.fort, training, rs.owner === NEUTRAL, rs.city, capital);
+  }
+
   /** Standing in someone else's land that it can take (neutral, or an enemy's): a capture is
    * under way, or will be once the fighting there stops. */
   taking(b: Blob): boolean {
@@ -1531,7 +1541,7 @@ export class Sim {
       const training = Math.max(...capturers.filter((b) => b.owner === by).map((b) => b.training));
       // Storm troops take land a quarter faster.
       const storm = this.has(by, 'stormtroops') ? 1.25 : 1;
-      rs.capture.progress += (dt * storm) / this.world.captureSeconds(i, rs.fort, training, rs.owner === NEUTRAL);
+      rs.capture.progress += (dt * storm) / this.captureTime(i, training);
       if (rs.capture.progress >= 1) this.take(i, by);
     });
   }

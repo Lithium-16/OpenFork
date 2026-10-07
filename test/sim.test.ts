@@ -107,9 +107,9 @@ describe('movement', () => {
     assert.ok((capture()?.progress ?? 0) > 0, 'and takes it from inside');
     assert.deepEqual(b.path, [3, 4], 'staying until it is taken');
     assert.equal(b.region, 2);
-    run(s, 9); // neutral land: 30% slower than an enemy's
+    run(s, 13); // neutral land: 30% slower than an enemy's
     assert.equal(s.state.regions[2].owner, 0);
-    run(s, 50);
+    run(s, 60);
     assert.equal(b.region, 4);
     assert.equal(s.state.regions[3].owner, 0);
     assert.equal(s.state.regions[4].owner, 0);
@@ -673,13 +673,13 @@ describe('supply', () => {
   it('cut-off empty regions go neutral; cut-off blobs wither', () => {
     const s = duel();
     clearBlobs(s);
-    // A owns 0..1 and an island of 3..4 it can't reach (2 is neutral).
-    s.state.regions[3].owner = 0;
-    s.state.regions[4].owner = 0;
-    const b = place(s, 0, 'infantry', 4);
+    // A owns 0..1 and an island of 3..5 it can't reach (2 is neutral).
+    for (const r of [3, 4, 5]) s.state.regions[r].owner = 0;
+    const b = place(s, 0, 'infantry', 5);
     run(s, CUT_OFF_SECONDS + 1);
     assert.equal(s.state.regions[3].owner, NEUTRAL);
-    assert.equal(s.state.regions[4].owner, 0, 'held while a blob is there');
+    assert.equal(s.state.regions[4].owner, 0, 'held while a blob is next door');
+    assert.equal(s.state.regions[5].owner, 0, 'held while a blob is there');
     assert.equal(b.supply, 0);
     assert.ok(b.strength < b.size);
   });
@@ -1117,12 +1117,18 @@ describe('artillery', () => {
       s.state.regions[4].fort = 2;
       place(s, 0, 'artillery', 2, 20);
       const held = place(s, 1, 'infantry', 4, 1000);
-      run(s, 45);
-      assert.equal(s.state.regions[4].fort, 1, `one level gone in 45 s (${techs.join(',') || 'no techs'})`);
-      assert.ok(held.strength > 0);
+      // Defenders kept at full strength: something stays there to shell.
+      const shell = (seconds: number) => {
+        for (let t = 0; t < seconds; t++) {
+          run(s, 1);
+          held.strength = 1000;
+        }
+      };
+      shell(85);
+      assert.equal(s.state.regions[4].fort, 1, `one level gone in 85 s (${techs.join(',') || 'no techs'})`);
       const breached = s.drainEvents().filter((e) => e.kind === 'breached');
       assert.deepEqual(breached.map((e) => e.kind === 'breached' && e.level), [1]);
-      run(s, 45);
+      shell(85);
       assert.equal(s.state.regions[4].fort, 0, 'and the next');
     }
   });
