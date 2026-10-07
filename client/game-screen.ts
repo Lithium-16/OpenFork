@@ -46,7 +46,7 @@ import {
   whyNotResearch,
 } from '../shared/rules.ts';
 import { FrameMeter } from './fx.ts';
-import { colorOf, MapView } from './map-view.ts';
+import { colorOf, type FrontView, MapView } from './map-view.ts';
 import { Sfx } from './sfx.ts';
 import type { Net } from './net.ts';
 import { hudIcon, ICONS, roman, spriteUrl } from './sprites.ts';
@@ -287,6 +287,8 @@ export class GameScreen {
         return this.view.toScreen(r.x, r.y);
       },
       cam: () => ({ ...this.view.cam }),
+      badges: () => this.view.frontBadgeRects(),
+      selected: () => [...this.selected],
       focus: (region: number) => {
         const r = this.map.regions[region];
         this.view.focus(r.x, r.y, 1.3);
@@ -306,6 +308,7 @@ export class GameScreen {
       if (this.snap) {
         this.view.placement = this.placing ? { valid: this.validFor(this.placing), hover: this.hover } : null;
         this.view.slots = this.placing || this.view.yields ? this.slotMap() : null;
+        this.view.fronts = this.frontRows();
         this.view.draw(this.snap, this.players, this.you, this.selected, this.region, this.box);
         // The minimap: on news or a camera move, at most 5 times a second.
         const cam = `${this.view.cam.x}|${this.view.cam.y}|${this.view.cam.scale}`;
@@ -336,6 +339,13 @@ export class GameScreen {
 
   onSnapshot(snap: Snapshot): void {
     if (this.snap) this.view.noteLosses(this.snap, snap);
+    // A battle plan whose target fell holds the new line: say so.
+    for (const [enemy, attack, target] of this.snap?.fronts ?? []) {
+      const now = snap.fronts.find((f) => f[0] === enemy);
+      if (attack === 1 && target >= 0 && now && now[1] === 0 && snap.regions[target][0] === this.you) {
+        this.say(`Battle plan done: ${this.map.regions[target].name} taken; holding the new line`);
+      }
+    }
     this.snap = snap;
     this.warnSupply(snap);
     // Stand-ins for orders on their way: gone once the server's routes show, or after half a second.
@@ -730,7 +740,11 @@ export class GameScreen {
       const [x, y] = pos(e);
       const d = down;
       down = null;
-      if (this.placing === 'road' && d.button === 0) {
+      if (this.frontMode) {
+        // Picking the country (or, for a battle plan, the target) for a front.
+        if (d.button === 0 && !d.moved) this.pickFront(x, y);
+        else if (d.button === 2 && !d.moved) this.setFrontMode(null);
+      } else if (this.placing === 'road' && d.button === 0) {
         this.finishRoad(e.shiftKey);
       } else if (this.placing) {
         if (d.button === 0 && !d.moved) this.place(x, y, e.shiftKey);
@@ -870,6 +884,17 @@ export class GameScreen {
   }
 
   private click(x: number, y: number, shift: boolean): void {
+    // A front's badge: select the front's units.
+    const front = this.view.frontAt(x, y);
+    if (front >= 0) {
+      const f = this.frontRows().find((r) => r.enemy === front);
+      if (f) {
+        this.sfx.select();
+        this.selected = new Set(f.units);
+        this.region = -1;
+        return;
+      }
+    }
     const item = this.view.itemAt(x, y);
     // Anywhere but the expanded stack's own tokens closes it.
     if (item?.group !== this.view.expanded || item?.stack) this.view.expanded = null;
@@ -896,6 +921,75 @@ export class GameScreen {
     }
     if (!shift) this.selected.clear();
     this.region = this.view.regionAt(x, y);
+  }
+
+  // -- fronts ----------------------------------------------------------------------------------
+
+  /** Picking where a front goes: 'hold' (C) or 'attack' (Z, a battle plan), or null. */
+  private frontMode: 'hold' | 'attack' | null = null;
+
+  private setFrontMode(mode: 'hold' | 'attack' | null): void {
+    this.frontMode = mode;
+    if (mode) this.setPlacing(null);
+    $('#map').classList.toggle('aiming', mode !== null);
+    if (mode === 'hold') toast("Front: click a country's land to hold your border with it (Esc: cancel)", 'info');
+    if (mode === 'attack') toast('Battle plan: click the enemy region to push toward (Esc: cancel)', 'info');
+  }
+
+  /** Your fronts, from the snapshot. */
+  private frontRows(): FrontView[] {
+    const snap = this.snap;
+    if (!snap || this.you === null) return [];
+    const you = this.you;
+    return (snap.fronts ?? []).map(([enemy, attack, target, ...units]) => ({ enemy, attack: attack === 1, target, units, atWar: this.atWar(you, enemy) }));
+  }
+
+  /** The click that sets the front: its country, and for a battle plan its target. */
+  private pickFront(x: number, y: number): void {
+    const snap = this.snap;
+    const mode = this.frontMode;
+    if (!snap || this.you === null || !mode) return;
+    const r = this.view.regionAt(x, y);
+    const owner = r >= 0 && !this.map.regions[r].sea ? snap.regions[r][0] : -1;
+    if (owner < 0 || owner === this.you) {
+      toast("Click another country's land");
+      return;
+    }
+    const blobs = [...this.selected].filter((id) => this.blob(id)?.[2] !== UNIT_INDEX.indexOf('warship'));
+    if (!blobs.length) {
+      toast('Fronts are for land units');
+      this.setFrontMode(null);
+      return;
+    }
+    const attack = mode === 'attack';
+    this.send({ o: 'front', blobs, enemy: owner, attack, target: attack ? r : -1 });
+    this.sfx.move();
+    this.setFrontMode(null);
+    const name = this.nameOf(owner);
+    if (!attack) toast(`${blobs.length} unit${blobs.length > 1 ? 's' : ''} holding the border with ${name}`, 'info');
+    else if (this.atWar(this.you, owner)) toast(`Battle plan: pushing toward ${this.map.regions[r].name}`, 'info');
+    else toast(`Battle plan toward ${this.map.regions[r].name}: it attacks once you're at war with ${name}`, 'info');
+  }
+
+  /** The units panel's lines for the fronts its units are on. */
+  private frontLines(sel: BlobRow[], btn: (label: string, fn: () => void) => HTMLElement): HTMLElement[] {
+    const out: HTMLElement[] = [];
+    for (const f of this.frontRows()) {
+      if (!sel.some((b) => f.units.includes(b[0]))) continue;
+      const name = this.nameOf(f.enemy);
+      const toward = f.target >= 0 ? ` toward ${this.map.regions[f.target].name}` : '';
+      const state = !f.attack ? 'holding the border' : f.atWar ? `attacking${toward}` : `battle plan${toward}: waits for war`;
+      out.push(
+        el('div', { class: 'line' }, [`Front with ${name} · ${f.units.length} unit${f.units.length > 1 ? 's' : ''} · ${state}`]),
+        el('div', { class: 'buttons' }, [
+          f.attack
+            ? btn('Hold', () => this.send({ o: 'plan', enemy: f.enemy, attack: false }))
+            : btn('Attack', () => this.send({ o: 'plan', enemy: f.enemy, attack: true, target: -1 })),
+          btn('Dissolve', () => this.send({ o: 'unfront', enemy: f.enemy })),
+        ]),
+      );
+    }
+    return out;
   }
 
   private selectBox(box: [number, number, number, number], shift: boolean): void {
@@ -993,6 +1087,11 @@ export class GameScreen {
       this.view.expanded = null;
     } else if (k === 'escape') {
       this.toggleMenu(true);
+    } else if (k === 'escape' && this.frontMode) {
+      this.setFrontMode(null);
+    } else if ((k === 'c' || k === 'z') && this.playing) {
+      if (!sel.length) toast('Select units first, then C (front) or Z (battle plan)');
+      else this.setFrontMode(k === 'c' ? 'hold' : 'attack');
     } else if (k === 'x' && sel.length) {
       for (const id of sel) this.send({ o: 'split', blob: id });
     } else if (k === 'g' && sel.length > 1) {
@@ -1795,6 +1894,8 @@ export class GameScreen {
         btn('Halt (H)', () => this.send({ o: 'stop', blobs: sel.map((b) => b[0]) })),
         btn('Disband (Del)', () => this.disbandSelected()),
       ]),
+      el('div', { class: 'buttons' }, [btn('Front (C)', () => this.setFrontMode('hold')), btn('Battle plan (Z)', () => this.setFrontMode('attack'))]),
+      ...this.frontLines(sel, btn),
       ...this.splitRow(sel, btn),
       ...sel.slice(0, 30).map((b) => this.unitRow(b, true)),
     ];

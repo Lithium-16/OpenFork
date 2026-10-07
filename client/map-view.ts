@@ -87,6 +87,13 @@ export class MapView {
   yields = false;
   /** Building slots of your regions, [used, all], shown as boxes (placing or yield overlay). */
   slots: Map<number, [number, number]> | null = null;
+  /** Your fronts and battle plans (set by the game screen each frame). */
+  fronts: FrontView[] = [];
+  /** Where each front's badge was drawn this frame (for clicks). */
+  private frontBadges: Array<{ enemy: number; x0: number; y0: number; x1: number; y1: number }> = [];
+  /** Each front's line along the border, worked out once per change of owners. */
+  private frontGeo = new Map<number, FrontGeo | null>();
+  private frontGeoKey = '';
   private readonly supplyLayer: HTMLCanvasElement;
   private supplySnap: Snapshot | null = null;
   private supplyImg: ImageData | null = null;
@@ -335,6 +342,17 @@ export class MapView {
       if (this.grid[i] === WATER) water++;
     }
     return { water, total };
+  }
+
+  /** Where the front badges were drawn (for tests). */
+  frontBadgeRects(): Array<{ enemy: number; x0: number; y0: number; x1: number; y1: number }> {
+    return this.frontBadges.map((b) => ({ ...b }));
+  }
+
+  /** The front whose badge is under a screen point (its enemy), or -1. */
+  frontAt(sx: number, sy: number): number {
+    const b = this.frontBadges.find((f) => sx >= f.x0 && sx <= f.x1 && sy >= f.y0 && sy <= f.y1);
+    return b ? b.enemy : -1;
   }
 
   /** The token or stack under a screen point, or null. */
@@ -1473,6 +1491,7 @@ export class MapView {
       this.blitLayer(this.placeLayer);
     }
     if (lit >= 0 && this.highlightBox) this.blitLayer(this.highlight, this.highlightBox);
+    if (you !== null) this.drawFrontLines(snap, players, you, selected);
     ctx.restore();
 
     this.drawRegions(snap, players, you);
@@ -1486,6 +1505,7 @@ export class MapView {
     }
     this.drawBlobs(snap, players, selected, you);
     this.drawPending(players, you);
+    if (you !== null) this.drawFrontBadges(snap, players, you);
 
     if (box) {
       const [x0, y0] = [Math.round(Math.min(box[0], box[2])), Math.round(Math.min(box[1], box[3]))];
@@ -1501,6 +1521,123 @@ export class MapView {
         ctx.fillRect(x0, y, 1, 2);
         ctx.fillRect(x1, y, 1, 2);
       }
+    }
+  }
+
+  /** A front's line: the border between your land and the enemy's, with where its badge goes
+   * (on the line, near its middle) and which way the enemy lies from there. */
+  private frontGeometry(snap: Snapshot, you: number, enemy: number): FrontGeo | null {
+    if (this.countryKey !== this.frontGeoKey) {
+      this.frontGeoKey = this.countryKey;
+      this.frontGeo.clear();
+    }
+    if (this.frontGeo.has(enemy)) return this.frontGeo.get(enemy) ?? null;
+    this.pairRuns ??= this.findPairRuns();
+    const path = new Path2D();
+    const mids: Array<[number, number]> = [];
+    let [ex, ey, en] = [0, 0, 0];
+    for (const r of this.map.regions) {
+      if (r.sea || snap.regions[r.id][0] !== you) continue;
+      for (const nb of r.neighbors) {
+        if (snap.regions[nb.id][0] !== enemy) continue;
+        const runs = this.pairRuns.get(r.id < nb.id ? r.id * 65536 + nb.id : nb.id * 65536 + r.id) ?? [];
+        for (let i = 0; i + 3 < runs.length; i += 4) {
+          path.moveTo(runs[i], runs[i + 1]);
+          path.lineTo(runs[i + 2], runs[i + 3]);
+          mids.push([(runs[i] + runs[i + 2]) / 2, (runs[i + 1] + runs[i + 3]) / 2]);
+        }
+        const o = this.map.regions[nb.id];
+        [ex, ey, en] = [ex + o.x, ey + o.y, en + 1];
+      }
+    }
+    if (!mids.length) {
+      this.frontGeo.set(enemy, null);
+      return null;
+    }
+    const cx = mids.reduce((s, m) => s + m[0], 0) / mids.length;
+    const cy = mids.reduce((s, m) => s + m[1], 0) / mids.length;
+    const mid = mids.reduce((best, m) => ((m[0] - cx) ** 2 + (m[1] - cy) ** 2 < (best[0] - cx) ** 2 + (best[1] - cy) ** 2 ? m : best));
+    const [dx, dy] = [ex / en - mid[0], ey / en - mid[1]];
+    const len = Math.hypot(dx, dy) || 1;
+    const geo: FrontGeo = { path, mid, across: [dx / len, dy / len] };
+    this.frontGeo.set(enemy, geo);
+    return geo;
+  }
+
+  /** Fronts: a thick line in your colour along the border; a battle plan adds an arrow to its
+   * target (dashed until you're at war). In map space. */
+  private drawFrontLines(snap: Snapshot, players: GamePlayer[], you: number, selected: Set<number>): void {
+    const ctx = this.ctx;
+    const k = 1 / this.cam.scale;
+    const color = colorOf(players, you);
+    for (const f of this.fronts) {
+      const geo = this.frontGeometry(snap, you, f.enemy);
+      if (!geo) continue;
+      const picked = f.units.some((id) => selected.has(id));
+      ctx.save();
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = picked ? '#ffffff' : INK;
+      ctx.lineWidth = (picked ? 7 : 6) * k;
+      ctx.stroke(geo.path);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 3 * k;
+      ctx.stroke(geo.path);
+      if (f.attack) {
+        const [x0, y0] = geo.mid;
+        const t = f.target >= 0 ? this.map.regions[f.target] : null;
+        const [x1, y1] = t ? [t.x, t.y] : [x0 + geo.across[0] * 70 * k, y0 + geo.across[1] * 70 * k];
+        const len = Math.hypot(x1 - x0, y1 - y0) || 1;
+        const [ux, uy] = [(x1 - x0) / len, (y1 - y0) / len];
+        const head = 14 * k;
+        const [bx, by] = [x1 - ux * head, y1 - uy * head];
+        if (!f.atWar) ctx.setLineDash([8 * k, 6 * k]);
+        for (const [w, c] of [
+          [8, INK],
+          [4, color],
+        ] as Array<[number, string]>) {
+          ctx.strokeStyle = c;
+          ctx.lineWidth = w * k;
+          ctx.beginPath();
+          ctx.moveTo(x0, y0);
+          ctx.lineTo(bx, by);
+          ctx.stroke();
+        }
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(bx - uy * head * 0.7, by + ux * head * 0.7);
+        ctx.lineTo(bx + uy * head * 0.7, by - ux * head * 0.7);
+        ctx.closePath();
+        ctx.fillStyle = color;
+        ctx.strokeStyle = INK;
+        ctx.lineWidth = 2 * k;
+        ctx.fill();
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+  }
+
+  /** Each front's badge on its line: HOLD, ATTACK (or PLAN, waiting for war) and its size.
+   * Clicking one selects its units. */
+  private drawFrontBadges(snap: Snapshot, players: GamePlayer[], you: number): void {
+    const ctx = this.ctx;
+    this.frontBadges = [];
+    for (const f of this.fronts) {
+      const geo = this.frontGeometry(snap, you, f.enemy);
+      if (!geo) continue;
+      const [x, y] = this.toScreen(...geo.mid).map(Math.round);
+      const label = `${f.attack ? (f.atWar ? 'ATTACK' : 'PLAN') : 'HOLD'} ${f.units.length}`;
+      const w = label.length * 7 + 12;
+      const h = 18;
+      const [x0, y0] = [x - Math.round(w / 2), y - h - 6];
+      ctx.fillStyle = 'rgba(11, 15, 19, 0.88)';
+      ctx.fillRect(x0, y0, w, h);
+      ctx.fillStyle = colorOf(players, you);
+      ctx.fillRect(x0, y0, 3, h);
+      pixelText(ctx, label, x0 + w / 2 + 1, y0 + h / 2, 12, '#e6edf2');
+      this.frontBadges.push({ enemy: f.enemy, x0, y0, x1: x0 + w, y1: y0 + h });
     }
   }
 
@@ -2958,4 +3095,21 @@ function seeded(seed: number): () => number {
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
+}
+
+/** A front of yours, as the map draws it. */
+export interface FrontView {
+  enemy: number;
+  attack: boolean;
+  target: number;
+  units: number[];
+  /** At war with the enemy (a battle plan only attacks then). */
+  atWar: boolean;
+}
+
+interface FrontGeo {
+  path: Path2D;
+  mid: [number, number];
+  /** Toward the enemy's land, from `mid` (a unit vector). */
+  across: [number, number];
 }
