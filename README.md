@@ -61,7 +61,7 @@ your PC: *More info*, then *Run anyway*.
 | Left click / drag | select a unit or region / box-select your units (Shift adds) |
 | Click a stack | expand it into its units, to pick single ones (click elsewhere closes it) |
 | Double-click | a stack of yours: all of its units; elsewhere: all your units in that region |
-| Right click | send the selected units to a region (they path there, fighting and capturing on the way; across the sea they board at your port and land on the far coast; warships go to sea regions and your ports) |
+| Right click | send the selected units to a region (they path there, attacking enemy troops from across the border and stepping into land to capture it; across the sea they board at your port and land on the far coast; warships go to sea regions and your ports) |
 | Right drag, WASD, arrows | pan |
 | Wheel | zoom |
 | X / G / H | split in half / merge (any amounts, up to 100; not in a fight or below 25% strength) / halt the selected units; the unit panel splits off a batch or any number |

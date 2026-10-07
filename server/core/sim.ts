@@ -1068,13 +1068,12 @@ export class Sim {
   // -- movement ---------------------------------------------------------------------------
 
   /**
-   * What a unit with orders does about the next region on its way: go (hop there), attack the
-   * enemies standing there from where it is, take it from where it is (someone else's empty
-   * land: it steps in once it's taken), wait (the region is full, enemy warships block the
-   * sea, or, for artillery, enemies stand there and it shells them instead), or stop (it
-   * can't go there any more).
+   * What a unit with orders does about the next region on its way: go (hop there; into someone
+   * else's empty land too, to take it from inside), attack the enemies standing there from
+   * where it is, wait (the region is full, enemy warships block the sea, or, for artillery,
+   * enemies stand there and it shells them instead), or stop (it can't go there any more).
    */
-  private stepOf(b: Blob, next: number): 'go' | 'attack' | 'take' | 'wait' | 'full' | 'stop' {
+  private stepOf(b: Blob, next: number): 'go' | 'attack' | 'wait' | 'full' | 'stop' {
     const naval = !!UNITS[b.type].naval;
     const sea = this.world.isSea(next);
     const rs = this.state.regions[next];
@@ -1088,7 +1087,7 @@ export class Sim {
     } else if (this.hostileIn(next, b.owner)) {
       // Artillery never storms a region: it waits at the border and shells (see bombard).
       return UNITS[b.type].range ? 'wait' : 'attack';
-    } else if (rs.owner !== b.owner && !this.closedTo(b.owner, next)) return 'take';
+    }
     if (this.count(b.owner, next) >= this.stackCap(next) && !this.swapWith(b, next)) return 'full';
     return 'go';
   }
@@ -1113,6 +1112,11 @@ export class Sim {
         b.progress = 0;
         continue;
       }
+      // Standing in land it's taking: it stays until the land is its own, then goes on (a
+      // route across someone else's land takes each region in turn). Sent back to its own
+      // land, or out to sea, it goes at once.
+      const onward = b.path[0];
+      if (this.taking(b) && b.progress === 0 && !this.world.isSea(onward) && this.state.regions[onward].owner !== b.owner) continue;
       const next = b.path[0];
       const step = this.stepOf(b, next);
       if (step === 'stop') {
@@ -1121,7 +1125,7 @@ export class Sim {
         b.through = -1;
         continue;
       }
-      if (step === 'attack' || step === 'take' || step === 'wait') {
+      if (step === 'attack' || step === 'wait') {
         // From where it stands (a hop under way is called off at once).
         b.progress = 0;
         if (step === 'wait') b.waiting = true;
@@ -1383,11 +1387,12 @@ export class Sim {
       }
     };
     for (const b of this.state.blobs.values()) {
+      const before = b.bombarding;
       b.bombarding = -1;
       const stats = this.statsOf(b.type, b.owner);
       // Guns being shipped can't fire.
       if (!stats.range || !stats.bombard || b.progress > 0 || b.supply <= 0 || fighting.has(b.id) || this.troopsAtSea(b)) continue;
-      const target = this.bombardTarget(b, stats.range, standing);
+      const target = this.bombardTarget(b, stats.range, standing, before);
       if (target < 0) continue;
       b.bombarding = target;
       const power = DAMAGE_RATE * dt * b.strength * stats.bombard * (1 + (TRAINING_DAMAGE * b.training) / MAX_TRAINING) * (0.5 + 0.5 * b.supply);
@@ -1417,10 +1422,11 @@ export class Sim {
   /** Coastal battery region → the sea it shelled in the last pass. */
   readonly batteryTargets = new Map<number, number>();
 
-  /** Where a gun shells: an enemy-held spot within range, own fights first, then the
-   * strongest enemy force, then the nearest. -1 if there's nothing to hit. Artillery reaches
+  /** Where a gun shells: an enemy-held spot within range, own fights first, then the one it
+   * was shelling (while there's anything left to hit there), then the strongest enemy force,
+   * then the nearest. -1 if there's nothing to hit. Artillery reaches
    * over land only; ships hit the coasts and the seas next to their sea region. */
-  private bombardTarget(b: Blob, range: number, standing: Map<number, Blob[]>): number {
+  private bombardTarget(b: Blob, range: number, standing: Map<number, Blob[]>, before = -1): number {
     const dist = new Map([[b.region, 0]]);
     if (UNITS[b.type].naval) {
       dist.delete(b.region);
@@ -1446,7 +1452,9 @@ export class Sim {
       const enemy = here.filter((x) => this.atWar(b.owner, x.owner)).reduce((s, x) => s + Math.max(0, x.strength), 0);
       if (enemy <= 0) continue;
       const ours = here.some((x) => x.owner === b.owner) || (this.attackers.get(r) ?? []).some((x) => x.owner === b.owner);
-      const score = (ours ? 1e6 : 0) + enemy - d;
+      // A gun keeps to its target while there's something to hit there (a fight of our own
+      // elsewhere still comes first), rather than swinging to whichever force is biggest.
+      const score = (ours ? 1e6 : 0) + (r === before ? 1e5 : 0) + enemy - d;
       if (score > bestScore) {
         bestScore = score;
         best = r;
@@ -1488,20 +1496,24 @@ export class Sim {
 
   // -- capturing --------------------------------------------------------------------------
 
+  /** Standing in someone else's land that it can take (neutral, or an enemy's): a capture is
+   * under way, or will be once the fighting there stops. */
+  taking(b: Blob): boolean {
+    if (UNITS[b.type].naval || this.world.isSea(b.region)) return false;
+    const owner = this.state.regions[b.region].owner;
+    return owner !== b.owner && (owner === NEUTRAL || this.atWar(b.owner, owner));
+  }
+
+  /** Land is taken from inside: by the units standing in it (attacking from next door wins the
+   * fight, but someone has to go in to take the land). */
   private captures(dt: number): void {
-    // Units taking a region from next door (its empty land; see moveBlobs).
-    const fromNextDoor = new Map<number, Blob[]>();
-    for (const b of this.state.blobs.values()) {
-      if (b.attacking < 0 || UNITS[b.type].naval || this.hostileIn(b.attacking, b.owner)) continue;
-      fromNextDoor.set(b.attacking, [...(fromNextDoor.get(b.attacking) ?? []), b]);
-    }
     this.state.regions.forEach((rs, i) => {
       if (this.world.isSea(i)) return; // the sea is nobody's
       if (this.contested(i) || this.underAttack(i)) return; // fighting: capture waits
-      // Who could take it: anyone in it, or taking it from next door, who isn't the owner
-      // (peaceful neighbours share neutral land; whoever started capturing first keeps going,
-      // and on a tie the strongest). Ships don't.
-      const capturers = [...this.blobsIn(i), ...(fromNextDoor.get(i) ?? [])].filter(
+      // Who could take it: anyone standing in it who isn't the owner (peaceful neighbours share
+      // neutral land; whoever started capturing first keeps going, and on a tie the
+      // strongest). Ships don't.
+      const capturers = this.blobsIn(i).filter(
         (b) => !UNITS[b.type].naval && b.owner !== rs.owner && (rs.owner === NEUTRAL || this.atWar(b.owner, rs.owner)),
       );
       const strength = new Map<number, number>();

@@ -2093,8 +2093,8 @@ export class MapView {
       placed.push(p);
     }
     this.placed = placed;
-    // Over the tokens: where the guns are aiming.
-    this.drawAim(snap, players, now, px);
+    // Over the tokens: where your guns are aiming.
+    this.drawAim(snap, players, now, px, you);
   }
 
   /** When each fight on screen fires its next artillery round. */
@@ -2250,7 +2250,12 @@ export class MapView {
    * Guns shelling: a dotted arc from the guns to where they shell, its dots running toward the
    * target, and a crosshair over the region being shelled (one per guns and target).
    */
-  private drawAim(snap: Snapshot, players: GamePlayer[], now: number, px: number): void {
+  /**
+   * Where your guns (artillery, warships, coastal batteries) are aiming: a still, dotted arc in
+   * your colour from the gun to its target, with one shell gliding along it now and then, and
+   * crosshairs on the target. Other countries' guns show only where their shells land.
+   */
+  private drawAim(snap: Snapshot, players: GamePlayer[], now: number, px: number, you: number | null): void {
     const ctx = this.ctx;
     const seen = new Set<string>();
     const aims: Array<[number, number, number, number]> = [];
@@ -2258,6 +2263,8 @@ export class MapView {
     for (const [region, sea] of snap.shelling ?? []) aims.push([-1 - region, snap.regions[region][0], region, sea]);
     const marked = new Set<string>();
     for (const [key, owner, from, target] of aims) {
+      // Spectators see everyone's; players only their own.
+      if (you !== null && owner !== you) continue;
       const id = `${owner}:${from}:${target}`;
       if (seen.has(id)) continue;
       seen.add(id);
@@ -2270,31 +2277,35 @@ export class MapView {
       const color = colorOf(players, owner);
       // A shell's arc: a parabola over the straight line, higher for longer shots.
       const lift = Math.min(80, dist * 0.35);
-      const step = 5 * px;
-      const n = Math.max(2, Math.floor(dist / step));
-      const run = (now / 60) % 1;
+      const at = (f: number): [number, number] => [gx + (tx - gx) * f, gy + (ty - gy) * f - lift * 4 * f * (1 - f)];
+      const d = Math.max(2, Math.round(px));
+      const n = Math.max(2, Math.floor(dist / (7 * px)));
       for (let i = 1; i < n; i++) {
-        const f = (i - run) / n;
-        if (f <= 0.04 || f >= 0.96) continue;
-        const x = gx + (tx - gx) * f;
-        const y = gy + (ty - gy) * f - lift * 4 * f * (1 - f);
-        const d = Math.max(3, Math.round(px * 1.5));
-        // Every fourth dot bigger and brighter, running toward the target: shells in flight.
-        const shell = i % 4 === 0;
-        const sz = d + (shell ? 1 : 0);
-        ctx.globalAlpha = 1;
+        const f = i / n;
+        if (f <= 0.06 || f >= 0.94) continue;
+        const [x, y] = at(f);
+        ctx.fillStyle = INK;
+        ctx.fillRect(Math.round(x) - 1, Math.round(y) - 1, d + 2, d + 2);
+        ctx.fillStyle = color;
+        ctx.fillRect(Math.round(x), Math.round(y), d, d);
+      }
+      // One shell in flight, each gun at its own moment (not all in step).
+      const f = ((now + (id.length * 977 + from * 131) % SHELL_FLIGHT_MS) % SHELL_FLIGHT_MS) / SHELL_FLIGHT_MS;
+      if (f > 0.06 && f < 0.94) {
+        const [x, y] = at(f);
+        const sz = d + 1;
         ctx.fillStyle = INK;
         ctx.fillRect(Math.round(x) - 1, Math.round(y) - 1, sz + 2, sz + 2);
-        ctx.fillStyle = shell ? '#ffe08a' : color;
+        ctx.fillStyle = '#ffe08a';
         ctx.fillRect(Math.round(x), Math.round(y), sz, sz);
       }
-      ctx.globalAlpha = 1;
       const tk = `${owner}:${target}`;
       if (marked.has(tk)) continue;
       marked.add(tk);
-      crosshair(ctx, Math.round(tx), Math.round(ty0), color, px, now);
+      crosshair(ctx, Math.round(tx), Math.round(ty0), color, px);
     }
   }
+
 
   /** Defenders broke: white puffs go up where they stood and dust scatters as they run. */
   routed(region: number): void {
@@ -2575,6 +2586,8 @@ function shieldSprite(fort: number, dig: number, river: boolean): HTMLCanvasElem
 const GLIDE_MS = 300;
 /** A captured region filling with its new colour. */
 const SWEEP_MS = 1000;
+/** How long a drawn shell takes along its gun's arc. */
+const SHELL_FLIGHT_MS = 1400;
 /** Below this zoom the map picture is drawn from its half-size copy. */
 const HALF_BASE_BELOW = 0.6;
 /** The biggest line cache, in device pixels (about 32 MB; there are two). */
@@ -2841,8 +2854,8 @@ function arrowSprite(color: string, dashed = false): HTMLCanvasElement {
 
 /** A crosshair over a region being shelled: four white ticks round the units there, pulsing
  * in, with a corner bracket in the shelling side's colour. */
-function crosshair(ctx: CanvasRenderingContext2D, x: number, y: number, color: string, px: number, now: number): void {
-  const r = Math.round((22 + Math.sin(now / 160) * 3) * Math.max(1, px * 0.75));
+function crosshair(ctx: CanvasRenderingContext2D, x: number, y: number, color: string, px: number): void {
+  const r = Math.round(22 * Math.max(1, px * 0.75));
   const d = Math.max(2, Math.round(px));
   const len = 6 * d;
   y += 14; // round the units, which stand just below the label point
