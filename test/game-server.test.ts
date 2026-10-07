@@ -267,6 +267,34 @@ describe('lobbies', () => {
   });
 });
 
+describe('fronts', () => {
+  it('a front shows in your snapshot only, and a unit ordered by hand leaves it', async () => {
+    const t = setup();
+    await t.connect('a', 'Ann');
+    await t.send('a', { t: 'lobby.create' });
+    await t.send('a', { t: 'lobby.start' });
+    t.tick(5);
+    const start = t.last('a', 'game.start');
+    const you = start?.you as number;
+    const snap = t.last('a', 'snap')?.snap;
+    assert.ok(snap);
+    const unit = snap.blobs.find((b) => b[1] === you) as number[];
+    const enemy = snap.players.findIndex((p, i) => i !== you && p.alive);
+    await t.send('a', { t: 'order', order: { o: 'front', blobs: [unit[0]], enemy, attack: true, target: -1 } });
+    assert.equal(t.last('a', 'error'), undefined);
+    t.tick(2);
+    assert.deepEqual(t.last('a', 'snap')?.snap.fronts, [[enemy, 1, -1, unit[0]]]);
+    await t.send('a', { t: 'order', order: { o: 'plan', enemy, attack: false } });
+    t.tick(2);
+    assert.deepEqual(t.last('a', 'snap')?.snap.fronts, [[enemy, 0, -1, unit[0]]]);
+    await t.send('a', { t: 'order', order: { o: 'stop', blobs: [unit[0]] } });
+    t.tick(2);
+    assert.deepEqual(t.last('a', 'snap')?.snap.fronts, [], 'given an order by hand: off the front (and the front, empty, is gone)');
+    await t.send('a', { t: 'order', order: { o: 'front', blobs: [unit[0]], enemy: you } });
+    assert.match(t.last('a', 'error')?.message ?? '', /another country/);
+  });
+});
+
 describe('saving and loading', () => {
   it('a one-person game saves to a file and loads back where it was, paused', async () => {
     const t = setup();

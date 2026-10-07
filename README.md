@@ -65,6 +65,7 @@ your PC: *More info*, then *Run anyway*.
 | Right drag, WASD, arrows | pan |
 | Wheel | zoom |
 | X / G / H | split in half / merge (any amounts, up to 100; not in a fight or below 25% strength) / halt the selected units; the unit panel splits off a batch or any number |
+| C / Z | **front** / **battle plan** for the selected land units: click another country's land (for a plan, the region to push toward). A front holds your whole border with that country; a plan also attacks across it (once at war) where the odds are good, and holds the new line when its target falls. Click a front's badge to select its units; the unit panel switches Attack / Hold or dissolves it. Ordering a unit by hand takes it off its front |
 | Del | disband the selected units (asks first; half the manpower of their strength back; not in a fight) |
 | 1–9, -, =, P or the build dock (bottom) | placement mode (pointing at a building in the dock shows its cost, build time and what it does): farm, mine, oil well, market, lab, city (found or expand), fort, barracks, factory, road (-), depot (=), port (P, on a coast). Click one of your regions (roads: drag across regions); Shift places more, Esc / right click stops; a busy region queues it. Your regions show their slots as boxes (hollow green = free) |
 | Q / E / R / F | queue infantry / tanks / artillery / warships at the selected region's barracks / factory / port |

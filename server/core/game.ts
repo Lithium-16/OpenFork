@@ -14,6 +14,7 @@ import {
 } from '../../shared/protocol.ts';
 import { type BotDifficulty, type BotSetting, DISCONNECT_BOT_SECONDS, type StartingResources, unitStats } from '../../shared/rules.ts';
 import { Bot } from './bot.ts';
+import { FrontCommand } from './fronts.ts';
 import { mulberry32 } from './rng.ts';
 import { dumpState, SAVE_VERSION, type SaveFile } from './save.ts';
 import { type PlayerSetup, Sim } from './sim.ts';
@@ -39,6 +40,8 @@ export class Game {
   /** identity id → player index */
   readonly humans = new Map<string, number>();
   private readonly bots = new Map<number, Bot>();
+  /** Fronts and battle plans, run for whoever made them (see fronts.ts). */
+  private readonly fronts = new FrontCommand();
   /** player index → sim time they dropped */
   private readonly away = new Map<number, number>();
   /** Bots that play a country for good (empty seats, people who left). */
@@ -123,7 +126,17 @@ export class Game {
     if (id === undefined) return 'you are watching this game';
     if (this.sim.state.players[id].control === 'bot') this.setConnected(identity, true);
     const s = this.sim;
+    // Units given orders by hand leave their fronts.
+    if (order.o === 'move' || order.o === 'stop' || order.o === 'merge' || order.o === 'disband') s.leaveFronts(id, order.blobs);
+    if (order.o === 'split') s.leaveFronts(id, [order.blob]);
     switch (order.o) {
+      case 'front':
+        return s.setFront(id, order.blobs, order.enemy, order.attack, order.target ?? -1);
+      case 'plan':
+        if (!s.state.fronts.some((f) => f.owner === id && f.enemy === order.enemy)) return 'no front there';
+        return s.setFront(id, [], order.enemy, order.attack, order.target ?? -1);
+      case 'unfront':
+        return s.dropFront(id, order.enemy);
       case 'move':
         return s.move(id, order.blobs, order.to, order.then ?? false);
       case 'stop':
@@ -222,6 +235,7 @@ export class Game {
       }
     }
     for (const bot of this.bots.values()) bot.act(this.sim);
+    this.fronts.act(this.sim);
     this.sim.tick();
     this.pending.push(...this.sim.drainEvents());
     if (this.sim.state.winner !== null) this.over = true;
@@ -239,7 +253,7 @@ export class Game {
    * and research, but nobody else's; offers of peace and looting only between others are
    * left out. (Techs stay: they change what everyone's units can do.)
    */
-  viewFor(shared: Omit<Snapshot, 'production' | 'routes' | 'builds'>, you: number | null): Omit<Snapshot, 'production' | 'routes' | 'builds'> {
+  viewFor(shared: Omit<Snapshot, 'production' | 'routes' | 'builds' | 'fronts'>, you: number | null): Omit<Snapshot, 'production' | 'routes' | 'builds' | 'fronts'> {
     const hidden = { res: [0, 0, 0, 0, 0], income: [0, 0, 0, 0, 0], upkeep: 0, cap: [0, 0, 0, 0, 0], research: null, broke: false };
     const players = shared.players.map((p, i) => (i === you ? p : { ...p, ...hidden }) as PlayerRow);
     const mine = (a: number, b: number) => you !== null && (a === you || b === you);
@@ -253,7 +267,7 @@ export class Game {
   }
 
   /** The parts of a snapshot that are the same for everyone. */
-  sharedSnapshot(events: GameEvent[]): Omit<Snapshot, 'production' | 'routes' | 'builds'> {
+  sharedSnapshot(events: GameEvent[]): Omit<Snapshot, 'production' | 'routes' | 'builds' | 'fronts'> {
     const st = this.sim.state;
     const players: PlayerRow[] = st.players.map((p) => ({
       alive: p.alive,
@@ -314,6 +328,12 @@ export class Game {
   }
 
   /** The remaining route of each of `player`'s moving units: [blob id, ...regions]. */
+  /** `player`'s fronts: [enemy, 1 if a battle plan, target, ...unit ids]. */
+  frontsFor(player: number | null): number[][] {
+    if (player === null) return [];
+    return this.sim.state.fronts.filter((f) => f.owner === player).map((f) => [f.enemy, f.attack ? 1 : 0, f.target, ...f.units]);
+  }
+
   routesFor(player: number | null): number[][] {
     if (player === null) return [];
     const out: number[][] = [];

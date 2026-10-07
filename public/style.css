@@ -1360,7 +1360,8 @@ button.primary:hover:not(:disabled) {
   opacity: 0.5;
 }
 
-#map.placing {
+#map.placing,
+#map.aiming {
   cursor: crosshair;
 }
 
