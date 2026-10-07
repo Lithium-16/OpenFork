@@ -109,7 +109,7 @@ describe('bots at sea', () => {
     const s = sim(map, ['A']);
     Object.assign(s.state.players[0].resources, { money: 2000, steel: 500 });
     const bot = new Bot(0, 'normal', mulberry32(1));
-    for (let i = 0; i < 3000; i++) {
+    for (let i = 0; i < 4500; i++) {
       bot.act(s);
       s.tick();
     }

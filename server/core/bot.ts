@@ -10,7 +10,11 @@ import {
   BOT_PEACE_STALEMATE_SECONDS,
   BOT_BOLDER_PER_MINUTE,
   BOT_ENDGAME_COUNTRIES,
+  BOT_HOARD_AFTER,
+  BOT_HOARD_MONEY,
   BOT_HOARD_SHARE,
+  BOT_SEA_NEIGHBOUR_HOPS,
+  BOT_SEA_ODDS,
   BOT_PEACE_WHEN_WEAKER,
   type BotDifficulty,
   type BuildingKind,
@@ -149,6 +153,39 @@ export class Bot {
     return w;
   }
 
+  /** Countries across a narrow sea from us: their coast is within BOT_SEA_NEIGHBOUR_HOPS sea
+   * regions of ours. */
+  private acrossSea(sim: Sim): Set<number> {
+    const out = new Set<number>();
+    const hops = new Map<number, number>();
+    const queue: number[] = [];
+    sim.state.regions.forEach((rs, i) => {
+      if (rs.owner !== this.player) return;
+      for (const c of sim.world.regions[i].coast) {
+        if (!hops.has(c.id)) {
+          hops.set(c.id, 1);
+          queue.push(c.id);
+        }
+      }
+    });
+    for (let q = 0; q < queue.length; q++) {
+      const sea = queue[q];
+      for (const c of sim.world.regions[sea].coast) {
+        const o = sim.state.regions[c.id].owner;
+        if (o !== NEUTRAL && o !== this.player) out.add(o);
+      }
+      const d = hops.get(sea) as number;
+      if (d >= BOT_SEA_NEIGHBOUR_HOPS) continue;
+      for (const n of sim.world.regions[sea].neighbors) {
+        if (sim.world.isSea(n.id) && !hops.has(n.id)) {
+          hops.set(n.id, d + 1);
+          queue.push(n.id);
+        }
+      }
+    }
+    return out;
+  }
+
   /** Countries whose land touches ours. */
   private neighbours(sim: Sim): Set<number> {
     const out = new Set<number>();
@@ -209,14 +246,17 @@ export class Bot {
     const opp = this.opportunism;
     if (!opp || now < opp.after || enemies.length >= opp.maxWars) return;
     const me = sim.state.players[this.player];
-    const hoarding = me.cap.money > 0 && me.resources.money >= BOT_HOARD_SHARE * me.cap.money;
-    const calm = (now - (this.peaceSince ?? now)) / 60;
+    const hoarding = now >= BOT_HOARD_AFTER && me.resources.money >= Math.max(BOT_HOARD_MONEY, BOT_HOARD_SHARE * me.cap.money);
+    // Peace counts toward boldness only from the time it may start wars at all.
+    const calm = Math.max(0, now - Math.max(this.peaceSince ?? now, opp.after)) / 60;
     const ratio = endgame || hoarding ? opp.boldest : Math.max(opp.boldest, opp.ratio - BOT_BOLDER_PER_MINUTE * calm);
     const chance = endgame ? Math.max(0.5, opp.chance) : opp.chance;
-    const prey = [...this.neighbours(sim)]
+    const land = this.neighbours(sim);
+    const sea = [...this.acrossSea(sim)].filter((p) => !land.has(p));
+    const prey = [...land, ...sea]
       .filter((p) => !sim.atWar(this.player, p) && !sim.inTruce(this.player, p))
       .map((p) => ({ p, s: this.strength(sim, p), w: this.wealth(sim, p) }))
-      .filter((x) => mine >= x.s * ratio)
+      .filter((x) => mine >= x.s * ratio * (land.has(x.p) ? 1 : BOT_SEA_ODDS))
       // Weak and rich is best: developed land is worth taking.
       .sort((a, b) => a.s / (1 + a.w / 10) - b.s / (1 + b.w / 10))[0];
     if (prey && this.random() < chance) sim.declareWar(this.player, prey.p);
