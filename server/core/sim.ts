@@ -96,6 +96,7 @@ import {
 import {
   type Blob,
   type Construction,
+  type Front,
   emptyLine,
   pairKey,
   emptyRegion,
@@ -142,6 +143,7 @@ export class Sim {
       truces: new Map(),
       peaceOffers: new Map(),
       roads: new Set(),
+      fronts: [],
     };
     // Cities: real size in the countries being played, small elsewhere (no free metropolis).
     const played = new Set(players.map((p) => p.country));
@@ -1619,6 +1621,57 @@ export class Sim {
     }
   }
 
+  // -- fronts (fronts.ts runs them) ----------------------------------------------------------
+
+  /** The front a unit is on, if any. */
+  frontOf(blobId: number): Front | undefined {
+    return this.state.fronts.find((f) => f.units.includes(blobId));
+  }
+
+  /**
+   * Hands units to the front on the border with `enemy` (made if there's none yet), taking them
+   * off any other. With `attack` given, it also sets the front's plan: push toward `target`
+   * (-1: anywhere along the line), or hold.
+   */
+  setFront(playerId: number, ids: number[], enemy: number, attack?: boolean, target = -1): string | null {
+    if (!this.player(playerId)?.alive) return 'you are not in the game';
+    if (enemy === playerId || !this.player(enemy)?.alive) return 'pick another country';
+    const units = [...new Set(ids)].filter((id) => {
+      const b = this.state.blobs.get(id);
+      return !!b && b.owner === playerId && !UNITS[b.type].naval;
+    });
+    let front = this.state.fronts.find((f) => f.owner === playerId && f.enemy === enemy);
+    if (!units.length && !front) return 'pick land units for the front';
+    if (target >= 0 && (!this.world.regions[target] || this.world.isSea(target))) return 'a battle plan needs a target on land';
+    this.leaveFronts(playerId, units);
+    front = this.state.fronts.find((f) => f.owner === playerId && f.enemy === enemy);
+    if (!front) {
+      front = { owner: playerId, enemy, units: [], attack: false, target: -1 };
+      this.state.fronts.push(front);
+    }
+    front.units.push(...units);
+    if (attack !== undefined) {
+      front.attack = attack;
+      front.target = attack ? target : -1;
+    }
+    return null;
+  }
+
+  /** Takes units off their fronts (they've been given orders by hand); a front left with
+   * nobody on it goes. */
+  leaveFronts(playerId: number, ids: number[]): void {
+    const gone = new Set(ids);
+    for (const f of this.state.fronts) if (f.owner === playerId) f.units = f.units.filter((id) => !gone.has(id));
+    this.state.fronts = this.state.fronts.filter((f) => f.units.length > 0);
+  }
+
+  /** Dissolves a front: its units stay where they are, under orders by hand again. */
+  dropFront(playerId: number, enemy: number): string | null {
+    const before = this.state.fronts.length;
+    this.state.fronts = this.state.fronts.filter((f) => !(f.owner === playerId && f.enemy === enemy));
+    return this.state.fronts.length < before ? null : 'no front there';
+  }
+
   /** Gives up: the country goes the way of one whose capital fell. */
   surrender(playerId: number): string | null {
     const p = this.state.players[playerId];
@@ -1631,6 +1684,7 @@ export class Sim {
   private eliminate(playerId: number, by: number, surrendered = false): void {
     const p = this.state.players[playerId];
     p.alive = false;
+    this.state.fronts = this.state.fronts.filter((f) => f.owner !== playerId && f.enemy !== playerId);
     this.state.regions.forEach((rs, i) => {
       if (rs.owner === playerId) this.setOwner(i, NEUTRAL);
     });

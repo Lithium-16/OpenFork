@@ -39,7 +39,14 @@ export type Order =
   | { o: 'research'; tech: TechId }
   | { o: 'unresearch' }
   /** Pause or resume (a game with one person in it only). */
-  | { o: 'pause'; on: boolean };
+  | { o: 'pause'; on: boolean }
+  /** Put units on the front on your border with `enemy` (made if there's none). With
+   * `attack`, also set its plan: push toward `target` (-1 or none: anywhere), or hold. */
+  | { o: 'front'; blobs: number[]; enemy: number; attack?: boolean; target?: number }
+  /** Set the plan of your front with `enemy`: attack (toward `target`) or hold. */
+  | { o: 'plan'; enemy: number; attack: boolean; target?: number }
+  /** Dissolve your front with `enemy` (its units stay where they are). */
+  | { o: 'unfront'; enemy: number };
 
 export interface LobbySettings {
   map: string;
@@ -156,6 +163,8 @@ export interface Snapshot {
   routes: number[][];
   /** The receiving player's waiting builds: [region, kind index, target, kind index, target...]. */
   builds: number[][];
+  /** The receiving player's fronts: [enemy, 1 if a battle plan, target or -1, ...unit ids]. */
+  fronts: number[][];
   /** Borders with a road. */
   roads: Array<[number, number]>;
   events: GameEvent[];

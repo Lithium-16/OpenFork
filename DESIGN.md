@@ -281,6 +281,29 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
   never on past the enemy. Retreating costs strength and training (once, however often the
   way out changes). **Attackers break off for free**: they never left home.
 
+## 5a. Fronts and battle plans
+Units handed to a **front** are moved for you, the way a bot moves its army, about once a
+second:
+- **Front (C, then click another country's land):** the selected land units hold your whole
+  border with that country. They spread along it (at least one per border region when there
+  are enough; more where the enemy has more troops next door), dig in, and shift as the
+  border moves. Artillery stands one region back. At peace too: a front is also a border
+  guard.
+- **Battle plan (Z, then click the enemy region to push toward):** the same front, which at
+  war also attacks across the line: enemy regions next to it, nearest the target first, each
+  only when the units next to it have at least **1.3 : 1** odds (forts and digging in
+  counted); a region the enemy presses from elsewhere too keeps one unit back. When the target
+  is taken the plan becomes a front holding the new line. At peace it waits (the arrow is
+  dashed) and starts the moment you declare war, so a war can be planned before it starts.
+- One front per country you border; a unit is on one front at most. Units added to a front
+  are taken off any other. **Ordering a unit by hand** (move, halt, split, merge, disband)
+  takes it off its front; a front left with no units goes. Ships are never on fronts.
+- On the map: a thick line in your colour along the border, a plan's arrow to its target, and
+  a badge (HOLD / PLAN / ATTACK and the number of units) that selects the front's units when
+  clicked. The unit panel switches a front between Attack and Hold, or dissolves it.
+- Fronts are kept in save files. A bot playing for someone who dropped leaves front units to
+  their front.
+
 ## 6. Battles
 - **A battle is about a region:** the blobs standing in it, and the blobs attacking it from
   neighbouring regions. Fights inside a region still happen when both sides end up in it
