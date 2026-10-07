@@ -1083,23 +1083,18 @@ export class MapView {
 
     snap.regions.forEach((r, i) => {
       // Economic buildings, nearest the middle of the region first. A mine or market is one
-      // building with its level in roman numerals at its foot, as forts and cities have.
-      const sprites: Array<[Sprite, number]> = [];
-      for (let k = 0; k < r[9]; k++) sprites.push([MAP_ART.farm, 0]);
-      if (r[10] > 0) sprites.push([MAP_ART.mine, r[10]]);
-      for (let k = 0; k < r[11]; k++) sprites.push([MAP_ART.well, 0]);
-      if (r[12] > 0) sprites.push([MAP_ART.market, r[12]]);
-      for (let k = 0; k < r[14]; k++) sprites.push([MAP_ART.lab, 0]);
+      // building whatever its level (the level shows on its icon above the region).
+      const sprites: Sprite[] = [];
+      for (let k = 0; k < r[9]; k++) sprites.push(MAP_ART.farm);
+      if (r[10] > 0) sprites.push(MAP_ART.mine);
+      for (let k = 0; k < r[11]; k++) sprites.push(MAP_ART.well);
+      if (r[12] > 0) sprites.push(MAP_ART.market);
+      for (let k = 0; k < r[14]; k++) sprites.push(MAP_ART.lab);
       if (sprites.length) {
         const spots = this.spotsIn(i);
-        sprites.forEach(([sprite, level], k) => {
+        sprites.forEach((sprite, k) => {
           const spot = spots[k];
-          if (!spot) return;
-          ctx.drawImage(sprite, spot[0], spot[1]);
-          if (level > 0) {
-            const n = romanSprite(level);
-            ctx.drawImage(n, spot[0] + sprite.width - 1, spot[1] + sprite.height - n.height + 1);
-          }
+          if (spot) ctx.drawImage(sprite, spot[0], spot[1]);
         });
       }
       // A port: a warehouse on the quay and a pier out into the sea, a boat at its end.
@@ -1673,7 +1668,8 @@ export class MapView {
       if (x < -80 || y < -80 || x > this.canvas.clientWidth + 80 || y > this.canvas.clientHeight + 80) continue;
 
       // Icons in a row above the units: capital or city (a city nobody holds yet is just a
-      // flag), fort and port, the levels as roman numerals on their bottom-right corners; the
+      // flag), fort, port, market and mine, the levels as roman numerals on their bottom-right
+      // corners; the
       // other buildings (barracks, factory, coastal battery, depots) count as "+N" (the region
       // panel lists them). Without any of the first, the first of the others shows itself.
       const icons: Array<{ s: Sprite; level?: number }> = [];
@@ -1683,6 +1679,9 @@ export class MapView {
       else if (city > 0) icons.push(unclaimed ? { s: ICONS.flag } : { s: ICONS.city, level: city });
       if (rr[1] > 0) icons.push({ s: ICONS.fort, level: rr[1] });
       if (rr[3] & 8) icons.push({ s: ICONS.port });
+      // Markets and mines level up: their icons carry the level, as forts and cities do.
+      if (rr[12] > 0) icons.push({ s: ICONS.market, level: rr[12] });
+      if (rr[10] > 0) icons.push({ s: ICONS.mine, level: rr[10] });
       const others: Sprite[] = [];
       if (rr[3] & 1) others.push(ICONS.barracks);
       if (rr[3] & 2) others.push(ICONS.factory);
