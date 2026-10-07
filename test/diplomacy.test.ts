@@ -72,8 +72,8 @@ describe('diplomacy', () => {
     const a = place(s, 0, 'infantry', 0);
     s.move(0, [a.id], 1);
     run(s, 2);
-    assert.equal(a.region, 0, 'takes it from its own border');
-    assert.equal(a.attacking, 1);
+    assert.equal(a.region, 0, 'on its way into their land');
+    assert.ok(a.progress > 0);
     // A unit left inside their land (say, from an earlier war) is sent home too.
     const inside = place(s, 0, 'infantry', 1);
     assert.equal(s.state.regions[1].owner, 1);
