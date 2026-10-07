@@ -44,6 +44,8 @@ export interface Blob {
   attacking: number;
   /** Artillery: the region it shells this tick, or -1. */
   bombarding: number;
+  /** Guns (artillery, warships): shell the enemy's buildings instead of their troops. */
+  hitBuildings: boolean;
 }
 
 export interface ProductionLine {
@@ -92,6 +94,10 @@ export interface RegionState {
   cutOff: number;
   /** How far enemy shelling has worn its fort toward losing a level (0 to 1). */
   siege: number;
+  /** How far shelling and fighting have worn its buildings toward losing a level (0 to 1). */
+  damage: number;
+  /** When it was last shelled or fought over (damage mends only some time after). */
+  hitAt: number;
 }
 
 export interface Player {
@@ -133,7 +139,13 @@ export type SimEvent =
   | { kind: 'eliminated'; player: number; by: number; surrendered?: boolean }
   | { kind: 'won'; player: number; domination?: boolean }
   /** Shelling knocked a fort down a level (to `level`). */
-  | { kind: 'breached'; region: number; owner: number; by: number; level: number };
+  | { kind: 'breached'; region: number; owner: number; by: number; level: number }
+  /** Shelling or fighting knocked a building down a level (to `level`; 0: gone). `by` is -1
+   * when nobody in particular did it. */
+  | { kind: 'wrecked'; region: number; owner: number; by: number; building: WreckKind; level: number };
+
+/** What shelling and fighting knock down, in this order. */
+export type WreckKind = 'port' | 'factory' | 'barracks' | 'mine' | 'market' | 'well' | 'farm' | 'city';
 
 export interface SimState {
   /** Seconds since the start. */
@@ -198,5 +210,7 @@ export function emptyRegion(): RegionState {
     supplied: false,
     cutOff: 0,
     siege: 0,
+    damage: 0,
+    hitAt: -1e9,
   };
 }

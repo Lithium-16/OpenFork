@@ -48,6 +48,11 @@ import {
   DOMINATION_SHARE,
   FORT_BONUS,
   FORT_SIEGE_POWER,
+  BUILDING_SIEGE_POWER,
+  FIGHT_WRECK_SECONDS,
+  WRECK_DISABLES,
+  WRECK_MEND_SECONDS,
+  WRECK_QUIET_SECONDS,
   HOME_REFILL,
   FORT_MOVE_PENALTY,
   MAX_TRAINING,
@@ -107,6 +112,7 @@ import {
   type RegionState,
   type SimEvent,
   type SimState,
+  type WreckKind,
 } from './state.ts';
 import type { World } from './world.ts';
 
@@ -943,6 +949,7 @@ export class Sim {
     const fighting = this.battles(dt);
     this.bombard(dt, fighting);
     this.fighting = fighting;
+    this.wear(dt);
     this.captures(dt);
     this.economy(dt);
     this.blobUpkeep(dt, fighting);
@@ -1018,7 +1025,7 @@ export class Sim {
       const dist = new Map<number, number>();
       const queue: number[] = [];
       regions.forEach((rs, i) => {
-        if (rs.owner !== owner || !rs.port || !rs.supplied) return;
+        if (rs.owner !== owner || !rs.port || !rs.supplied || rs.damage >= WRECK_DISABLES) return;
         for (const c of this.world.regions[i].coast) if (!dist.has(c.id)) {
           dist.set(c.id, 1);
           queue.push(c.id);
@@ -1397,11 +1404,12 @@ export class Sim {
       const stats = this.statsOf(b.type, b.owner);
       // Guns being shipped can't fire.
       if (!stats.range || !stats.bombard || b.progress > 0 || b.supply <= 0 || fighting.has(b.id) || this.troopsAtSea(b)) continue;
-      const target = this.bombardTarget(b, stats.range, standing, before);
+      const target = b.hitBuildings ? this.buildingTarget(b, stats.range, before) : this.bombardTarget(b, stats.range, standing, before);
       if (target < 0) continue;
       b.bombarding = target;
       const power = DAMAGE_RATE * dt * b.strength * stats.bombard * (1 + (TRAINING_DAMAGE * b.training) / MAX_TRAINING) * (0.5 + 0.5 * b.supply);
-      shell(b.owner, target, power, bombardFortShare(this.techsOf(b.owner)), true);
+      if (b.hitBuildings) this.wreck(target, power / BUILDING_SIEGE_POWER, b.owner);
+      else shell(b.owner, target, power, bombardFortShare(this.techsOf(b.owner)), true);
     }
     // Coastal batteries: the sea off the coast with the most enemy strength in it.
     this.batteryTargets.clear();
@@ -1427,29 +1435,86 @@ export class Sim {
   /** Coastal battery region → the sea it shelled in the last pass. */
   readonly batteryTargets = new Map<number, number>();
 
+  // -- building damage --------------------------------------------------------------------
+
+  /** Fighting wears down the buildings where it happens; quiet regions mend their damage. */
+  private wear(dt: number): void {
+    for (const region of this.battleRegions) {
+      if (this.world.isSea(region)) continue;
+      const rs = this.state.regions[region];
+      // Whoever fights the holder there (or anyone, on land nobody holds).
+      const sides = [...this.ownersIn(region), ...(this.attackers.get(region) ?? []).map((b) => b.owner)];
+      const by = sides.find((o) => o !== rs.owner && (rs.owner === NEUTRAL || this.atWar(o, rs.owner))) ?? -1;
+      this.wreck(region, dt / FIGHT_WRECK_SECONDS, by);
+    }
+    for (const rs of this.state.regions) {
+      if (rs.damage > 0 && this.state.time - rs.hitAt >= WRECK_QUIET_SECONDS) rs.damage = Math.max(0, rs.damage - dt / WRECK_MEND_SECONDS);
+    }
+  }
+
+  /** Wears a region's buildings by `amount`; a full meter knocks the first of them down a level. */
+  private wreck(region: number, amount: number, by: number): void {
+    const rs = this.state.regions[region];
+    rs.hitAt = this.state.time;
+    const kind = this.nextToWreck(region);
+    if (!kind) {
+      rs.damage = 0;
+      return;
+    }
+    rs.damage += amount;
+    if (rs.damage < 1) return;
+    rs.damage = 0;
+    let level = 0;
+    if (kind === 'city') level = --rs.city;
+    else if (kind === 'port' || kind === 'factory' || kind === 'barracks') {
+      rs[kind] = false;
+      // A unit already paid for is given back.
+      const line = rs.production[kind];
+      if (rs.owner !== NEUTRAL && line.queue.length && line.progress >= 0) this.refund(this.state.players[rs.owner], line.paid ?? this.statsOf(line.queue[0], rs.owner).cost);
+      rs.production[kind] = emptyLine();
+      if (kind === 'port') this.evictShips(region);
+    } else level = --rs.econ[kind];
+    this.events.push({ kind: 'wrecked', region, owner: rs.owner, by, building: kind, level });
+    this.touch();
+  }
+
+  /** What shelling or fighting knocks down next in a region (null: nothing left to). */
+  nextToWreck(region: number): WreckKind | null {
+    const rs = this.state.regions[region];
+    if (rs.port) return 'port';
+    if (rs.factory) return 'factory';
+    if (rs.barracks) return 'barracks';
+    let econ: WreckKind | null = null;
+    for (const k of ['mine', 'market', 'well', 'farm'] as const) if (rs.econ[k] > 0 && (!econ || rs.econ[k] > rs.econ[econ as EconKind])) econ = k;
+    if (econ) return econ;
+    const capital = this.state.players.some((p) => p.alive && p.capital === region);
+    return rs.city > 1 && !capital ? 'city' : null;
+  }
+
+  /** Damaged enough that its port, factory and barracks don't work. */
+  disabled(region: number): boolean {
+    return this.state.regions[region].damage >= WRECK_DISABLES;
+  }
+
+  /** Guns told to shell the enemy's buildings (`on`) or their troops. Other units ignore it. */
+  setHitBuildings(playerId: number, blobIds: number[], on: boolean): string | null {
+    if (!this.player(playerId)?.alive) return 'you are not in the game';
+    let any = false;
+    for (const id of blobIds) {
+      const b = this.state.blobs.get(id);
+      if (!b || b.owner !== playerId || !UNITS[b.type].range || !UNITS[b.type].bombard) continue;
+      b.hitBuildings = on;
+      any = true;
+    }
+    return any ? null : 'no guns selected';
+  }
+
   /** Where a gun shells: an enemy-held spot within range, own fights first, then the one it
    * was shelling (while there's anything left to hit there), then the strongest enemy force,
    * then the nearest. -1 if there's nothing to hit. Artillery reaches
    * over land only; ships hit the coasts and the seas next to their sea region. */
   private bombardTarget(b: Blob, range: number, standing: Map<number, Blob[]>, before = -1): number {
-    const dist = new Map([[b.region, 0]]);
-    if (UNITS[b.type].naval) {
-      dist.delete(b.region);
-      if (!this.world.isSea(b.region)) return -1;
-      const r = this.world.regions[b.region];
-      for (const c of [...r.coast, ...r.neighbors]) dist.set(c.id, 1);
-    }
-    const queue = UNITS[b.type].naval ? [] : [b.region];
-    for (let q = 0; q < queue.length; q++) {
-      const d = dist.get(queue[q]) as number;
-      if (d >= range) continue;
-      for (const n of this.world.regions[queue[q]].neighbors) {
-        if (!dist.has(n.id) && !this.world.isSea(n.id)) {
-          dist.set(n.id, d + 1);
-          queue.push(n.id);
-        }
-      }
-    }
+    const dist = this.gunReach(b, range);
     let best = -1;
     let bestScore = -Infinity;
     for (const [r, d] of dist) {
@@ -1466,6 +1531,47 @@ export class Sim {
       }
     }
     return best;
+  }
+
+  /** Where a gun told to shell buildings fires: enemy land within range with something left
+   * to knock down; the one it was shelling first, then ports and factories, then the nearest. */
+  private buildingTarget(b: Blob, range: number, before = -1): number {
+    let best = -1;
+    let bestScore = -Infinity;
+    for (const [r, d] of this.gunReach(b, range)) {
+      const rs = this.state.regions[r];
+      if (this.world.isSea(r) || rs.owner === NEUTRAL || !this.atWar(b.owner, rs.owner) || !this.nextToWreck(r)) continue;
+      const score = (r === before ? 1e5 : 0) + (rs.port || rs.factory ? 100 : 0) - d;
+      if (score > bestScore) {
+        bestScore = score;
+        best = r;
+      }
+    }
+    return best;
+  }
+
+  /** Regions a gun reaches, with how far: artillery over land up to its range, ships the
+   * coasts and the seas next to their sea region. */
+  private gunReach(b: Blob, range: number): Map<number, number> {
+    const dist = new Map([[b.region, 0]]);
+    if (UNITS[b.type].naval) {
+      dist.delete(b.region);
+      if (!this.world.isSea(b.region)) return dist;
+      const r = this.world.regions[b.region];
+      for (const c of [...r.coast, ...r.neighbors]) dist.set(c.id, 1);
+    }
+    const queue = UNITS[b.type].naval ? [] : [b.region];
+    for (let q = 0; q < queue.length; q++) {
+      const d = dist.get(queue[q]) as number;
+      if (d >= range) continue;
+      for (const n of this.world.regions[queue[q]].neighbors) {
+        if (!dist.has(n.id) && !this.world.isSea(n.id)) {
+          dist.set(n.id, d + 1);
+          queue.push(n.id);
+        }
+      }
+    }
+    return dist;
   }
 
   /** How hard a unit hits where it is: ships only at sea (or sailing out of port into a fight
@@ -1811,7 +1917,7 @@ export class Sim {
 
   private produceIn(rs: RegionState, region: number, building: ProductionBuilding, dt: number): void {
     const line = rs.production[building];
-    if (!rs[building] || line.queue.length === 0) return;
+    if (!rs[building] || line.queue.length === 0 || rs.damage >= WRECK_DISABLES) return;
     const type = line.queue[0];
     const p = this.state.players[rs.owner];
     if (line.progress < 0) {
@@ -1848,7 +1954,7 @@ export class Sim {
       // theirs, or off one of their ports) is quicker.
       const atSea = this.world.isSea(b.region);
       const naval = !!UNITS[b.type].naval;
-      const offPort = atSea && naval && this.world.regions[b.region].coast.some((c) => this.state.regions[c.id].owner === b.owner && this.state.regions[c.id].port);
+      const offPort = atSea && naval && this.world.regions[b.region].coast.some((c) => this.state.regions[c.id].owner === b.owner && this.state.regions[c.id].port && !this.disabled(c.id));
       const mend = !atSea || offPort ? 1 : naval && p.techs.includes('fleetTrain') ? 0.5 : 0;
       if (!inBattle && b.supply > 0 && mend > 0) {
         const cap = drillCap(p.techs);
@@ -1897,6 +2003,7 @@ export class Sim {
       through: -1,
       attacking: -1,
       bombarding: -1,
+      hitBuildings: false,
     };
     this.state.blobs.set(b.id, b);
     this.touch();
