@@ -1,8 +1,9 @@
 // What goes on the Europe map: Europe from the Atlantic to the Urals with Britain, Ireland
 // and the bigger islands, modern countries, and the seas between them (DESIGN.md §2).
+import type { Theatre } from './theatre.ts';
 
 /** Countries whose provinces are on the map (ISO 3166-1 alpha-2; Kosovo is XK). */
-export const INCLUDE = new Set(
+const INCLUDE = new Set(
   (
     'PT ES FR AD MC BE NL LU DE CH LI AT IT SM VA DK NO SE FI PL CZ SK HU SI HR BA RS XK ME AL MK ' +
     'GR BG RO MD UA BY LT LV EE RU TR GB IE'
@@ -10,21 +11,21 @@ export const INCLUDE = new Set(
 );
 
 /** Only these Turkish provinces (Thrace); everything east of the Bosporus is left out. */
-export const TURKEY_KEEP = new Set(['Edirne', 'Kirklareli', 'Kırklareli', 'Tekirdag', 'Tekirdağ', 'Istanbul', 'İstanbul']);
-export const TURKEY_MAX_LON = 29.0;
+const TURKEY_KEEP = new Set(['Edirne', 'Kirklareli', 'Kırklareli', 'Tekirdag', 'Tekirdağ', 'Istanbul', 'İstanbul']);
+const TURKEY_MAX_LON = 29.0;
 
 /** Russian provinces whose label point is east of this are Asian (Tyumen, Kurgan, ...). */
-export const RUSSIA_MAX_LABEL_LON = 62;
+const RUSSIA_MAX_LABEL_LON = 62;
 /** Nothing east of the Urals. */
-export const MAX_LON = 61;
+const MAX_LON = 61;
 
 /** Islands are kept from this many pixels up (about 2700 km² at 3 km/px). */
-export const ISLAND_MIN_PX = 300;
+const ISLAND_MIN_PX = 300;
 /** Land outside this box is left off (the Canaries, Azores, Madeira, the Arctic islands). */
-export const KEEP_BOX = { minLon: -11, maxLon: 61, minLat: 34, maxLat: 70 };
+const KEEP_BOX = { minLon: -11, maxLon: 61, minLat: 34, maxLat: 70 };
 
 /** Start countries and their capitals (lon, lat). */
-export const PLAYABLE: Array<{ id: string; name: string; capital: [number, number] }> = [
+const PLAYABLE: Array<{ id: string; name: string; capital: [number, number] }> = [
   { id: 'PT', name: 'Portugal', capital: [-9.14, 38.72] },
   { id: 'ES', name: 'Spain', capital: [-3.7, 40.42] },
   { id: 'FR', name: 'France', capital: [2.35, 48.86] },
@@ -47,7 +48,7 @@ export const PLAYABLE: Array<{ id: string; name: string; capital: [number, numbe
 ];
 
 /** Big industrial areas: the region containing each point gets the industry trait. */
-export const INDUSTRY: Array<[string, number, number]> = [
+const INDUSTRY: Array<[string, number, number]> = [
   ['Ruhr', 7.0, 51.45],
   ['Rhine-Neckar', 8.47, 49.49],
   ['Stuttgart', 9.18, 48.78],
@@ -80,7 +81,7 @@ export const INDUSTRY: Array<[string, number, number]> = [
 ];
 
 /** Oil fields: the region containing each point gets the oil trait. */
-export const OIL: Array<[string, number, number]> = [
+const OIL: Array<[string, number, number]> = [
   ['Ploiești', 26.02, 44.94],
   ['Tatarstan (Almetyevsk)', 52.3, 54.9],
   ['Bashkortostan', 55.0, 54.4],
@@ -95,3 +96,36 @@ export const OIL: Array<[string, number, number]> = [
   ['Poltava', 34.5, 49.6],
   ['North Sea (Aberdeen)', -2.1, 57.15],
 ];
+
+export const europe: Theatre = {
+  id: 'europe',
+  name: 'Europe',
+  centre: [24, 54],
+  window: { x: -3200, y: 2300, width: 6000, height: 4700 },
+  km: 3,
+  targetRegions: 330,
+  seaAreaFactor: 4,
+  seaReach: 100,
+  seaMinPx: 1500,
+  // Not the Caspian.
+  seaMaxWestLon: 45,
+  include: INCLUDE,
+  keepProvince: (iso, name, props) => {
+    if (iso === 'TR' && !TURKEY_KEEP.has(name)) return false;
+    if (iso === 'RU' && Number(props.longitude) > RUSSIA_MAX_LABEL_LON) return false;
+    return true;
+  },
+  keepPixel: (iso, lon) => !(lon > MAX_LON || (iso === 'TR' && lon > TURKEY_MAX_LON)),
+  islandMinPx: ISLAND_MIN_PX,
+  keepIslands: [],
+  keepBox: KEEP_BOX,
+  farmlandMaxLat: 57,
+  minPlayableRegions: 1,
+  playable: PLAYABLE,
+  industry: INDUSTRY,
+  oil: OIL,
+  elevationZoom: 6,
+  attribution:
+    'Borders, rivers, lakes and places: Natural Earth (public domain). Land cover: Natural Earth II (public domain). ' +
+    'Elevation: AWS Terrain Tiles (Mapzen/Tilezen) from SRTM, GMTED2010, ETOPO1 and EU-DEM (produced using Copernicus data and information funded by the European Union).',
+};

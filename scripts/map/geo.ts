@@ -23,6 +23,14 @@ export class Laea {
     return [R * k * Math.cos(p) * Math.sin(l), R * k * (this.cos0 * Math.sin(p) - this.sin0 * Math.cos(p) * Math.cos(l))];
   }
 
+  /** Degrees from the projection's centre to a point (great-circle). */
+  angle(lon: number, lat: number): number {
+    const p = lat * RAD;
+    const l = (lon - this.lon0) * RAD;
+    const c = this.sin0 * Math.sin(p) + this.cos0 * Math.cos(p) * Math.cos(l);
+    return Math.acos(Math.max(-1, Math.min(1, c))) / RAD;
+  }
+
   inverse(x: number, y: number): [number, number] {
     const rho = Math.hypot(x, y);
     if (rho === 0) return [this.lon0, Math.asin(this.sin0) / RAD];
@@ -85,8 +93,14 @@ export function lines(geometry: { type: string; coordinates: unknown } | null): 
   return [];
 }
 
+/** Points this far round the globe from the projection's centre (or further) can't be on the
+ * map: a polygon reaching there is skipped, since near the opposite side of the globe the
+ * projection wraps a shape round the whole disk (South America, for a map centred on Asia). */
+const FAR_SIDE = 120;
+
 /** Fills a polygon (even-odd over all its rings) by pixel centres; calls set(i) per pixel. */
 export function fillPolygon(grid: Grid, rings: Ring[], set: (i: number) => void): void {
+  for (const ring of rings) for (const [lon, lat] of ring) if (grid.proj.angle(lon, lat) >= FAR_SIDE) return;
   const edges: Array<[number, number, number, number]> = [];
   let minY = Infinity;
   let maxY = -Infinity;
