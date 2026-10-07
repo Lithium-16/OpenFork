@@ -79,8 +79,8 @@ function runFront(sim: Sim, f: Front): void {
   const onLine = new Set(line);
   const attacking = f.attack && sim.atWar(f.owner, f.enemy);
   const toTarget = f.target >= 0 ? hops(sim, f.target) : null;
-  // Moving (not held up at a full region) or fighting its way in: leave it be.
-  const busy = (b: Blob) => (b.path.length > 0 && !b.waiting) || sim.world.isSea(b.region);
+  // Moving (not held up at a full region), at sea, or taking land it stands in: leave it be.
+  const busy = (b: Blob) => (b.path.length > 0 && !b.waiting) || sim.world.isSea(b.region) || sim.taking(b);
   const sent = new Set<Blob>();
 
   if (attacking) {

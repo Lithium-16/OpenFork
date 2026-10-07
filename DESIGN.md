@@ -245,21 +245,22 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
 - **RTS controls:** click or box-select blobs, right-click a region to send them, and use keys
   for split, merge and build. **Shift + right-click adds a waypoint**: the units go on there
   after the route they're on, so a chain of clicks queues moves, and queues captures (each
-  region is taken from the border in turn).
+  region is taken in turn, from inside).
 - **Pathing:** blobs path through any region. Infantry takes about 5.5 s to cross one plains
   region; terrain changes that, and roads make it faster.
 - **Changing orders mid-hop:** a hop is a timer, and the unit stays in its region until it
   ends. A new order the same way keeps the progress; any other order, or Halt, turns the
   unit back at once (it never has to step into the next region first). Pulling out of a
   fight costs once, however often the way out changes.
-- **Attacking and taking land from where you stand:** a blob never walks into land that
-  isn't its country's. Sent at a neighbouring region with enemies in it, it stays in its own
-  region and **attacks across the border** at once. Sent at someone else's empty land
-  (neutral, or an enemy's), it **takes it from the border**: the capture timer runs while it
-  stands on its side, and once the region is taken it steps in (the normal hop) and goes on.
-  A longer route does this region by region. If enemies (or a change of owner) get to the
-  next region while a unit is on its way there, the hop is called off at once and it
-  attacks or takes it from the border instead.
+- **Attack from the border, capture from inside:** sent at a neighbouring region with
+  enemies in it, a blob stays in its own region and **attacks across the border** at once (it
+  never walks into enemy troops). Once the region is empty, or sent at someone else's empty
+  land (neutral, or an enemy's), it **steps in** (the normal hop) and **takes it from
+  inside**: the capture timer runs only while it stands in the region. It stays until the
+  region is taken, then goes on, so a longer route takes its regions one by one. Ordered back
+  to its own land (or out to sea) it leaves at once, and the capture lapses. If enemies get to
+  the next region while a unit is on its way there, the hop is called off at once and it
+  attacks across the border instead. Bots and fronts leave a unit be while it's taking land.
 - **A unit on the move is still in its region** until the hop ends: it defends it, is
   attacked and shelled there, and stops captures of it.
 - **Capturing:** the time scales with the region's size and terrain, forts make it longer,

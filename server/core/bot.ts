@@ -461,7 +461,8 @@ export class Bot {
     if (this.style.merges) this.mergeSmall(sim, blobs);
 
     // Units waiting (the next region is full, or a fleet blocks the sea) count as free again.
-    const busy = (b: Blob) => (b.path.length > 0 && !b.waiting) || sim.besieged(b.region, b.owner);
+    // (Standing in land it's taking counts as busy: land is taken from inside.)
+    const busy = (b: Blob) => (b.path.length > 0 && !b.waiting) || sim.besieged(b.region, b.owner) || sim.taking(b);
     let idle = blobs.filter((b) => sim.state.blobs.has(b.id) && !busy(b) && !UNITS[b.type].naval && !sim.world.isSea(b.region));
     // Guns stay out of assaults and land grabs: they go one region behind the front.
     const guns = idle.filter((b) => UNITS[b.type].range);
