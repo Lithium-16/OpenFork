@@ -280,8 +280,9 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
   opening land grab lasts a while. The capture waits while the region is fought over.
 - **Cut off:** land of yours with no supply is lost to nobody after 15 s with none of your
   units in it or next to it (so a landing holds its beach while the troops push on).
-- **Reading the map:** a solid arrow is an attack on enemies; a dashed one is taking empty
-  land. Guns shelling show a dotted arc from the guns to the target, shells running along
+- **Reading the map:** a solid arrow is an attack on enemies. Units taking land nobody
+  defends stand inside it, with no arrow, and their flag goes up a pole under them as the
+  capture runs (at the top, the land is theirs). Guns shelling show a dotted arc from the guns to the target, shells running along
   it, and a reticle round the units being shelled; shelled land erupts in fire, debris and
   smoke (shells into the sea throw up spray). Defenders that rout go up in white puffs. A unit
   waiting to go on (the next region is full, or a fleet blocks the sea) shows an hourglass.

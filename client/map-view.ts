@@ -1656,6 +1656,7 @@ export class MapView {
     // point), their numbers, then progress bars.
     const tokenTop = 14 - (FRAME_H * px) / 2;
     const below = 14 + (FRAME_H * px) / 2 + 3 * px + plateHeight(px) + 4;
+    const now = performance.now();
     const ipx = Math.max(1, px - 1 + (zoom >= 1.2 ? 1 : 0));
 
     ctx.textAlign = 'center';
@@ -1739,11 +1740,13 @@ export class MapView {
         pixelText(ctx, region.name.toUpperCase(), x, top - 3 - size / 2, size, '#e6edf2');
       }
 
+      // Bars go under the flag of a capture in progress.
+      const flag = rr[4] >= 0 && rr[5] > 0 ? 15 * Math.max(2, px) : 0;
       // Supply overlay: a crate on hubs, and how loaded each of your regions is.
       if (this.overlay && you !== null && rr[0] === you && this.supply) {
         if (this.supply.hubs.includes(region.id)) blitCentred(ctx, ICONS.crate, x - 12 * ipx, y + tokenTop - 6 * ipx, ipx);
         const load = (this.supply.need.get(region.id) ?? 0) / supplyCapacity(region, rr[2], snap.players[you]?.techs);
-        if (load > 0) cells(ctx, x, y + below + 8 * px, Math.min(1, load), load > 1 ? '#ff5a5a' : load > 0.75 ? '#ffb347' : '#7bd389', px);
+        if (load > 0) cells(ctx, x, y + below + flag + 8 * px, Math.min(1, load), load > 1 ? '#ff5a5a' : load > 0.75 ? '#ffb347' : '#7bd389', px);
       }
 
       // Under your regions, on one dark plate: what the region makes per second (yield
@@ -1800,10 +1803,10 @@ export class MapView {
         }
       }
 
-      // Capture progress: 8 cells in the capturer's colour, under the units.
-      if (rr[4] >= 0 && rr[5] > 0) cells(ctx, x, y + below, rr[5], colorOf(players, rr[4]), px);
+      // Capture progress: the capturer's flag going up a pole, under the units.
+      if (rr[4] >= 0 && rr[5] > 0) raisingFlag(ctx, x, y + below, rr[5], colorOf(players, rr[4]), px, now);
       // Construction: 8 cells in gold, for your own regions.
-      if (rr[6] >= 0 && rr[0] === you) cells(ctx, x, y + below + 4 * px, rr[7], '#f1c232', px);
+      if (rr[6] >= 0 && rr[0] === you) cells(ctx, x, y + below + flag + 4 * px, rr[7], '#f1c232', px);
     }
   }
 
@@ -1867,6 +1870,9 @@ export class MapView {
         for (const b of rows) if (transit(b)) going.set(b[7], [...(going.get(b[7]) ?? []), b]);
         // Nobody holds the sea: units at sea stand in its middle, not on a border.
         if (o === holder || reg.sea) {
+          if (parked.length) middle.push(...slot(`s:${o}:${region}`, parked, o, false, `s:${o}:${region}`, single));
+        } else if (!snap.blobs.some((x) => x[6] === region && atWar(x[1], o))) {
+          // Taking land nobody defends: inside it, with the flag going up (no arrow).
           if (parked.length) middle.push(...slot(`s:${o}:${region}`, parked, o, false, `s:${o}:${region}`, single));
         } else {
           for (const b of parked) {
@@ -2942,6 +2948,37 @@ function cells(ctx: CanvasRenderingContext2D, x: number, y: number, progress: nu
     ctx.fillStyle = progress >= (i + 1) / n - 0.001 ? color : '#2c3a44';
     ctx.fillRect(x0 + i * (cw + gap), y0, cw, px);
   }
+}
+
+/**
+ * A flag going up a pole as land is taken: the cloth in the taker's colour climbs from the
+ * foot of the pole (just begun) to the top (taken), and flutters. Its top-left at (x, y).
+ */
+function raisingFlag(ctx: CanvasRenderingContext2D, x: number, y: number, progress: number, color: string, unit: number, now: number): void {
+  // Never smaller than 2 screen pixels per art pixel: it has to read at a glance.
+  const px = Math.max(2, unit);
+  const pole = 12;
+  const clothW = 6;
+  const clothH = 4;
+  const x0 = Math.round(x - ((clothW + 1) * px) / 2);
+  const y0 = Math.round(y);
+  // The pole: ink outline, light grey shaft, a gold knob on top.
+  ctx.fillStyle = INK;
+  ctx.fillRect(x0 - px, y0, 3 * px, (pole + 1) * px);
+  ctx.fillStyle = '#9aa7b1';
+  ctx.fillRect(x0, y0 + px, px, pole * px);
+  ctx.fillStyle = '#f1c232';
+  ctx.fillRect(x0, y0, px, px);
+  // The cloth, from the foot (0) to just under the knob (1).
+  const top = y0 + px + Math.round((1 - Math.min(1, progress)) * (pole - clothH)) * px;
+  const wave = Math.floor(now / 250) % 2;
+  ctx.fillStyle = INK;
+  ctx.fillRect(x0 + px, top - px, (clothW + 1) * px, (clothH + 2) * px);
+  ctx.fillStyle = color;
+  ctx.fillRect(x0 + px, top, clothW * px, clothH * px);
+  // The flutter: the fly end dips a pixel every other beat.
+  ctx.fillStyle = INK;
+  ctx.fillRect(x0 + clothW * px, wave ? top : top + (clothH - 1) * px, px, px);
 }
 
 /** A dotted line made of pixel squares. */
