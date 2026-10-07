@@ -1975,7 +1975,8 @@ export class GameScreen {
     // Details, three lines at most: supply (and how far a city's reaches), what it stores, and
     // the stack (plus how long it takes to capture, for land that isn't yours).
     const reach = rr[2] > 0 ? ` · reaches ${supplyReach(rr[2], this.techsOf(owner))} regions` : '';
-    const capture = owner !== this.you || this.you === null ? ` · capture ${Math.round(captureSeconds(region, rr[1], 0, owner < 0))} s` : '';
+    const capital = this.players.some((p) => snap.players[p.id]?.alive && this.map.countries.find((c) => c.id === p.country)?.capital === region.id);
+    const capture = owner !== this.you || this.you === null ? ` · capture ${Math.round(captureSeconds(region, rr[1], 0, owner < 0, rr[2], capital))} s` : '';
     const more: Array<[string, string | Node]> = [
       ['Supply', (owner >= 0 ? this.supplyLine(region.id) : 'none') + reach],
       ...(rr[2] > 0 || rr[13] > 0 ? [['Stores', costChips(storeOf(rr[2], rr[13], this.techsOf(owner)))] as [string, Node]] : []),

@@ -263,9 +263,12 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
   attacks across the border instead. Bots and fronts leave a unit be while it's taking land.
 - **A unit on the move is still in its region** until the hop ends: it defends it, is
   attacked and shelled there, and stops captures of it.
-- **Capturing:** the time scales with the region's size and terrain, forts make it longer,
+- **Capturing:** the time scales with the region's size and terrain, forts (+50% a level)
+  and towns (+15% a city level) make it longer, a country's **capital takes twice as long**,
   and training makes it shorter. Land nobody holds takes 30% longer than an enemy's, so the
   opening land grab lasts a while. The capture waits while the region is fought over.
+- **Cut off:** land of yours with no supply is lost to nobody after 15 s with none of your
+  units in it or next to it (so a landing holds its beach while the troops push on).
 - **Reading the map:** a solid arrow is an attack on enemies; a dashed one is taking empty
   land. Guns shelling show a dotted arc from the guns to the target, shells running along
   it, and a reticle round the units being shelled; shelled land erupts in fire, debris and
@@ -326,7 +329,7 @@ second:
 - **Capturing waits** while a region is fought over, inside or from next door.
 - **Sieges:** artillery and warships shelling an enemy-held region with a fort, at war, wear
   the fort down a level at a time (a 20-strength battery of artillery takes a level in about
-  40 s; Rangefinders doesn't change this). The feed says when a fort is knocked down.
+  80 s; Rangefinders doesn't change this). The feed says when a fort is knocked down.
   Building a new level resets the wear.
 - **Flanking:** attacking a region from more than one neighbouring region: +15% damage
   there for each extra region attacked from, up to +45%.
@@ -388,16 +391,18 @@ The others:
   outguns or shells enemy coasts within supply reach, and ship idle troops to the nearest
   neutral coast, or all together to an enemy coast they can take (up to 10 hops away).
 
-**When bots go to war:** when they're attacked, or by difficulty against a bordering
-country much weaker than them:
+**When bots go to war:** when they're attacked, or by difficulty against a neighbour much
+weaker than them: one bordering them, or across a narrow sea (2 sea regions or fewer; for
+those they want a 30% bigger edge, a landing being harder than a march):
 - **easy:** never;
 - **normal:** from minute 5, against a neighbour with less than half their strength,
   sometimes;
 - **hard:** from minute 3, against one with about 60% of their strength or less, more often.
 
-They grow **bolder the longer they're at peace**: the edge they need falls by 0.1× a minute
-(normal from 2× down to 1.1×, hard from 1.6× down to 0.9×). They're at their boldest at once
-when their money stores are 70% full (nothing better to spend it on) or in the **endgame**
+They grow **bolder the longer they're at peace** (counted from the minute they may start
+wars): the edge they need falls by 0.1× a minute (normal from 2× down to 1.1×, hard from
+1.6× down to 0.9×). They're at their boldest at once when, from minute 15, they hold $1500
+or more and their money stores are 70% full (nothing better to spend it on), or in the **endgame**
 (3 countries left or fewer), when they also act on it far more often.
 
 Bots offer peace when a war goes badly or stalls, and accept offers when the war isn't
@@ -432,7 +437,7 @@ never starts a war. Mines and markets they upgrade rather than fill new slots, w
 | Training range / drill rate / cap from drill | 0–100 / +1 per 6 s / 50 (combat can go to 100) |
 | Training effect at 100 | ×1.5 damage dealt, ×0.67 damage taken |
 | Merge penalty | −10 training |
-| Capture time, empty plains, medium size | 6.5 s (× terrain/size/fort, ÷ training) |
+| Capture time, empty plains, medium size | 9.5 s (× terrain/size/fort/town, ×2 a capital, ÷ training) |
 | Infantry / tank production | 20 s / 30 s |
 | Infantry / tank batch cost | $50 + 100 manpower (10 strength) / $90 + 30 manpower + 38 steel + 18 oil (5 strength) |
 | Warships | 5 per order: $120 + 20 manpower + 60 steel + 15 oil, 40 s, at a port; speed 1.6, attack 2, defense 1.5 |
