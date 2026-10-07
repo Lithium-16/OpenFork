@@ -1078,6 +1078,25 @@ describe('artillery', () => {
     assert.ok(a.strength > b.strength, 'and hits back weakly');
   });
 
+  it("keeps to its target while there's something to hit there", () => {
+    const s = war();
+    const gun = place(s, 0, 'artillery', 3, 10);
+    place(s, 1, 'infantry', 4, 10);
+    s.tick(0.1);
+    assert.equal(gun.bombarding, 4);
+    // A bigger force turns up in range: the gun stays on what it was shelling.
+    const big = place(s, 1, 'infantry', 5, 40);
+    for (let i = 0; i < 20; i++) {
+      s.tick(0.1);
+      assert.equal(gun.bombarding, 4);
+    }
+    // Nothing left at 4: it moves on.
+    for (const x of s.blobsIn(4)) s.state.blobs.delete(x.id);
+    s.tick(0.1);
+    assert.equal(gun.bombarding, 5);
+    assert.ok(big.strength < 40);
+  });
+
   it('shells ignore digging in', () => {
     const hit = (entrench: number) => {
       const s = war();
