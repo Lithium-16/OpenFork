@@ -197,6 +197,8 @@ export class GameServer {
         if (lobby.game && !lobby.game.over) return 'the game is running';
         const next = { ...lobby.settings, ...msg.settings };
         if (!this.worlds.has(next.map)) return 'no such map';
+        // Countries picked on the old map aren't on the new one.
+        if (next.map !== lobby.settings.map) for (const m of lobby.members.values()) m.country = null;
         lobby.settings = next;
         this.broadcastLobby(lobby);
         return null;
