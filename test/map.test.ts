@@ -77,8 +77,10 @@ describe('map grid encoding', () => {
     for (const id of ['KR', 'KP', 'VN', 'TH', 'RU']) assert.ok(mainland.has(capital(id)), id);
     const sea = map.regions.filter((r) => r.sea).length;
     assert.ok(sea >= 0.3 * map.regions.length, `${sea} sea regions of ${map.regions.length}`);
-    const count = (id: string) => map.regions.filter((r) => r.country === id).length;
-    assert.ok(count('JP') >= count('CN'), 'Japan in as much detail as China');
+    // Japan in some detail, but with room on screen for units and icons in every region.
+    const japan = map.regions.filter((r) => r.country === 'JP').map((r) => r.area).sort((a, b) => a - b);
+    assert.ok(japan.length >= 15, `${japan.length} regions in Japan`);
+    assert.ok(japan[japan.length >> 1] >= 1200, `Japan's median region is ${japan[japan.length >> 1]} px`);
   });
 });
 

@@ -22,10 +22,11 @@ export const asia: Theatre = {
   name: 'Asia–Pacific',
   centre: [120, 22],
   window: { x: -3600, y: 4000, width: 7200, height: 8300 },
-  km: 4.5,
-  targetRegions: 300,
-  // Japan, the Koreas, Taiwan and the Philippines in finer detail; China's interior coarser.
-  regionWeight: { JP: 2.6, KR: 1.8, KP: 1.5, TW: 3, PH: 1.6, CN: 0.45, ID: 0.75, RU: 0.7 },
+  km: 3,
+  targetRegions: 250,
+  // Japan, the Koreas, Taiwan and the Philippines a little finer than their size alone gives
+  // (but with room on screen for units and icons); China's interior coarser.
+  regionWeight: { JP: 1.05, KR: 1, KP: 1, TW: 1.2, PH: 1, CN: 0.5, ID: 0.65, RU: 0.6 },
   // China's million-people cities would make most of its regions towns: count its places at
   // two fifths, so it starts strong but not three times as rich as Japan. Japan's
   // half-million cities (Sendai, Hiroshima, Niigata...) count as towns.
@@ -33,9 +34,9 @@ export const asia: Theatre = {
   // A naval theatre: more, smaller sea regions, reaching further out.
   seaAreaFactor: 2.5,
   // About 100,000 km² each: some 150 sea regions.
-  seaRegionPx: 4800,
-  seaReach: 100,
-  seaMinPx: 600,
+  seaRegionPx: 10800,
+  seaReach: 150,
+  seaMinPx: 1350,
   seaMaxWestLon: Infinity,
   include: INCLUDE,
   partOf: { HK: 'CN', MO: 'CN', SG: 'MY' },
@@ -46,7 +47,7 @@ export const asia: Theatre = {
   },
   keepPixel: (iso, lon, lat) => lat <= MAX_LAT && !(iso === 'CN' && lon < CHINA_MIN_LON) && !(iso === 'ID' && lon > INDONESIA_MAX_LON),
   // About 2400 km² and up.
-  islandMinPx: 120,
+  islandMinPx: 270,
   keepIslands: [
     ['Okinawa', 127.85, 26.45],
     ['Jeju', 126.55, 33.38],
