@@ -200,6 +200,8 @@ export function readSave(text: string, world: (id: string) => World | undefined)
         supplied: bool(o.supplied),
         cutOff: num(o.cutOff, 0, 1e6),
         siege: num(o.siege ?? 0, 0, 1),
+        damage: num(o.damage ?? 0, 0, 1),
+        hitAt: num(o.hitAt ?? -1e9, -1e9, 1e9),
       };
     });
 
@@ -228,6 +230,7 @@ export function readSave(text: string, world: (id: string) => World | undefined)
         supply: num(o.supply, 0, 1),
         attacking: -1,
         bombarding: -1,
+        hitBuildings: bool(o.hitBuildings ?? false),
       };
       if (!blob.path.length) blob.progress = 0;
       blobs.set(id, blob);

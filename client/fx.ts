@@ -3,7 +3,7 @@
 // whole-pixel scale as the unit tokens.
 import { INK } from './sprites.ts';
 
-export type FxKind = 'smoke' | 'flash' | 'dust' | 'spark' | 'boom' | 'puff' | 'tracer';
+export type FxKind = 'smoke' | 'flash' | 'dust' | 'spark' | 'boom' | 'puff' | 'tracer' | 'shell';
 
 export interface Particle {
   kind: FxKind;
@@ -18,9 +18,11 @@ export interface Particle {
   /** Size in sprite pixels (scaled by the pixel scale). */
   size: number;
   color: string;
-  /** A tracer's far end (map coordinates). */
+  /** A tracer's or shell's far end (map coordinates). */
   x2?: number;
   y2?: number;
+  /** A shell's arc: how high it climbs over the straight line, in map pixels. */
+  lift?: number;
   /** Ambient effects are dropped first and not made at all in reduced mode. */
   ambient?: boolean;
 }
@@ -95,6 +97,26 @@ export class Fx {
           ctx.globalAlpha = (1 - age) * 0.7;
           ctx.fillStyle = p.color;
           ctx.fillRect(x, y, s, s);
+          break;
+        }
+        case 'shell': {
+          // A shell in flight: only the projectile (no line), climbing and falling along its
+          // arc, with a short fading trail.
+          const at = (f: number): [number, number] => {
+            const [ax, ay] = toScreen(p.x + ((p.x2 ?? p.x) - p.x) * f, p.y + ((p.y2 ?? p.y) - p.y) * f);
+            const [, liftY] = toScreen(0, (p.lift ?? 0) * 4 * f * (1 - f));
+            const [, zeroY] = toScreen(0, 0);
+            return [ax, ay - (liftY - zeroY)];
+          };
+          const s = Math.max(3, Math.round(px) + 2);
+          for (let k = 2; k >= 0; k--) {
+            const [tx, ty] = at(Math.max(0, age - k * 0.04));
+            ctx.globalAlpha = k ? 0.35 / k : 1;
+            ctx.fillStyle = INK;
+            if (!k) ctx.fillRect(Math.round(tx) - 1, Math.round(ty) - 1, s + 2, s + 2);
+            ctx.fillStyle = k ? '#ffb347' : p.color;
+            ctx.fillRect(Math.round(tx), Math.round(ty), s, s);
+          }
           break;
         }
         case 'tracer': {

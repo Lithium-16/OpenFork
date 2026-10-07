@@ -24,6 +24,8 @@ function order(v: unknown): Order | null {
       return { o: 'move', blobs: v.blobs, to: v.to, ...(v.then ? { then: true } : {}) };
     case 'stop':
       return isIds(v.blobs) ? { o: 'stop', blobs: v.blobs } : null;
+    case 'aim':
+      return isIds(v.blobs) && typeof v.buildings === 'boolean' ? { o: 'aim', blobs: v.blobs, buildings: v.buildings } : null;
     case 'split':
       if (!isInt(v.blob) || (v.amount !== undefined && (!isInt(v.amount) || (v.amount as number) < 1))) return null;
       return { o: 'split', blob: v.blob, ...(v.amount !== undefined ? { amount: v.amount as number } : {}) };

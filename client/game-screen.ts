@@ -44,6 +44,7 @@ import {
   unitsOf,
   UNIT_TECH,
   whyNotResearch,
+  WRECK_DISABLES,
 } from '../shared/rules.ts';
 import { FrameMeter } from './fx.ts';
 import { colorOf, type FrontView, MapView } from './map-view.ts';
@@ -76,6 +77,9 @@ const TABS: Array<{ name: string; kinds: BuildingKind[] }> = [
 /** Region row fields of the economic buildings. */
 const ECON_FIELD: Record<EconKind, number> = { farm: 9, mine: 10, well: 11, market: 12, lab: 14 };
 const tech = (id: TechId): Tech => TECHS.find((t) => t.id === id) as Tech;
+/** What the feed calls the buildings shelling and fighting knock down. */
+const WRECK_NAME: Record<string, string> = { port: 'port', factory: 'factory', barracks: 'barracks', mine: 'mine', market: 'market', well: 'oil well', farm: 'farm', city: 'town' };
+
 /** How fast WASD and the arrow keys pan the map, in screen pixels per second. */
 const PAN_SPEED = 800;
 const UNIT_NAME: Record<UnitType, string> = { infantry: 'Infantry', tank: 'Tanks', artillery: 'Artillery', warship: 'Warships' };
@@ -1101,6 +1105,8 @@ export class GameScreen {
       this.disbandSelected();
     } else if (k === 'h' && sel.length) {
       this.send({ o: 'stop', blobs: sel });
+    } else if (k === 'k' && sel.length) {
+      this.toggleAim();
     } else if (k === 'm') {
       this.setMuted(!this.sfx.muted);
     } else if (k === 'v') {
@@ -1740,6 +1746,13 @@ export class GameScreen {
         else if (e.by === this.you) text = `Our guns ${e.level > 0 ? 'breached' : 'destroyed'} the fort at ${region(e.region)}`;
         break;
       }
+      case 'wrecked': {
+        const thing = WRECK_NAME[e.building];
+        const what = e.building === 'city' ? `shrank to level ${e.level}` : e.level > 0 ? `knocked down to level ${e.level}` : 'destroyed';
+        if (e.owner === this.you) text = `Our ${thing} at ${region(e.region)} ${what}${e.by >= 0 ? ` by ${name(e.by)}` : ''}`;
+        else if (e.by === this.you) text = `We ${e.building === 'city' ? 'wrecked part of' : e.level > 0 ? 'damaged' : 'destroyed'} the ${thing} at ${region(e.region)}`;
+        break;
+      }
     }
     if (text) this.say(text);
   }
@@ -1848,7 +1861,7 @@ export class GameScreen {
         : b[11] & 4 && b[7] >= 0
           ? `${fought(b[7]) ? 'attacking' : 'taking'} ${next}`
           : b[13] >= 0
-            ? `shelling ${this.map.regions[b[13]].name}`
+            ? `shelling ${b[11] & 8 ? 'buildings in ' : ''}${this.map.regions[b[13]].name}`
             : b[11] & 1 && b[7] >= 0
               ? `waiting to go to ${next}`
               : b[6] === inRegion
@@ -1875,6 +1888,40 @@ export class GameScreen {
     return row;
   }
 
+  /** What shelling or fighting knocks down next in a region (as the server decides). */
+  private nextToWreck(region: number): string | null {
+    const rr = this.snap?.regions[region];
+    if (!rr) return null;
+    if (rr[3] & 8) return 'port';
+    if (rr[3] & 2) return 'factory';
+    if (rr[3] & 1) return 'barracks';
+    const econ: Array<[string, number]> = [['mine', rr[10]], ['market', rr[12]], ['well', rr[11]], ['farm', rr[9]]];
+    const best = econ.reduce<[string, number] | null>((m, x) => (x[1] > 0 && (!m || x[1] > m[1]) ? x : m), null);
+    if (best) return best[0];
+    const capital = this.players.some((p) => this.snap?.players[p.id]?.alive && this.map.countries.find((c) => c.id === p.country)?.capital === region);
+    return rr[2] > 1 && !capital ? 'city' : null;
+  }
+
+  /** The selected guns among the selection (artillery and warships). */
+  private selectedGuns(): BlobRow[] {
+    return [...this.selected].flatMap((id) => {
+      const b = this.blob(id);
+      return b && b[1] === this.you && UNITS[UNIT_INDEX[b[2]]].range ? [b] : [];
+    });
+  }
+
+  /** K: the selected guns shell buildings, or (if they all do already) troops again. */
+  private toggleAim(): void {
+    const guns = this.selectedGuns();
+    if (!guns.length) {
+      toast('Select artillery or warships first, then K');
+      return;
+    }
+    const buildings = guns.some((b) => !(b[11] & 8));
+    this.send({ o: 'aim', blobs: guns.map((b) => b[0]), buildings });
+    toast(buildings ? 'Guns shell buildings: ports and factories first, then the rest' : 'Guns shell troops');
+  }
+
   private unitsPanel(sel: BlobRow[]): HTMLElement[] {
     const strength = sel.reduce((s, b) => s + b[3], 0);
     const btn = (label: string, fn: () => void) => {
@@ -1896,10 +1943,24 @@ export class GameScreen {
         btn('Disband (Del)', () => this.disbandSelected()),
       ]),
       el('div', { class: 'buttons' }, [btn('Front (C)', () => this.setFrontMode('hold')), btn('Battle plan (Z)', () => this.setFrontMode('attack'))]),
+      ...this.aimRow(btn),
       ...this.frontLines(sel, btn),
       ...this.splitRow(sel, btn),
       ...sel.slice(0, 30).map((b) => this.unitRow(b, true)),
     ];
+  }
+
+  /** Guns selected: shell troops or buildings. */
+  private aimRow(btn: (label: string, fn: () => void) => HTMLElement): HTMLElement[] {
+    const guns = this.selectedGuns();
+    if (!guns.length) return [];
+    const ids = guns.map((b) => b[0]);
+    const onBuildings = guns.every((b) => b[11] & 8);
+    const troops = btn('Troops', () => this.send({ o: 'aim', blobs: ids, buildings: false }));
+    const buildings = btn('Buildings (K)', () => this.send({ o: 'aim', blobs: ids, buildings: true }));
+    troops.classList.toggle('on', !onBuildings);
+    buildings.classList.toggle('on', onBuildings);
+    return [el('div', { class: 'sub' }, ['Guns shell']), el('div', { class: 'buttons' }, [troops, buildings])];
   }
 
   /** One unit standing still: split off a batch, half, or any amount. */
@@ -1989,6 +2050,11 @@ export class GameScreen {
     out.push(grid(info), details);
     if (rr[4] >= 0) {
       out.push(el('div', {}, [`Being captured by ${this.players[rr[4]]?.name ?? '?'}`]), cellBar(rr[5]));
+    }
+    if (rr[15] > 0) {
+      const next = this.nextToWreck(region.id);
+      const off = rr[15] >= WRECK_DISABLES && (rr[3] & (1 | 2 | 8)) ? ' · port, factory and barracks idle' : '';
+      out.push(el('div', {}, [`Damaged ${Math.round(rr[15] * 100)}%${next ? ` · next to go: ${WRECK_NAME[next]}` : ''}${off}`]), cellBar(rr[15]));
     }
 
     if (owner === this.you && this.you !== null) {
