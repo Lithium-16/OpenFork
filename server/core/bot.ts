@@ -69,6 +69,8 @@ const STYLES: Record<BotDifficulty, Style> = {
 
 /** Farthest a bot ships troops: this many hops (land to the port, then sea regions). */
 const OVERSEAS_HOPS = 10;
+/** A landing is planned from at most this many of the regions spare units stand in. */
+const LANDING_SEARCHES = 12;
 
 /** What bots research, in order: armies first for the ones that make tanks, else the economy. */
 const RESEARCH_MILITARY: TechId[] = [
@@ -611,27 +613,56 @@ export class Bot {
     const sent = new Set<Blob>();
     const regions = sim.state.regions;
     if (!spare.length || !regions.some((rs) => rs.port && rs.owner === this.player)) return sent;
-    // Enemy coasts first, if all the spare units together clearly win the landing.
+    // Enemy coasts first, if the spare units that can get there together clearly win the
+    // landing. (Hops from where they stand: one search per region, the most crowded first.)
     const atWar = this.enemies(sim).length > 0;
     if (atWar && spare.length >= 3) {
-      const dist = this.seaBfs(sim, spare[0].region);
-      const ours = spare.reduce((s, b) => s + b.strength * UNITS[b.type].attack, 0) * LANDING_ATTACK;
+      const crowd = new Map<number, number>();
+      for (const b of spare) crowd.set(b.region, (crowd.get(b.region) ?? 0) + 1);
+      const from = new Map<number, number[]>();
+      for (const [r] of [...crowd].sort((a, b) => b[1] - a[1]).slice(0, LANDING_SEARCHES)) from.set(r, this.seaBfs(sim, r));
+      const hopsTo = (b: Blob, i: number) => {
+        const d = from.get(b.region)?.[i] ?? -1;
+        return d <= OVERSEAS_HOPS ? d : -1;
+      };
       let best = -1;
+      let bestGo: Blob[] = [];
       let bestScore = Infinity;
       regions.forEach((rs, i) => {
-        if (dist[i] < 0 || dist[i] > OVERSEAS_HOPS || sim.world.isSea(i) || !sim.atWar(this.player, rs.owner)) return;
+        if (sim.world.isSea(i) || !sim.atWar(this.player, rs.owner)) return;
+        const able = spare.filter((b) => hopsTo(b, i) >= 0);
+        if (able.length < 3) return;
+        const go = able.sort((a, b) => b.strength - a.strength).slice(0, sim.stackCap(i));
+        const ours = go.reduce((s, b) => s + b.strength * UNITS[b.type].attack, 0) * LANDING_ATTACK;
         const d = this.defence(sim, i);
         if (ours < this.style.odds * d) return;
-        const score = dist[i] + d / 20;
+        const score = Math.min(...go.map((b) => hopsTo(b, i))) + d / 20;
         if (score < bestScore) {
           bestScore = score;
           best = i;
+          bestGo = go;
         }
       });
       if (best >= 0) {
-        const go = [...spare].sort((a, b) => b.strength - a.strength).slice(0, sim.stackCap(best));
-        if (sim.move(this.player, go.map((b) => b.id), best) === null) for (const b of go) sent.add(b);
+        if (sim.move(this.player, bestGo.map((b) => b.id), best) === null) for (const b of bestGo) sent.add(b);
         return sent;
+      }
+      // No landing in reach yet: gather at the port nearest an enemy coast, to sail from there.
+      const port = this.embarkPort(sim);
+      if (port >= 0) {
+        const dist = this.bfs(sim, port);
+        let room = sim.stackCap(port) - (this.heading.get(port) ?? 0);
+        for (const b of [...spare].sort((a, c) => dist[a.region] - dist[c.region])) {
+          if (room <= 0) break;
+          if (b.region === port) {
+            sent.add(b);
+            continue;
+          }
+          if (dist[b.region] < 0 || sim.move(this.player, [b.id], port) !== null) continue;
+          sent.add(b);
+          room--;
+          this.heading.set(port, (this.heading.get(port) ?? 0) + 1);
+        }
       }
     }
     for (const b of spare) {
@@ -652,6 +683,23 @@ export class Bot {
       sent.add(b);
     }
     return sent;
+  }
+
+  /** Our port with the shortest trip to an enemy coast (-1: none, or none can get there). */
+  private embarkPort(sim: Sim): number {
+    let best = -1;
+    let bestHops = Infinity;
+    sim.state.regions.forEach((rs, p) => {
+      if (rs.owner !== this.player || !rs.port) return;
+      const dist = this.seaBfs(sim, p);
+      sim.state.regions.forEach((x, i) => {
+        if (dist[i] > 0 && dist[i] < bestHops && !sim.world.isSea(i) && sim.atWar(this.player, x.owner)) {
+          bestHops = dist[i];
+          best = p;
+        }
+      });
+    });
+    return best;
   }
 
   /** Hops for troops from a region, by land and by sea from our ports; seas with enemies in

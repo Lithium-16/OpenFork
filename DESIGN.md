@@ -41,6 +41,17 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
   admin borders merged or split to that count (denser in the west, coarser in Russia).
 - **The sea** is split into about 50 named **sea regions** (North Sea, English Channel,
   Tyrrhenian Sea, ...). Nobody owns them. See §4a.
+- Second map: **Asia–Pacific**, a naval theatre. Japan, both Koreas, China east of 105°E,
+  Taiwan, the Philippines, Indochina, Malaysia, Indonesia west of New Guinea and the Russian
+  Far East (Primorye, Khabarovsk, Amur, southern Sakhalin), with Okinawa, Jeju, Tsushima and
+  Guam. About 330 land regions and 150 sea regions (the Sea of Japan, Yellow and East China
+  Seas, the South China and Philippine Seas...): Japan, the Koreas, Taiwan and the
+  Philippines in fine detail, China's interior coarse, so most wars cross water. 11 start
+  countries (China, Indonesia, Japan, Malaysia, North Korea, Philippines, Russia, South
+  Korea, Taiwan, Thailand, Vietnam). China's many big cities count at two fifths (fewer
+  towns, so it doesn't start out three times as rich), Japan's half-million cities as towns,
+  and Japan, Korea and Taiwan get their small real oil fields (Niigata, Akita, Pohang,
+  Miaoli) so they can build a navy. The host picks the map in the lobby.
 - A map has **more start countries than lobby slots**: Europe has 19 (Austria, Belarus,
   Bulgaria, Czech Republic, Finland, France, Germany, Greece, Hungary, Italy, Norway,
   Poland, Portugal, Romania, Russia, Spain, Sweden, Ukraine, United Kingdom). Humans pick, bots fill up to
@@ -389,7 +400,9 @@ The others:
 - build a port on the coast (early when there's no land left to take on foot), keep a small
   fleet (more at war) that waits off their port in peacetime and at war hunts enemy ships it
   outguns or shells enemy coasts within supply reach, and ship idle troops to the nearest
-  neutral coast, or all together to an enemy coast they can take (up to 10 hops away).
+  neutral coast, or together to an enemy coast they can take (up to 10 hops from where they
+  stand); at war with no landing in reach yet, idle troops gather at the port with the
+  shortest trip to an enemy coast and sail from there.
 
 **When bots go to war:** when they're attacked, or by difficulty against a neighbour much
 weaker than them: one bordering them, or across a narrow sea (2 sea regions or fewer; for
@@ -415,7 +428,7 @@ never starts a war. Mines and markets they upgrade rather than fill new slots, w
   Bombers hit forts, buildings and supply; fighters and AA defenses counter them.
 - **Alliances** (shared win; peace and war exist already) and **fog of war** (see your own regions and their neighbours,
   last-known state elsewhere).
-- Procedural maps, other real-world maps.
+- Procedural maps, more real-world maps.
 - The Kernel module (copy of flowrace: install/update from GitHub, kernel-host.ts,
   `/kernel/status`, Tailscale share, `openfork.match.*` events).
 
