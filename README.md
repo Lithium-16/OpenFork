@@ -7,7 +7,7 @@ and bots take the other countries. The rules are in **[DESIGN.md](DESIGN.md)**.
 Status: first playable. Everyone starts at peace; bots go to war when attacked or when they
 see a weak neighbour (by difficulty). You can play a war over Europe with Britain, Ireland and the big islands (348 land regions
 from real provinces and 51 sea regions), or a naval war over the Asia–Pacific: Japan, the
-Koreas, coastal China, Taiwan, the Philippines and Southeast Asia (329 land regions and 148
+Koreas, coastal China, Taiwan, the Philippines and Southeast Asia (281 land regions and 147
 sea regions), with infantry, tanks, artillery and warships, ports
 and troops shipped across the sea, forts, entrenchment, supply, storage and depots,
 labs and research points,

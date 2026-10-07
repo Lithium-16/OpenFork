@@ -2206,14 +2206,23 @@ export class MapView {
       }
       let heard = false;
       const shells = full ? 3 : 1;
+      // Shells fall round the units being shelled (where they stand under the label), not
+      // anywhere in the region: a big sea region is hundreds of km across.
+      const aimX = this.map.regions[target].x;
+      const aimY = this.map.regions[target].y + 14 / scale;
+      const near = pix.filter((i) => Math.hypot((i % W) - aimX, Math.floor(i / W) - aimY) <= SHELL_SPREAD);
       for (let n = 0; n < shells; n++) {
-        const i = pix[Math.floor(Math.random() * pix.length)];
-        const x = i % W;
-        const y = (i - x) / W;
+        let x = aimX + (Math.random() - 0.5) * SHELL_SPREAD;
+        let y = aimY + (Math.random() - 0.5) * SHELL_SPREAD * 0.6;
+        if (near.length) {
+          const i = near[Math.floor(Math.random() * near.length)];
+          x = i % W;
+          y = (i - x) / W;
+        }
         const [sx, sy] = this.toScreen(x, y);
         if (!onScreen(gx, gy) && !onScreen(sx, sy)) continue;
+        // No streak across the map: the shell is seen leaving (the flash) and landing.
         const land = now + 380 + n * 140;
-        this.fx.add({ kind: 'tracer', x: gunX, y: gunY, x2: x, y2: y, vx: 0, vy: 0, born: now + n * 140, life: 380, size: 1, color: '#ffcf6b' });
         if (sea) {
           // A shell into the sea: a white column of spray and droplets, no fire.
           this.fx.add({ kind: 'flash', x, y, vx: 0, vy: 0, born: land, life: 180, size: 6, color: '#ffffff' });
@@ -2252,10 +2261,6 @@ export class MapView {
     if (fights && Math.random() < dt * Math.min(6, 2 * fights)) this.sounds?.gun(Math.min(1, 0.35 + 0.1 * fights) * Math.min(1, scale / 1.5));
   }
 
-  /**
-   * Guns shelling: a dotted arc from the guns to where they shell, its dots running toward the
-   * target, and a crosshair over the region being shelled (one per guns and target).
-   */
   /**
    * Where your guns (artillery, warships, coastal batteries) are aiming: a still, dotted arc in
    * your colour from the gun to its target, with one shell gliding along it now and then, and
@@ -2296,7 +2301,9 @@ export class MapView {
         ctx.fillRect(Math.round(x), Math.round(y), d, d);
       }
       // One shell in flight, each gun at its own moment (not all in step).
-      const f = ((now + (id.length * 977 + from * 131) % SHELL_FLIGHT_MS) % SHELL_FLIGHT_MS) / SHELL_FLIGHT_MS;
+      // (Longer shots take longer, so a shell never races along a long arc.)
+      const flight = SHELL_FLIGHT_MS * Math.max(1, dist / (120 * px));
+      const f = ((now + ((id.length * 977 + from * 131) % flight)) % flight) / flight;
       if (f > 0.06 && f < 0.94) {
         const [x, y] = at(f);
         const sz = d + 1;
@@ -2594,6 +2601,8 @@ const GLIDE_MS = 300;
 const SWEEP_MS = 1000;
 /** How long a drawn shell takes along its gun's arc. */
 const SHELL_FLIGHT_MS = 1400;
+/** Shells land within this many map pixels of the units being shelled. */
+const SHELL_SPREAD = 18;
 /** Below this zoom the map picture is drawn from its half-size copy. */
 const HALF_BASE_BELOW = 0.6;
 /** The biggest line cache, in device pixels (about 32 MB; there are two). */
