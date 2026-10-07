@@ -90,21 +90,26 @@ describe('movement', () => {
     assert.ok(enemy > t0 && forted > enemy);
   });
 
-  it('takes neutral regions on the way from the border, steps in, then goes on', () => {
+  it('steps into neutral regions on the way, takes each from inside, then goes on', () => {
     const s = duel();
     clearBlobs(s);
     const b = place(s, 0, 'infantry', 1);
     s.move(0, [b.id], 4);
     run(s, 3);
-    assert.equal(b.region, 1, 'takes it from where it stands');
-    assert.equal(b.progress, 0);
-    assert.equal(b.attacking, 2);
-    assert.ok((s.state.regions[2].capture?.progress ?? 0) > 0.25);
-    run(s, 6); // neutral land: 30% slower than an enemy's
+    assert.equal(b.region, 1, 'on its way in');
+    assert.ok(b.progress > 0);
+    const capture = () => s.state.regions[2].capture;
+    assert.equal(capture(), null, 'nothing is taken from next door');
+    run(s, CROSS_SECONDS - 2);
+    assert.equal(b.region, 2, 'steps in');
+    assert.equal(s.state.regions[2].owner, -1);
+    run(s, 1);
+    assert.ok((capture()?.progress ?? 0) > 0, 'and takes it from inside');
+    assert.deepEqual(b.path, [3, 4], 'staying until it is taken');
+    assert.equal(b.region, 2);
+    run(s, 9); // neutral land: 30% slower than an enemy's
     assert.equal(s.state.regions[2].owner, 0);
-    run(s, CROSS_SECONDS);
-    assert.equal(b.region, 2, 'then steps in');
-    run(s, 40);
+    run(s, 50);
     assert.equal(b.region, 4);
     assert.equal(s.state.regions[3].owner, 0);
     assert.equal(s.state.regions[4].owner, 0);
