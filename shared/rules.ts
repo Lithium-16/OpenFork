@@ -163,7 +163,7 @@ export const RETREAT_TRAINING_LOSS = 10;
 // -- capturing --------------------------------------------------------------------------------
 
 /** Seconds to capture an empty medium plains region with untrained blobs, before modifiers. */
-export const CAPTURE_SECONDS = 6.5;
+export const CAPTURE_SECONDS = 9.5;
 export const CAPTURE_SIZE: Record<RegionSize, number> = { small: 0.7, medium: 1, large: 1.4 };
 export const CAPTURE_TERRAIN: Record<Terrain, number> = { plains: 1, forest: 1.2, hills: 1.3, mountains: 1.6 };
 /** Each fort level adds this share to capture time. */
@@ -172,6 +172,10 @@ export const CAPTURE_FORT = 0.5;
 export const CAPTURE_TRAINING = 0.5;
 /** Land nobody holds takes this much longer to take than an enemy's (the land grab lasts). */
 export const CAPTURE_NEUTRAL = 1.3;
+/** Each city level adds this share to capture time (towns hold out longer). */
+export const CAPTURE_CITY = 0.15;
+/** A country's capital takes this many times as long to take. */
+export const CAPTURE_CAPITAL = 2;
 /** Capture progress lost per second while nobody is capturing. */
 export const CAPTURE_DECAY = 0.2;
 
@@ -181,8 +185,8 @@ export const CAPTURE_DECAY = 0.2;
 export const DAMAGE_RATE = 0.05;
 export const FORT_BONUS = 0.5; // per fort level
 /** Sieges: guns shelling an enemy fort wear it down, a level per this much shelling (shell
- * power, as for damage: a 20-strength battery of artillery takes a level in about 40 s). */
-export const FORT_SIEGE_POWER = 80;
+ * power, as for damage: a 20-strength battery of artillery takes a level in about 80 s). */
+export const FORT_SIEGE_POWER = 160;
 /** Holding this share of all the land wins outright (no need to take every capital). */
 export const DOMINATION_SHARE = 0.7;
 export const ENTRENCH_BONUS = 0.5; // when fully dug in
@@ -237,8 +241,9 @@ export const OUT_OF_SUPPLY_LOSS = 0.005;
 export const OUT_OF_SUPPLY_TRAINING = 0.2;
 /** Strength refilled per second while in supply (paid with UnitStats.refillCost). */
 export const REFILL_RATE = 0.15;
-/** A cut-off region with none of your blobs turns neutral after this many seconds. */
-export const CUT_OFF_SECONDS = 5;
+/** A cut-off region with none of your blobs in or next to it turns neutral after this many
+ * seconds. */
+export const CUT_OFF_SECONDS = 15;
 /** Broke (upkeep beyond money): share of size lost per second, and training lost per second. */
 export const BROKE_LOSS = 0.003;
 export const BROKE_TRAINING = 0.2;
@@ -479,6 +484,14 @@ export const BOT_BOLDER_PER_MINUTE = 0.1;
 export const BOT_ENDGAME_COUNTRIES = 3;
 /** Stores this full of money: a bot is as bold as it gets (it has nothing better to spend on). */
 export const BOT_HOARD_SHARE = 0.7;
+/** ...but only with this much money and this far into the match (early stores are small and
+ * fill at once: that's no sign of a war chest). */
+export const BOT_HOARD_MONEY = 1500;
+export const BOT_HOARD_AFTER = 900;
+/** Countries across this many sea regions (or fewer) count as neighbours a bot may pick on;
+ * it wants a bigger edge for them (a landing is harder than a march). */
+export const BOT_SEA_NEIGHBOUR_HOPS = 2;
+export const BOT_SEA_ODDS = 1.3;
 export const BOT_DIPLOMACY_SECONDS = 45;
 /** Bots offer peace when they're this much weaker than the enemy, or after a long stalemate. */
 export const BOT_PEACE_WHEN_WEAKER = 0.7;
@@ -716,7 +729,13 @@ export function bombardFortShare(techs: Techs = []): number {
 }
 
 /** Seconds to capture a region with blobs of the given (best) training. */
-export function captureSeconds(region: Region, fort: number, training: number, neutral = false): number {
-  const base = CAPTURE_SECONDS * CAPTURE_SIZE[region.size] * CAPTURE_TERRAIN[region.terrain] * (1 + CAPTURE_FORT * fort) * (neutral ? CAPTURE_NEUTRAL : 1);
+export function captureSeconds(region: Region, fort: number, training: number, neutral = false, city = 0, capital = false): number {
+  const base =
+    CAPTURE_SECONDS *
+    CAPTURE_SIZE[region.size] *
+    CAPTURE_TERRAIN[region.terrain] *
+    (1 + CAPTURE_FORT * fort + CAPTURE_CITY * city) *
+    (neutral ? CAPTURE_NEUTRAL : 1) *
+    (capital ? CAPTURE_CAPITAL : 1);
   return base / (1 + (CAPTURE_TRAINING * training) / MAX_TRAINING);
 }
