@@ -48,6 +48,7 @@ import {
   DOMINATION_SHARE,
   FORT_BONUS,
   FORT_SIEGE_POWER,
+  HOME_REFILL,
   FORT_MOVE_PENALTY,
   MAX_TRAINING,
   MERGE_MIN_STRENGTH,
@@ -58,6 +59,7 @@ import {
   PEACE_OFFER_SECONDS,
   type ProductionBuilding,
   REFILL_RATE,
+  REFILL_SHARE,
   regionYield,
   RESOURCES,
   type Resources,
@@ -1841,14 +1843,19 @@ export class Sim {
       if (b.progress === 0 && b.attacking < 0 && this.state.regions[b.region].owner === b.owner) {
         b.entrench = Math.min(1, b.entrench + dt / entrenchSeconds(p.techs));
       }
-      // Ships repair only in port (at sea too, slowly, with a fleet train); troops at sea can't
-      // refill or drill.
+      // Ships repair in port and in the sea off one of their ports (elsewhere at sea too, slowly,
+      // with a fleet train); troops at sea can't refill or drill. Home (a town or port of
+      // theirs, or off one of their ports) is quicker.
       const atSea = this.world.isSea(b.region);
-      const mendAtSea = atSea && !!UNITS[b.type].naval && p.techs.includes('fleetTrain');
-      if (!inBattle && b.supply > 0 && (!atSea || mendAtSea)) {
+      const naval = !!UNITS[b.type].naval;
+      const offPort = atSea && naval && this.world.regions[b.region].coast.some((c) => this.state.regions[c.id].owner === b.owner && this.state.regions[c.id].port);
+      const mend = !atSea || offPort ? 1 : naval && p.techs.includes('fleetTrain') ? 0.5 : 0;
+      if (!inBattle && b.supply > 0 && mend > 0) {
         const cap = drillCap(p.techs);
         if (still && !atSea && b.training < cap) b.training = Math.min(cap, b.training + DRILL_RATE * dt * b.supply);
-        const rate = REFILL_RATE * (p.techs.includes('hospitals') ? 2 : 1) * (mendAtSea ? 0.5 : 1);
+        const rs = this.state.regions[b.region];
+        const home = offPort || (!atSea && rs.owner === b.owner && (rs.port || rs.city > 0));
+        const rate = (REFILL_RATE + REFILL_SHARE * b.size) * (p.techs.includes('hospitals') ? 2 : 1) * mend * (home ? HOME_REFILL : 1);
         const want = Math.min(b.size - b.strength, rate * dt * b.supply);
         if (want > 0) {
           const cost = this.statsOf(b.type, b.owner).refillCost;

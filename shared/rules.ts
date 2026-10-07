@@ -239,8 +239,13 @@ export const SUPPLY_PER_CITY_LEVEL = 0.25;
 /** Out of supply: share of size lost per second, and training lost per second. */
 export const OUT_OF_SUPPLY_LOSS = 0.005;
 export const OUT_OF_SUPPLY_TRAINING = 0.2;
-/** Strength refilled per second while in supply (paid with UnitStats.refillCost). */
+/** Strength refilled per second while in supply (paid with UnitStats.refillCost)... */
 export const REFILL_RATE = 0.15;
+/** ...plus this share of the unit's size, so a big unit mends about as quickly as a small one. */
+export const REFILL_SHARE = 0.012;
+/** Refilling this much faster at home: troops in their own town or port, ships in port or in
+ * the sea off one of their ports. */
+export const HOME_REFILL = 1.5;
 /** A cut-off region with none of your blobs in or next to it turns neutral after this many
  * seconds. */
 export const CUT_OFF_SECONDS = 15;
