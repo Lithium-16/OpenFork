@@ -814,6 +814,19 @@ describe('economy', () => {
     assert.match(s.produce(0, 1, 'barracks') ?? '', /no barracks/);
   });
 
+  it('a big unit refills about as quickly as a small one', () => {
+    const s = duel();
+    clearBlobs(s);
+    rich(s);
+    const small = place(s, 0, 'infantry', 0, 5);
+    small.size = 10;
+    const big = place(s, 0, 'infantry', 0, 50);
+    big.size = 100;
+    run(s, 3);
+    // Shares of their size, not equal points.
+    assert.ok(big.strength - 50 > 3 * (small.strength - 5), `${big.strength} vs ${small.strength}`);
+  });
+
   it('refills strength in supply, paying manpower', () => {
     const s = duel();
     clearBlobs(s);
@@ -1505,6 +1518,19 @@ describe('the sea', () => {
     run(s, 30);
     assert.equal(inf.strength, 10);
     assert.equal(inf.training, 0);
+  });
+
+  it('ships mend in the sea off their own port, not further out', () => {
+    const s = strait();
+    rich(s);
+    s.state.regions[0].port = true;
+    const near = place(s, 0, 'warship', 1, 40);
+    const far = place(s, 0, 'warship', 2, 40);
+    near.size = far.size = 100;
+    run(s, 10);
+    assert.equal(far.strength, 40, 'no fleet train: no mending out at sea');
+    // Off its port, at home: about (0.15 + 1.2) × 1.5 a second.
+    assert.ok(near.strength > 55, `mended to ${near.strength}`);
   });
 
   it('ships are supplied near their own ports only', () => {

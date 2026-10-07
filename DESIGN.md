@@ -44,9 +44,10 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
 - Second map: **Asia–Pacific**, a naval theatre. Japan, both Koreas, China east of 105°E,
   Taiwan, the Philippines, Indochina, Malaysia, Indonesia west of New Guinea and the Russian
   Far East (Primorye, Khabarovsk, Amur, southern Sakhalin), with Okinawa, Jeju, Tsushima and
-  Guam. About 330 land regions and 150 sea regions (the Sea of Japan, Yellow and East China
-  Seas, the South China and Philippine Seas...): Japan, the Koreas, Taiwan and the
-  Philippines in fine detail, China's interior coarse, so most wars cross water. 11 start
+  Guam. About 280 land regions and 150 sea regions (the Sea of Japan, Yellow and East China
+  Seas, the South China and Philippine Seas...) at 3 km a pixel, like Europe: Japan in 23
+  regions, the Koreas in 7–8 each, with room on screen for units and icons; China's
+  interior coarse, so most wars cross water. 11 start
   countries (China, Indonesia, Japan, Malaysia, North Korea, Philippines, Russia, South
   Korea, Taiwan, Thailand, Vietnam). China's many big cities count at two fifths (fewer
   towns, so it doesn't start out three times as rich), Japan's half-million cities as towns,
@@ -209,8 +210,10 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
   - Splitting is free and takes any amount: half (X), one batch, or a number typed in the
     unit panel. Both parts keep their training.
   - Bots keep units around two batches, and merge bigger only when a region is full.
-- **Refill:** a damaged blob in supply slowly refills, paying money and manpower (plus steel
-  and oil for tanks, at the prices techs set). Not at sea.
+- **Refill:** a damaged blob in supply refills, paying money and manpower (plus steel
+  and oil for tanks, at the prices techs set): 0.15 strength a second plus 1.2% of its size
+  (so a big unit mends about as fast as a small one), half as fast again at home (in its own
+  town or port). Not at sea, except ships off their own port.
 - **Stack cap:** each region holds a limited number of tokens per player. The cap depends on
   region size and terrain and goes up by 1 per fort level and per city level. **Every token
   counts:** standing, leaving, or waiting to go on (ships in port take no room). A unit whose
@@ -233,7 +236,8 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
     region and in the neighbouring sea regions (so transports waiting next to a fleet get
     sunk), like artillery with a range of 1.
   - **Supply:** full within 3 sea regions of one of its country's supplied ports, none
-    beyond (it slowly wastes away). Ships refill only in port.
+    beyond (it slowly wastes away). Ships refill in port and in the sea off one of their ports
+    (at home rate); elsewhere at sea only with a fleet train, at half rate.
   - Seas cut off by straits too narrow for the map (the Black Sea, through the Bosporus and
     Dardanelles) are joined to the rest, so fleets can sail out.
 - **Troops cross the sea on their own:** send land units to a region across the water and
@@ -282,8 +286,10 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
   units in it or next to it (so a landing holds its beach while the troops push on).
 - **Reading the map:** a solid arrow is an attack on enemies. Units taking land nobody
   defends stand inside it, with no arrow, and their flag goes up a pole under them as the
-  capture runs (at the top, the land is theirs). Guns shelling show a dotted arc from the guns to the target, shells running along
-  it, and a reticle round the units being shelled; shelled land erupts in fire, debris and
+  capture runs (at the top, the land is theirs). Your guns shelling (artillery, warships,
+  coastal batteries) show a still dotted arc from the guns to the target with one shell
+  travelling along it, and a reticle round the units being shelled; shells burst round those
+  units (anyone's guns); shelled land erupts in fire, debris and
   smoke (shells into the sea throw up spray). Defenders that rout go up in white puffs. A unit
   waiting to go on (the next region is full, or a fleet blocks the sea) shows an hourglass.
 - **How a fight looks:** units in their own region hold the middle (with a shield showing
