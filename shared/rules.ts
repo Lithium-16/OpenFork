@@ -187,6 +187,19 @@ export const FORT_BONUS = 0.5; // per fort level
 /** Sieges: guns shelling an enemy fort wear it down, a level per this much shelling (shell
  * power, as for damage: a 20-strength battery of artillery takes a level in about 80 s). */
 export const FORT_SIEGE_POWER = 160;
+/** Guns told to shell buildings knock one down a level per this much shelling (as for forts).
+ * In order: port, factory, barracks, then mines, markets, wells and farms (the highest level
+ * first), then the town (never below 1, and never a capital's). */
+export const BUILDING_SIEGE_POWER = 160;
+/** Fighting in a region knocks a building there down a level about every this many seconds. */
+export const FIGHT_WRECK_SECONDS = 45;
+/** Damage mends on its own from this long after the last shelling or fighting... */
+export const WRECK_QUIET_SECONDS = 10;
+/** ...all of it in this long (levels already lost stay lost). */
+export const WRECK_MEND_SECONDS = 60;
+/** From this much damage a region's port, factory and barracks stop working (no units made;
+ * the port supplies no ships). */
+export const WRECK_DISABLES = 0.5;
 /** Holding this share of all the land wins outright (no need to take every capital). */
 export const DOMINATION_SHARE = 0.7;
 export const ENTRENCH_BONUS = 0.5; // when fully dug in

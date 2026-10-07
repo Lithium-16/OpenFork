@@ -1702,6 +1702,8 @@ export class MapView {
         let ix = Math.round(x - total / 2);
         for (const icon of icons) {
           blit(ctx, icon.s, ix, iconBottom - icon.s.height * ipx, ipx);
+          // Damage: cracks across the icons, more the worse it is.
+          if (rr[15] > 0.05) cracks(ctx, ix, iconBottom - icon.s.height * ipx, icon.s.width * ipx, icon.s.height * ipx, ipx, rr[15], region.id);
           if (icon.level) {
             const n = romanSprite(icon.level);
             blit(ctx, n, ix + (icon.s.width + 2 - n.width) * ipx, iconBottom - (n.height - 2) * ipx, ipx);
@@ -2180,6 +2182,7 @@ export class MapView {
       for (const k of this.nextShell.keys()) if (!live.has(k)) this.nextShell.delete(k);
     }
     const full = this.fx.level === 'full';
+    const shipIds = new Set(snap.blobs.filter((b) => UNITS[UNIT_INDEX[b[2]]].naval).map((b) => b[0]));
     for (const [key, from, target] of shooters) {
       if (target < 0) {
         this.nextShell.delete(key);
@@ -2205,7 +2208,9 @@ export class MapView {
         }
       }
       let heard = false;
-      const shells = full ? 3 : 1;
+      // Warships fire a salvo you can see in the air (no arc drawn); other guns a few shells.
+      const ship = shipIds.has(key);
+      const shells = ship ? (full ? 4 : 2) : full ? 3 : 1;
       // Shells fall round the units being shelled (where they stand under the label), not
       // anywhere in the region: a big sea region is hundreds of km across.
       const aimX = this.map.regions[target].x;
@@ -2221,17 +2226,35 @@ export class MapView {
         }
         const [sx, sy] = this.toScreen(x, y);
         if (!onScreen(gx, gy) && !onScreen(sx, sy)) continue;
-        // No streak across the map: the shell is seen leaving (the flash) and landing.
-        const land = now + 380 + n * 140;
+        let land = now + 380 + n * 140;
+        if (ship) {
+          // A salvo: each shell leaves with a flash at the ship and flies its own arc.
+          const fired = now + n * 110;
+          const flight = 650 + Math.min(500, Math.hypot(x - gunX, y - gunY) * 6);
+          land = fired + flight;
+          const lift = Math.min(40, Math.hypot(x - gunX, y - gunY) * 0.3);
+          this.fx.add({ kind: 'flash', x: gunX + (Math.random() - 0.5) * 3, y: gunY - 2, vx: 0, vy: 0, born: fired, life: 160, size: 5, color: '#fff1b0' });
+          this.fx.add({ kind: 'shell', x: gunX, y: gunY - 2, x2: x, y2: y, lift, vx: 0, vy: 0, born: fired, life: flight, size: 1, color: '#ffe08a' });
+        }
+        // (No streak across the map for the other guns: the shell is seen leaving, by the
+        // flash, and landing.)
         if (sea) {
-          // A shell into the sea: a white column of spray and droplets, no fire.
-          this.fx.add({ kind: 'flash', x, y, vx: 0, vy: 0, born: land, life: 180, size: 6, color: '#ffffff' });
-          for (let k = 0; k < (full ? 4 : 2); k++) {
-            this.fx.add({ kind: 'puff', x: x + (Math.random() - 0.5) * 3, y, vx: (Math.random() - 0.5) * 2, vy: -10 - Math.random() * 8, born: land + k * 40, life: 900, size: 4, color: '#e8f4ff' });
-          }
-          for (let k = 0; k < (full ? 6 : 3); k++) {
+          // A hit on ships: a burst of fire, burning wreckage flying off, black smoke rolling
+          // up from the hull, and a little spray where the rest falls in the water.
+          this.fx.add({ kind: 'boom', x, y, vx: 0, vy: 0, born: land, life: 650, size: full ? 11 : 8, color: '#ff7a1a' });
+          this.fx.add({ kind: 'flash', x, y, vx: 0, vy: 0, born: land, life: 150, size: 9, color: '#fff7d6' });
+          for (let k = 0; k < (full ? 8 : 4); k++) {
             const a = Math.random() * Math.PI * 2;
-            this.fx.add({ kind: 'spark', x, y, vx: Math.cos(a) * 9, vy: Math.sin(a) * 6 - 8, born: land, life: 500, size: 1, color: '#cfe8ff' });
+            const v = 7 + Math.random() * 9;
+            this.fx.add({ kind: 'spark', x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v * 0.6 - 7, born: land, life: 500 + Math.random() * 400, size: 1, color: k % 3 ? '#ffb347' : '#2b2622' });
+          }
+          for (let k = 0; k < (full ? 3 : 1); k++) {
+            this.fx.add({ kind: 'smoke', x: x + (Math.random() - 0.5) * 3, y, vx: 1 + Math.random() * 2, vy: -4 - Math.random() * 3, born: land + 60 + k * 140, life: 3000, size: 5, color: k ? '#3a3d40' : '#1f2123' });
+          }
+          this.fx.add({ kind: 'puff', x: x + (Math.random() - 0.5) * 6, y: y + 2, vx: 0, vy: -8, born: land + 30, life: 700, size: 3, color: '#e8f4ff' });
+          if (!heard && onScreen(sx, sy)) {
+            this.sounds?.boom(Math.min(1, scale / 2) * 0.8);
+            heard = true;
           }
           continue;
         }
@@ -2257,14 +2280,27 @@ export class MapView {
         }
       }
     }
+    // Damaged regions smoulder: a wisp of smoke now and then, more the worse the damage.
+    for (let r = 0; r < snap.regions.length; r++) {
+      const d = snap.regions[r][15];
+      if (!(d > 0.05) || Math.random() > dt * (0.6 + 2.5 * d)) continue;
+      const reg = this.map.regions[r];
+      const [sx, sy] = this.toScreen(reg.x, reg.y);
+      if (sx < -40 || sy < -40 || sx > cw + 40 || sy > chh + 40) continue;
+      const x = reg.x + (Math.random() - 0.5) * 10;
+      const y = reg.y + (Math.random() - 0.5) * 4;
+      this.fx.add({ kind: 'smoke', x, y, vx: 1 + Math.random() * 2, vy: -3 - Math.random() * 2, life: 2600 + 1200 * d, size: 3 + Math.round(2 * d), color: Math.random() < 0.5 ? '#3e4246' : '#5a5f63' });
+      if (d > 0.5 && Math.random() < 0.3) this.fx.add({ kind: 'spark', x, y, vx: (Math.random() - 0.5) * 3, vy: -6, life: 500, size: 1, color: '#ff9a3c' });
+    }
     // Small-arms fire for the fights on screen, a few crackles a second at most.
     if (fights && Math.random() < dt * Math.min(6, 2 * fights)) this.sounds?.gun(Math.min(1, 0.35 + 0.1 * fights) * Math.min(1, scale / 1.5));
   }
 
   /**
-   * Where your guns (artillery, warships, coastal batteries) are aiming: a still, dotted arc in
-   * your colour from the gun to its target, with one shell gliding along it now and then, and
-   * crosshairs on the target. Other countries' guns show only where their shells land.
+   * Where your guns are aiming: crosshairs on the target and, for artillery and coastal
+   * batteries, a still, dotted arc in your colour from the gun to it with one shell gliding
+   * along it now and then (warships show their salvos in the air instead). Other countries'
+   * guns show only where their shells land.
    */
   private drawAim(snap: Snapshot, players: GamePlayer[], now: number, px: number, you: number | null): void {
     const ctx = this.ctx;
@@ -2272,6 +2308,8 @@ export class MapView {
     const aims: Array<[number, number, number, number]> = [];
     for (const b of snap.blobs) if (b[13] >= 0) aims.push([b[0], b[1], b[6], b[13]]);
     for (const [region, sea] of snap.shelling ?? []) aims.push([-1 - region, snap.regions[region][0], region, sea]);
+    // Warships show their salvos in flight instead of an arc (see battleEffects).
+    const ships = new Set(snap.blobs.filter((b) => b[13] >= 0 && UNITS[UNIT_INDEX[b[2]]].naval).map((b) => b[0]));
     const marked = new Set<string>();
     for (const [key, owner, from, target] of aims) {
       // Spectators see everyone's; players only their own.
@@ -2284,8 +2322,14 @@ export class MapView {
       const [tx, ty0] = this.toScreen(t.x, t.y);
       const ty = ty0 + 14; // where the units there stand
       const dist = Math.hypot(tx - gx, ty - gy);
-      if (dist < 8) continue;
       const color = colorOf(players, owner);
+      if (ships.has(key)) {
+        const tk = `${owner}:${target}`;
+        if (!marked.has(tk)) crosshair(ctx, Math.round(tx), Math.round(ty0), color, px);
+        marked.add(tk);
+        continue;
+      }
+      if (dist < 8) continue;
       // A shell's arc: a parabola over the straight line, higher for longer shots.
       const lift = Math.min(80, dist * 0.35);
       const at = (f: number): [number, number] => [gx + (tx - gx) * f, gy + (ty - gy) * f - lift * 4 * f * (1 - f)];
@@ -2988,6 +3032,24 @@ function raisingFlag(ctx: CanvasRenderingContext2D, x: number, y: number, progre
   // The flutter: the fly end dips a pixel every other beat.
   ctx.fillStyle = INK;
   ctx.fillRect(x0 + clothW * px, wave ? top : top + (clothH - 1) * px, px, px);
+}
+
+/**
+ * Cracks across a damaged building icon (w×h at x, y): one at light damage, two past a
+ * third, three past two thirds; the same each frame for a region (`seed`).
+ */
+function cracks(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, px: number, damage: number, seed: number): void {
+  const n = damage > 0.66 ? 3 : damage > 0.33 ? 2 : 1;
+  ctx.fillStyle = INK;
+  for (let k = 0; k < n; k++) {
+    // A short zigzag from the top edge down, at a spot set by the region and crack.
+    let cx = x + (((seed * 7 + k * 5) % 5) / 5) * w + px;
+    const steps = Math.max(2, Math.floor(h / px / 2));
+    for (let i = 0; i < steps; i++) {
+      ctx.fillRect(Math.round(cx), Math.round(y + i * px), px, px);
+      cx += ((seed + k + i) % 2 ? 1 : -1) * px;
+    }
+  }
 }
 
 /** A dotted line made of pixel squares. */

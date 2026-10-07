@@ -286,11 +286,12 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
   units in it or next to it (so a landing holds its beach while the troops push on).
 - **Reading the map:** a solid arrow is an attack on enemies. Units taking land nobody
   defends stand inside it, with no arrow, and their flag goes up a pole under them as the
-  capture runs (at the top, the land is theirs). Your guns shelling (artillery, warships,
-  coastal batteries) show a still dotted arc from the guns to the target with one shell
-  travelling along it, and a reticle round the units being shelled; shells burst round those
-  units (anyone's guns); shelled land erupts in fire, debris and
-  smoke (shells into the sea throw up spray). Defenders that rout go up in white puffs. A unit
+  capture runs (at the top, the land is theirs). Your artillery and coastal batteries
+  shelling show a still dotted arc from the guns to the target with one shell travelling
+  along it; warships fire salvos you see in the air (no arc); a reticle marks what your guns
+  are shelling. Shells (anyone's) burst round the units being shelled: shelled land erupts in
+  fire, debris and smoke; ships hit burst into flame, throw off burning wreckage and trail
+  black smoke. Defenders that rout go up in white puffs. A unit
   waiting to go on (the next region is full, or a fleet blocks the sea) shows an hourglass.
 - **How a fight looks:** units in their own region hold the middle (with a shield showing
   their fort level, whether they're dug in, and a river crossed by the attackers); units
@@ -349,6 +350,23 @@ second:
   the fort down a level at a time (a 20-strength battery of artillery takes a level in about
   80 s; Rangefinders doesn't change this). The feed says when a fort is knocked down.
   Building a new level resets the wear.
+- **Building damage:** shelling and fighting wear a region's buildings down a level at a
+  time, until they're gone. A damage meter fills; when full, the first of these loses a level
+  and the meter starts again: the port, the factory, the barracks, then mines, markets, oil
+  wells and farms (the highest level first), then the town (never below 1, and never a
+  capital's). Forts (sieges), labs, depots and coastal batteries aren't touched.
+  - **Shelling:** select artillery or warships and press **K** (or Guns shell: Buildings in
+    the unit panel): they shell the buildings of enemy land in range instead of its troops
+    (ports and factories first), at the speed of a siege (a 20-strength battery of artillery
+    takes a level in about 80 s). K again, or Troops, turns them back on the troops.
+  - **Fighting:** a region fought over (in it, or from next door) loses a level about every
+    45 s of fighting.
+  - From half damage the region's **port, factory and barracks stop working**: nothing is
+    made there, and the port supplies no ships.
+  - **Repair** is free: damage starts to mend 10 s after the last shelling or fighting and is
+    gone in a minute. Levels already lost stay lost (build them again).
+  - A damaged region smoulders (smoke, and cracks across its building icons); the region
+    panel shows the damage and what goes next; the feed says when something is knocked down.
 - **Flanking:** attacking a region from more than one neighbouring region: +15% damage
   there for each extra region attacked from, up to +45%.
 - Anyone can reinforce either side mid-battle. With 3 or more sides, **each side spreads its
