@@ -455,7 +455,9 @@ export class Bot {
 
   private army(sim: Sim): void {
     const me = sim.state.players[this.player];
-    const blobs = [...sim.state.blobs.values()].filter((b) => b.owner === this.player);
+    // Units on a front are the front's (playing for someone who dropped, they carry on).
+    const fronted = new Set(sim.state.fronts.flatMap((f) => (f.owner === this.player ? f.units : [])));
+    const blobs = [...sim.state.blobs.values()].filter((b) => b.owner === this.player && !fronted.has(b.id));
     if (this.style.merges) this.mergeSmall(sim, blobs);
 
     // Units waiting (the next region is full, or a fleet blocks the sea) count as free again.

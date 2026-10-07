@@ -153,6 +153,22 @@ export interface SimState {
   peaceOffers: Map<string, number>;
   /** Borders with a road (keys from pairKey on the two regions). */
   roads: Set<string>;
+  /** Fronts and battle plans (see fronts.ts): units a country has handed to hold, or push
+   * across, its border with another. */
+  fronts: Front[];
+}
+
+/** A front: units holding a country's border with another, or (a battle plan) pushing into
+ * it toward a target. One per pair of countries; a unit is on one front at most. */
+export interface Front {
+  owner: number;
+  /** The country across the line. */
+  enemy: number;
+  units: number[];
+  /** A battle plan: attack (when at war with them), else hold. */
+  attack: boolean;
+  /** Where the plan pushes toward; -1: anywhere along the line. */
+  target: number;
 }
 
 /** Key for an unordered pair (of players, or of regions for roads). */

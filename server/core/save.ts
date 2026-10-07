@@ -23,7 +23,7 @@ import {
   UNIT_TYPES,
   type UnitType,
 } from '../../shared/rules.ts';
-import { type Blob, type Construction, emptyLine, emptyRegion, type Player, type ProductionLine, type RegionState, type SimState } from './state.ts';
+import { type Blob, type Construction, emptyLine, type Front, emptyRegion, type Player, type ProductionLine, type RegionState, type SimState } from './state.ts';
 import type { World } from './world.ts';
 
 export const SAVE_VERSION = 1;
@@ -56,6 +56,7 @@ export function dumpState(st: SimState): unknown {
     truces: [...st.truces],
     peaceOffers: [...st.peaceOffers],
     roads: [...st.roads],
+    fronts: st.fronts,
   };
 }
 
@@ -247,6 +248,20 @@ export function readSave(text: string, world: (id: string) => World | undefined)
       });
     const wars = pairs(s.wars, ':', n * n);
     for (const [a, b] of wars) if (a >= n || b >= n) throw new Bad('war with nobody');
+    // Fronts: units that are the owner's, each on one front at most (older saves have none).
+    const onFront = new Set<number>();
+    const fronts: Front[] = [];
+    for (const f of arr(s.fronts ?? [], n * n)) {
+      const o = obj(f);
+      const [owner, enemy] = [player(o.owner), player(o.enemy)];
+      if (owner === enemy || fronts.some((x) => x.owner === owner && x.enemy === enemy)) throw new Bad('two fronts on one border');
+      const units = arr(o.units, 5000)
+        .map((u) => int(u, 1, 1e9))
+        .filter((id) => blobs.get(id)?.owner === owner && !onFront.has(id));
+      for (const id of units) onFront.add(id);
+      const target = int(o.target ?? -1, -1, nRegions - 1);
+      if (units.length) fronts.push({ owner, enemy, units, attack: bool(o.attack), target: target >= 0 && w.isSea(target) ? -1 : target });
+    }
     const roads = pairs(s.roads, ':', nRegions * 8);
     for (const [a, b] of roads) if (a >= nRegions || b >= nRegions) throw new Bad('road off the map');
 
@@ -262,6 +277,7 @@ export function readSave(text: string, world: (id: string) => World | undefined)
       truces: new Map(timed(s.truces, ':')),
       peaceOffers: new Map(timed(s.peaceOffers, '>')),
       roads: new Set(arr(s.roads, nRegions * 8).map((k) => str(k, 16))),
+      fronts,
     };
     if (!simPlayers[human].alive || state.winner !== null) return 'that game is already over';
     const save: SaveFile = {

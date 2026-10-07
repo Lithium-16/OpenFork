@@ -61,6 +61,21 @@ function order(v: unknown): Order | null {
       return typeof v.on === 'boolean' ? { o: 'pause', on: v.on } : null;
     case 'cancel':
       return isInt(v.region) && isProd(v.building) ? { o: 'cancel', region: v.region, building: v.building } : null;
+    case 'front':
+      if (!isIds(v.blobs) || !isInt(v.enemy)) return null;
+      if ((v.attack !== undefined && typeof v.attack !== 'boolean') || (v.target !== undefined && v.target !== -1 && !isInt(v.target))) return null;
+      return {
+        o: 'front',
+        blobs: v.blobs,
+        enemy: v.enemy,
+        ...(v.attack !== undefined ? { attack: v.attack as boolean } : {}),
+        ...(v.target !== undefined ? { target: v.target as number } : {}),
+      };
+    case 'plan':
+      if (!isInt(v.enemy) || typeof v.attack !== 'boolean' || (v.target !== undefined && v.target !== -1 && !isInt(v.target))) return null;
+      return { o: 'plan', enemy: v.enemy, attack: v.attack, ...(v.target !== undefined ? { target: v.target as number } : {}) };
+    case 'unfront':
+      return isInt(v.enemy) ? { o: 'unfront', enemy: v.enemy } : null;
     case 'unbuild':
       return isInt(v.region) && isInt(v.index) && v.index >= 0 ? { o: 'unbuild', region: v.region, index: v.index } : null;
     default:
