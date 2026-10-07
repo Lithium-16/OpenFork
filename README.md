@@ -6,7 +6,9 @@ and bots take the other countries. The rules are in **[DESIGN.md](DESIGN.md)**.
 
 Status: first playable. Everyone starts at peace; bots go to war when attacked or when they
 see a weak neighbour (by difficulty). You can play a war over Europe with Britain, Ireland and the big islands (348 land regions
-from real provinces and 51 sea regions) with infantry, tanks, artillery and warships, ports
+from real provinces and 51 sea regions), or a naval war over the Asia–Pacific: Japan, the
+Koreas, coastal China, Taiwan, the Philippines and Southeast Asia (329 land regions and 148
+sea regions), with infantry, tanks, artillery and warships, ports
 and troops shipped across the sea, forts, entrenchment, supply, storage and depots,
 labs and research points,
 a tech tree, production, and
@@ -102,7 +104,8 @@ server/
 client/            browser game (bundled to public/app.js by esbuild)
 public/            index.html, style.css, maps/
 scripts/
-  build-map.ts     builds public/maps/europe.* from open data (npm run build:map)
+  build-map.ts     builds a map (public/maps/<id>.*) from open data: npm run build:map [europe|asia]
+  map/             the theatres: what each map is made of (europe.ts, asia.ts)
   preview-map.ts   debug picture of a built map
   bot-match.ts     a headless all-bot match, for balancing
 test/
@@ -128,8 +131,9 @@ setInterval(() => game.tick(), TICK_MS);
 
 ## Map data
 
-`public/maps/` is generated and committed; `npm run build:map` rebuilds it (downloads about
-330 MB of source data into `.cache/`). Sources:
+`public/maps/` is generated and committed; `npm run build:map` rebuilds the Europe map and
+`npm run build:map asia` the Asia–Pacific one (each downloads its source data into `.cache/`;
+about 330 MB for Europe). A new theatre is a file in `scripts/map/` listed in `THEATRES`. Sources:
 
 - Borders, rivers, lakes, places and land cover: [Natural Earth](https://www.naturalearthdata.com/) (public domain).
 - Elevation: [AWS Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) (Mapzen/Tilezen), built from

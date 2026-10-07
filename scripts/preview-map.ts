@@ -1,11 +1,12 @@
 // Debug picture of a built map: terrain, region borders, river borders (blue), label points
-// (red = city). Usage: node scripts/preview-map.ts [borders|terrain] out.png
+// (red = city). Usage: node scripts/preview-map.ts [borders|terrain] out.png [map id]
 import { readFileSync, writeFileSync } from 'node:fs';
 import { PNG } from 'pngjs';
 import { decodeGrid, WATER } from '../shared/map.ts';
 const dir = new URL('../public/maps/', import.meta.url).pathname;
-const map = JSON.parse(readFileSync(dir + 'europe.json', 'utf8'));
-const img = PNG.sync.read(readFileSync(dir + 'europe-terrain.png'));
+const id = process.argv[4] ?? 'europe';
+const map = JSON.parse(readFileSync(dir + id + '.json', 'utf8'));
+const img = PNG.sync.read(readFileSync(dir + id + '-terrain.png'));
 const g = decodeGrid(map.grid, map.width * map.height);
 const W = map.width;
 const mode = process.argv[2] ?? 'borders';

@@ -1,5 +1,6 @@
-// Builds public/maps/europe.json and public/maps/europe-terrain.png from open data
-// (see scripts/map/sources.ts for sources and licences). Run: npm run build:map
+// Builds a theatre's map, public/maps/<id>.json and public/maps/<id>-terrain.png, from open
+// data (see scripts/map/sources.ts for sources and licences). Run: npm run build:map [theatre]
+// (europe by default; see scripts/map/<theatre>.ts for what's on each).
 //
 // 1. Rasterise Natural Earth provinces onto an equal-area pixel grid; keep the mainland.
 // 2. Merge provinces within each country, fold in micro-states and split giants until there
@@ -20,18 +21,23 @@ import {
   type Trait,
   WATER,
 } from '../shared/map.ts';
-import { INCLUDE, INDUSTRY, ISLAND_MIN_PX, KEEP_BOX, MAX_LON, OIL, PLAYABLE, RUSSIA_MAX_LABEL_LON, TURKEY_KEEP, TURKEY_MAX_LON } from './map/europe.ts';
+import { asia } from './map/asia.ts';
+import { europe } from './map/europe.ts';
+import type { Theatre } from './map/theatre.ts';
 import { drawLine, fillPolygon, Grid, Laea, lines, polygons } from './map/geo.ts';
 import { Elevation, LandCover, naturalEarth } from './map/sources.ts';
 
-const KM = 3; // km per pixel
-const TARGET_REGIONS = 330;
+const THEATRES: Record<string, Theatre> = { europe, asia };
+const T = THEATRES[process.argv[2] ?? 'europe'];
+if (!T) throw new Error(`no theatre ${process.argv[2]} (there's ${Object.keys(THEATRES).join(', ')})`);
+const KM = T.km; // km per pixel
+const TARGET_REGIONS = T.targetRegions;
 /** Open sea is split into regions about this many times a land region's median area. */
-const SEA_AREA_FACTOR = 4;
+const SEA_AREA_FACTOR = T.seaAreaFactor;
 /** Sea farther than this (px) from land in play is left out: open ocean nobody needs. */
-const SEA_REACH = 100;
+const SEA_REACH = T.seaReach;
 /** Bodies of water smaller than this (px) aren't sea regions (they stay plain water). */
-const SEA_MIN_PX = 1500;
+const SEA_MIN_PX = T.seaMinPx;
 const AREA_EXPONENT = 0.75; // how strongly a country's area sets its share of regions
 const MIN_FRACTION = 0.3; // regions smaller than this × median are merged away
 const SPLIT_FRACTION = 1.7; // regions bigger than this × their country's average are split
@@ -43,9 +49,9 @@ const log = (m: string) => console.log(`[${((performance.now() - t0) / 1000).toF
 
 // -- 1. provinces onto pixels ---------------------------------------------------------------
 
-const proj = new Laea(24, 54);
-// A generous window, cropped to the mainland later.
-const full = new Grid(proj, -3200, 2300, Math.round(6000 / KM), Math.round(4700 / KM), KM);
+const proj = new Laea(T.centre[0], T.centre[1]);
+// A generous window, cropped to the land later.
+const full = new Grid(proj, T.window.x, T.window.y, Math.round(T.window.width / KM), Math.round(T.window.height / KM), KM);
 
 interface Unit {
   name: string;
@@ -59,11 +65,11 @@ const units: Unit[] = [];
 const unitOf = new Int32Array(full.width * full.height).fill(-1);
 for (const f of admin1) {
   const p = f.properties;
-  const iso = String(p.iso_a2 === '-1' || p.iso_a2 === '-99' ? (p.adm0_a3 === 'KOS' ? 'XK' : p.iso_a2) : p.iso_a2);
-  if (!INCLUDE.has(iso)) continue;
+  const iso0 = String(p.iso_a2 === '-1' || p.iso_a2 === '-99' ? (p.adm0_a3 === 'KOS' ? 'XK' : p.iso_a2) : p.iso_a2);
+  const iso = T.partOf?.[iso0] ?? iso0;
+  if (!T.include.has(iso)) continue;
   const name = String(p.name ?? p.name_en ?? '?');
-  if (iso === 'TR' && !TURKEY_KEEP.has(name)) continue;
-  if (iso === 'RU' && Number(p.longitude) > RUSSIA_MAX_LABEL_LON) continue;
+  if (!T.keepProvince(iso, name, p)) continue;
   const id = units.length;
   units.push({ name, country: iso, admin: String(p.admin), neRegion: String(p.region ?? '') });
   for (const rings of polygons(f.geometry)) fillPolygon(full, rings, (i) => {
@@ -78,10 +84,12 @@ for (const f of lakes) for (const rings of polygons(f.geometry)) fillPolygon(ful
 for (let i = 0; i < unitOf.length; i++) {
   if (unitOf[i] === -1) continue;
   const [lon] = full.toLonLat(i % full.width, Math.floor(i / full.width));
-  if (lon > MAX_LON || (units[unitOf[i]].country === 'TR' && lon > TURKEY_MAX_LON)) unitOf[i] = -1;
+  const [, lat] = full.toLonLat(i % full.width, Math.floor(i / full.width));
+  if (!T.keepPixel(units[unitOf[i]].country, lon, lat)) unitOf[i] = -1;
 }
 
-// Keep the mainland and every island from ISLAND_MIN_PX up, inside KEEP_BOX.
+// Keep the mainland and every island from T.islandMinPx up (and the ones T.keepIslands
+// names), inside T.keepBox.
 {
   const comp = new Int32Array(unitOf.length).fill(-1);
   const sizes: number[] = [];
@@ -113,10 +121,32 @@ for (let i = 0; i < unitOf.length; i++) {
     sumLon[comp[i]] += lon;
     sumLat[comp[i]] += lat;
   }
+  const named = new Set<number>();
+  for (const [, lon, lat] of T.keepIslands) {
+    const [fx, fy] = full.toPx(lon, lat);
+    const x0 = Math.round(fx);
+    const y0 = Math.round(fy);
+    // The landmass at the point, or the nearest one within a few pixels.
+    search: for (let rad = 0; rad <= 6; rad++) {
+      for (let dy = -rad; dy <= rad; dy++) {
+        for (let dx = -rad; dx <= rad; dx++) {
+          const x = x0 + dx;
+          const y = y0 + dy;
+          if (x < 0 || y < 0 || x >= full.width || y >= full.height) continue;
+          const c = comp[y * full.width + x];
+          if (c !== -1) {
+            named.add(c);
+            break search;
+          }
+        }
+      }
+    }
+  }
+  const box = T.keepBox;
   const keep = sizes.map((n, c) => {
     const lon = sumLon[c] / n;
     const lat = sumLat[c] / n;
-    return n >= ISLAND_MIN_PX && lon >= KEEP_BOX.minLon && lon <= KEEP_BOX.maxLon && lat >= KEEP_BOX.minLat && lat <= KEEP_BOX.maxLat;
+    return (n >= T.islandMinPx || named.has(c)) && lon >= box.minLon && lon <= box.maxLon && lat >= box.minLat && lat <= box.maxLat;
   });
   for (let i = 0; i < unitOf.length; i++) if (comp[i] === -1 || !keep[comp[i]]) unitOf[i] = -1;
   log(`kept ${keep.filter(Boolean).length} landmasses, dropped ${keep.filter((k) => !k).length} small or far-off islands`);
@@ -222,10 +252,11 @@ const aimArea = new Map<string, number>();
   // Each country's share of regions grows with its area, but less than linearly.
   const area = new Map<string, number>();
   for (const g of groups.values()) area.set(g.country, (area.get(g.country) ?? 0) + g.area);
-  const weight = (c: string) => (area.get(c) as number) ** AREA_EXPONENT;
+  const weight = (c: string) => (area.get(c) as number) ** AREA_EXPONENT * (T.regionWeight?.[c] ?? 1);
   const total = [...area.keys()].reduce((s, c) => s + weight(c), 0);
   for (const [country] of area) {
-    const target = Math.max(1, Math.round((TARGET_REGIONS * weight(country)) / total));
+    const floor = T.playable.some((p) => p.id === country) ? T.minPlayableRegions : 1;
+    const target = Math.max(floor, Math.round((TARGET_REGIONS * weight(country)) / total));
     aimArea.set(country, (area.get(country) as number) / target);
     const stuck = new Set<number>();
     for (;;) {
@@ -258,11 +289,13 @@ const median = () => {
 
 // Micro-states and slivers join the neighbour they share the longest border with.
 function absorbSmall(): void {
-  const min = median() * MIN_FRACTION;
+  const med = median();
+  // Against the country's own average when countries are weighted (see Theatre.regionWeight).
+  const min = (g: Group) => (T.regionWeight ? (aimArea.get(g.country) ?? med) : med) * MIN_FRACTION;
   // Small islands have nothing to join: they stay small regions of their own.
   const alone = new Set<number>();
   for (;;) {
-    const small = [...groups].filter(([id, g]) => g.area < min && !alone.has(id)).sort((a, b) => a[1].area - b[1].area)[0];
+    const small = [...groups].filter(([id, g]) => g.area < min(g) && !alone.has(id)).sort((a, b) => a[1].area - b[1].area)[0];
     if (!small) break;
     const [id, g] = small;
     const [into] = [...g.border].sort((a, b) => b[1] - a[1])[0] ?? [];
@@ -361,7 +394,7 @@ const R = groupIds.length;
 
 // -- 3. what each region is like --------------------------------------------------------------
 
-const elevation = new Elevation(6);
+const elevation = new Elevation(T.elevationZoom);
 {
   const corners = [
     grid.toLonLat(0, 0),
@@ -522,17 +555,18 @@ for (const p of places) {
   if (r === -1) continue;
   if (!names[r] && p.pop >= 20_000) names[r] = p.name;
   if (p.pop >= 1_000_000) bigCity[r] = true;
-  if (p.pop >= 1_000_000 && !cityLevel[r]) {
-    cityLevel[r] = levelOfPop(p.pop);
+  const pop = p.pop * (T.popScale?.[(groups.get(groupIds[r]) as Group).country] ?? 1);
+  if (pop >= 1_000_000 && !cityLevel[r]) {
+    cityLevel[r] = levelOfPop(pop);
     const [fx, fy] = grid.toPx(p.lon, p.lat);
     cityAt[r] = [Math.round(fx), Math.round(fy)];
   }
 }
-for (const [, lon, lat] of INDUSTRY) {
+for (const [, lon, lat] of T.industry) {
   const r = regionAt(lon, lat);
   if (r !== -1) traits[r].add('industry');
 }
-for (const [, lon, lat] of OIL) {
+for (const [, lon, lat] of T.oil) {
   const r = regionAt(lon, lat);
   if (r !== -1) traits[r].add('oil');
 }
@@ -549,7 +583,7 @@ const countries: Country[] = [];
 const countryNames = new Map<string, string>();
 for (const u of units) countryNames.set(u.country, u.admin);
 for (const id of new Set(groupIds.map((g) => (groups.get(g) as Group).country))) {
-  const play = PLAYABLE.find((p) => p.id === id);
+  const play = T.playable.find((p) => p.id === id);
   let capital = -1;
   if (play) {
     capital = regionAt(play.capital[0], play.capital[1]);
@@ -572,7 +606,7 @@ const regions: Region[] = groupIds.map((g, r) => {
   const G = groups.get(g) as Group;
   const terrain = terrainOf(r);
   const t = traits[r];
-  if (terrain === 'plains' && !bigCity[r] && !t.has('industry') && sumLat[r] / area[r] < 57 && counts[r][T_FOREST] / area[r] < 0.3) {
+  if (terrain === 'plains' && !bigCity[r] && !t.has('industry') && sumLat[r] / area[r] < T.farmlandMaxLat && counts[r][T_FOREST] / area[r] < 0.3) {
     t.add('farmland');
   }
   const neighbors: Neighbor[] = [...borders[r]]
@@ -633,7 +667,7 @@ let S = 0;
   }
   const open = (i: number) => regionOf[i] === WATER && !land0[i] && reach[i] > 0;
   const seen = new Uint8Array(N);
-  const target = median() * SEA_AREA_FACTOR;
+  const target = T.seaRegionPx ?? median() * SEA_AREA_FACTOR;
   for (let s0 = 0; s0 < N; s0++) {
     if (seen[s0] || !open(s0)) continue;
     const px = [s0];
@@ -648,7 +682,7 @@ let S = 0;
         }
       }
     }
-    if (px.length < SEA_MIN_PX || west > 45) continue;
+    if (px.length < SEA_MIN_PX || west > T.seaMaxWestLon) continue;
     const k = Math.max(1, Math.round(px.length / target));
     // k-means on a sample (a whole sea is too many pixels), then grow from the seeds.
     const sample = px.filter((_, n) => n % 7 === 0);
@@ -667,7 +701,11 @@ let S = 0;
 // Names: the Natural Earth sea or gulf covering most of each sea region (smaller ones win
 // where they overlap bigger ones).
 const marine = (await naturalEarth('ne_10m_geography_marine_polys'))
-  .map((f) => ({ name: String(f.properties.name ?? f.properties.NAME ?? '').replace('North Atlantic Ocean', 'Atlantic'), rings: polygons(f.geometry) }))
+  .map((f) => ({ name: String(f.properties.name ?? f.properties.NAME ?? '')
+      .replace('North Atlantic Ocean', 'Atlantic')
+      .replace(/^(North|South) Pacific Ocean$/, 'Pacific')
+      // Some names come in capitals ("INDIAN OCEAN").
+      .replace(/^[A-Z ]+$/, (n) => n.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase())), rings: polygons(f.geometry) }))
   .filter((m) => m.name);
 const marineAt = new Int32Array(N).fill(-1);
 {
@@ -785,11 +823,11 @@ function shade(x: number, y: number): number {
 }
 
 mkdirSync(OUT, { recursive: true });
-writeFileSync(`${OUT}europe-terrain.png`, PNG.sync.write(png));
+writeFileSync(`${OUT}${T.id}-terrain.png`, PNG.sync.write(png));
 
 const map: GameMap = {
-  id: 'europe',
-  name: 'Europe',
+  id: T.id,
+  name: T.name,
   width: W,
   height: H,
   kmPerPx: KM,
@@ -797,11 +835,9 @@ const map: GameMap = {
   countries,
   grid: encodeGrid(regionOf),
   seaGrid: encodeGrid(seaGrid),
-  attribution:
-    'Borders, rivers, lakes and places: Natural Earth (public domain). Land cover: Natural Earth II (public domain). ' +
-    'Elevation: AWS Terrain Tiles (Mapzen/Tilezen) from SRTM, GMTED2010, ETOPO1 and EU-DEM (produced using Copernicus data and information funded by the European Union).',
+  attribution: T.attribution,
 };
-writeFileSync(`${OUT}europe.json`, JSON.stringify(map));
+writeFileSync(`${OUT}${T.id}.json`, JSON.stringify(map));
 
 const tally = (k: (r: Region) => string) => {
   const m = new Map<string, number>();

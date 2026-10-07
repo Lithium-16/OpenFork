@@ -522,9 +522,9 @@ export class GameScreen {
     $('#over-title').textContent =
       winner === this.you
         ? this.dominated
-          ? 'Victory! Most of Europe is yours.'
+          ? 'Victory! Most of the map is yours.'
           : 'Victory! Every capital is yours.'
-        : `${name} wins${this.dominated ? ', holding most of Europe' : ''}.`;
+        : `${name} wins${this.dominated ? ', holding most of the map' : ''}.`;
     $('#over').classList.remove('hidden');
   }
 
@@ -533,7 +533,8 @@ export class GameScreen {
     const c = this.map.countries.find((x) => x.id === this.players[this.you as number].country);
     if (!c) return;
     const r = this.map.regions[c.capital];
-    this.view.focus(r.x, r.y, 1.3);
+    // Zoomed in enough that the map is wider than the screen, so the capital can be centred.
+    this.view.focus(r.x, r.y, Math.max(1.3, (1.25 * window.innerWidth) / this.map.width));
   }
 
   // -- input ----------------------------------------------------------------------------------
@@ -1731,7 +1732,7 @@ export class GameScreen {
         if (e.from === this.you) text = `${name(e.to)} refused peace`;
         break;
       case 'won':
-        text = e.domination ? `${name(e.player)} holds most of Europe and wins` : `${name(e.player)} wins`;
+        text = e.domination ? `${name(e.player)} holds most of the map and wins` : `${name(e.player)} wins`;
         break;
       case 'breached': {
         const what = e.level > 0 ? `knocked down to level ${e.level}` : 'destroyed';

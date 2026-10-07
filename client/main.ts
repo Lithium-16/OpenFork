@@ -156,7 +156,7 @@ async function loadMap(id: string): Promise<{ map: GameMap; terrain: HTMLImageEl
   return { map, terrain };
 }
 
-// Start fetching the only map while the person types their name: the small map data first,
+// Start fetching the default map while the person types their name: the small map data first,
 // then (once the page has loaded, so it doesn't hold the page up) the big terrain image.
 loadMapData('europe')
   .catch(() => {})
@@ -170,6 +170,8 @@ async function renderLobby(): Promise<void> {
   if (!lobby || !me) return;
   $('#lobby-code').textContent = lobby.code;
   history.replaceState(null, '', `?lobby=${lobby.code}`);
+  // The chosen map's terrain image, fetched while people pick countries.
+  loadTerrain(lobby.settings.map).catch(() => {});
   // Everything but the country list draws at once; the list waits for the map data.
   let map = loadedMaps.get(lobby.settings.map) ?? null;
   if (!map) {
@@ -216,7 +218,10 @@ function renderLobbyBody(map: GameMap | null): void {
   const size = pvp ? el('span', {}, ['One per person (pure PvP)']) : select('size', sizes);
   settings.replaceChildren(
     el('span', {}, ['Map']),
-    select('map', [['europe', 'Europe']]),
+    select('map', [
+      ['europe', 'Europe'],
+      ['asia', 'Asia–Pacific'],
+    ]),
     el('span', {}, ['Countries']),
     size,
     el('span', {}, ['Starting resources']),
