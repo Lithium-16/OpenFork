@@ -136,8 +136,9 @@ The numbers in "Starting tunables" are first guesses for playtesting; they all l
   and markets** are one per region and **level up in place, I to III** (one slot at any
   level; each level yields as much again). A level costs more each time: mine $80 / $160 +
   15 steel / $240 + 30 steel (75 / 105 / 135 s), market $70 / $140 + 10 / $210 + 20
-  (60 / 90 / 120 s). Their level shows in roman numerals beside them on the map, as forts and
-  cities do, and in the region panel and build bar. Demolishing one takes every level.
+  (60 / 90 / 120 s). Their icons join the row above the region (with the capital, city, fort and
+  port), the level in roman numerals on the corner as forts and cities have it, and the level
+  shows in the region panel and build bar too. Demolishing one takes every level.
 - **Military buildings:** fort (levels 1–3) anywhere you own; barracks and factory in cities;
   on a coast, a port and a **coastal battery** (a slot, $120 + 40 steel, 75 s): it shells
   enemy ships and troops at sea in the seas off its coast (about as hard as 10 strength of
