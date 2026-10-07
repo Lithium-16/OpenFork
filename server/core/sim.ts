@@ -1387,11 +1387,12 @@ export class Sim {
       }
     };
     for (const b of this.state.blobs.values()) {
+      const before = b.bombarding;
       b.bombarding = -1;
       const stats = this.statsOf(b.type, b.owner);
       // Guns being shipped can't fire.
       if (!stats.range || !stats.bombard || b.progress > 0 || b.supply <= 0 || fighting.has(b.id) || this.troopsAtSea(b)) continue;
-      const target = this.bombardTarget(b, stats.range, standing);
+      const target = this.bombardTarget(b, stats.range, standing, before);
       if (target < 0) continue;
       b.bombarding = target;
       const power = DAMAGE_RATE * dt * b.strength * stats.bombard * (1 + (TRAINING_DAMAGE * b.training) / MAX_TRAINING) * (0.5 + 0.5 * b.supply);
@@ -1421,10 +1422,11 @@ export class Sim {
   /** Coastal battery region → the sea it shelled in the last pass. */
   readonly batteryTargets = new Map<number, number>();
 
-  /** Where a gun shells: an enemy-held spot within range, own fights first, then the
-   * strongest enemy force, then the nearest. -1 if there's nothing to hit. Artillery reaches
+  /** Where a gun shells: an enemy-held spot within range, own fights first, then the one it
+   * was shelling (while there's anything left to hit there), then the strongest enemy force,
+   * then the nearest. -1 if there's nothing to hit. Artillery reaches
    * over land only; ships hit the coasts and the seas next to their sea region. */
-  private bombardTarget(b: Blob, range: number, standing: Map<number, Blob[]>): number {
+  private bombardTarget(b: Blob, range: number, standing: Map<number, Blob[]>, before = -1): number {
     const dist = new Map([[b.region, 0]]);
     if (UNITS[b.type].naval) {
       dist.delete(b.region);
@@ -1450,7 +1452,9 @@ export class Sim {
       const enemy = here.filter((x) => this.atWar(b.owner, x.owner)).reduce((s, x) => s + Math.max(0, x.strength), 0);
       if (enemy <= 0) continue;
       const ours = here.some((x) => x.owner === b.owner) || (this.attackers.get(r) ?? []).some((x) => x.owner === b.owner);
-      const score = (ours ? 1e6 : 0) + enemy - d;
+      // A gun keeps to its target while there's something to hit there (a fight of our own
+      // elsewhere still comes first), rather than swinging to whichever force is biggest.
+      const score = (ours ? 1e6 : 0) + (r === before ? 1e5 : 0) + enemy - d;
       if (score > bestScore) {
         bestScore = score;
         best = r;
