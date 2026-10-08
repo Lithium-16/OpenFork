@@ -45,7 +45,7 @@ function hops(sim: Sim, from: number): Int32Array {
 }
 
 /** What it would take to win a region: the enemy strength in it, forts and digging in counted. */
-function defence(sim: Sim, region: number, owner: number): number {
+export function defence(sim: Sim, region: number, owner: number): number {
   const rs = sim.state.regions[region];
   let d = 0.5;
   for (const x of sim.blobsIn(region)) {

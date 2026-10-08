@@ -144,6 +144,38 @@ describe('lobbies', () => {
     assert.equal(parseClientMessage({ t: 'lobby.settings', settings: { difficulty: 'brutal' } }), null);
   });
 
+  it('fog of war: other countries\' units show only within your vision; watchers see all', async () => {
+    const t = setup();
+    await t.connect('a', 'Ann');
+    await t.send('a', { t: 'lobby.create' });
+    await t.send('a', { t: 'lobby.settings', settings: { size: 5 } });
+    await t.send('a', { t: 'lobby.pick', country: 'AA' });
+    await t.send('a', { t: 'lobby.start' });
+    const code = t.last('a', 'lobby')?.lobby?.code as string;
+    await t.connect('w', 'Watcher');
+    await t.send('w', { t: 'lobby.join', code });
+    t.tick(SNAPSHOT_EVERY_TICKS);
+    const mine = t.last('a', 'snap')?.snap;
+    const all = t.last('w', 'snap')?.snap;
+    assert.ok(mine && all);
+    // Ann (capital 0) sees her land and one region beyond it; the countries at 4, 6 and 9 are
+    // too far away to see.
+    const near = new Set<number>();
+    mine.regions.forEach((r, i) => {
+      if (r[0] === 0) near.add(i);
+    });
+    for (const b of mine.blobs) if (b[1] === 0) near.add(b[6]);
+    const seen = new Set([...near].flatMap((r) => [r - 1, r, r + 1]));
+    assert.ok(mine.blobs.every((b) => b[1] === 0 || seen.has(b[6])), 'nothing outside vision');
+    assert.ok(all.blobs.some((b) => !seen.has(b[6])), 'the watcher sees units Ann cannot');
+    assert.ok(mine.blobs.length < all.blobs.length);
+    // Borders and owners stay visible everywhere.
+    assert.deepEqual(
+      mine.regions.map((r) => r[0]),
+      all.regions.map((r) => r[0]),
+    );
+  });
+
   it('takes orders from the country\'s player only; watchers just watch', async () => {
     const t = setup();
     await t.connect('a', 'Ann');

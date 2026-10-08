@@ -18,6 +18,8 @@ export type Order =
   | { o: 'stop'; blobs: number[] }
   /** Guns shell the enemy's buildings (true) or their troops (false). */
   | { o: 'aim'; blobs: number[]; buildings: boolean }
+  /** Auto: the units take nearby neutral and enemy land on their own until given an order. */
+  | { o: 'auto'; blobs: number[]; on: boolean }
   | { o: 'split'; blob: number; amount?: number }
   | { o: 'merge'; blobs: number[] }
   | { o: 'disband'; blobs: number[] }
@@ -104,7 +106,7 @@ export interface GamePlayer {
 /** One blob: [id, owner, type (0 infantry, 1 tank, 2 artillery, 3 warship), strength, size, training,
  * region, next region or -1, progress 0..1, entrench 0..1, supply 0..1, flags (1 waiting:
  * has orders but stays put, 2 crossed river, 4 attacking or taking the next region from its own, 8 guns
- * shelling buildings rather than troops), the region it came into its
+ * shelling buildings rather than troops, 16 on Auto), the region it came into its
  * region from or -1, the region it shells or -1]. */
 export type BlobRow = [number, number, number, number, number, number, number, number, number, number, number, number, number, number];
 

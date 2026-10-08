@@ -1496,6 +1496,27 @@ export class Sim {
     return this.state.regions[region].damage >= WRECK_DISABLES;
   }
 
+  /** Land units set to take land on their own (`on`), or back under orders. Ships ignore it. */
+  setAuto(playerId: number, blobIds: number[], on: boolean): string | null {
+    if (!this.player(playerId)?.alive) return 'you are not in the game';
+    let any = false;
+    for (const id of blobIds) {
+      const b = this.state.blobs.get(id);
+      if (!b || b.owner !== playerId || UNITS[b.type].naval) continue;
+      b.auto = on;
+      any = true;
+    }
+    return any ? null : 'no land units selected';
+  }
+
+  /** Units given an order by hand stop taking land on their own. */
+  manual(playerId: number, blobIds: number[]): void {
+    for (const id of blobIds) {
+      const b = this.state.blobs.get(id);
+      if (b && b.owner === playerId) b.auto = false;
+    }
+  }
+
   /** Guns told to shell the enemy's buildings (`on`) or their troops. Other units ignore it. */
   setHitBuildings(playerId: number, blobIds: number[], on: boolean): string | null {
     if (!this.player(playerId)?.alive) return 'you are not in the game';
@@ -2004,6 +2025,7 @@ export class Sim {
       attacking: -1,
       bombarding: -1,
       hitBuildings: false,
+      auto: false,
     };
     this.state.blobs.set(b.id, b);
     this.touch();

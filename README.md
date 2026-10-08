@@ -12,7 +12,7 @@ sea regions), with infantry, tanks, artillery and warships, ports
 and troops shipped across the sea, forts, entrenchment, supply, storage and depots,
 labs and research points,
 a tech tree, production, and
-defensive/easy/normal/hard bots, or pure PvP with no bots. Air, alliances and fog of war come later.
+defensive/easy/normal/hard bots, or pure PvP with no bots. Fog of war hides other countries' units outside your vision. Air and alliances come later.
 
 ## Run it
 
@@ -67,6 +67,7 @@ your PC: *More info*, then *Run anyway*.
 | Right drag, WASD, arrows | pan |
 | Wheel | zoom |
 | X / G / H | split in half / merge (any amounts, up to 100; not in a fight or below 25% strength) / halt the selected units; the unit panel splits off a batch or any number |
+| A | **auto** for the selected land units: they take the nearest neutral or empty enemy land on their own (and weakly held enemy regions), only next to your supplied land; any order turns it off |
 | C / Z | **front** / **battle plan** for the selected land units: click another country's land (for a plan, the region to push toward). A front holds your whole border with that country; a plan also attacks across it (once at war) where the odds are good, and holds the new line when its target falls. Click a front's badge to select its units; the unit panel switches Attack / Hold or dissolves it. Ordering a unit by hand takes it off its front |
 | Del | disband the selected units (asks first; half the manpower of their strength back; not in a fight) |
 | 1–9, -, =, P or the build dock (bottom) | placement mode (pointing at a building in the dock shows its cost, build time and what it does): farm, mine, oil well, market, lab, city (found or expand), fort, barracks, factory, road (-), depot (=), port (P, on a coast). Click one of your regions (roads: drag across regions); Shift places more, Esc / right click stops; a busy region queues it. Your regions show their slots as boxes (hollow green = free) |
@@ -152,4 +153,4 @@ under the SIL Open Font License 1.1 (`public/fonts/OFL.txt`).
   by someone conquering. Tune `shared/rules.ts` from real games (`node scripts/bot-match.ts
   [seed] [countries] [difficulty]`).
 - Guest identities live in memory: a server restart forgets who was who (and running games).
-- Not built yet: air, alliances, fog of war, procedural maps, the Kernel module.
+- Not built yet: air, alliances, procedural maps, the Kernel module.

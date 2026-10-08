@@ -123,6 +123,8 @@ export class Bot {
     this.next = sim.state.time + this.style.think * (0.8 + 0.4 * this.random());
     const me = sim.player(this.player);
     if (!me?.alive || sim.state.winner !== null) return;
+    // Defensive: land it has taken since becomes home too (its to hold and take back).
+    if (this.home) sim.state.regions.forEach((rs, i) => rs.owner === this.player && this.home?.add(i));
     this.answerOffers(sim);
     if (sim.state.time >= this.nextDiplomacy) {
       this.nextDiplomacy = sim.state.time + BOT_DIPLOMACY_SECONDS * (0.8 + 0.4 * this.random());
@@ -574,9 +576,10 @@ export class Bot {
       if (sim.state.regions[b.region].owner === this.player && this.threat(sim, b.region) > 0 && b.region !== me.capital) {
         continue; // hold the line
       }
-      // Defensive: no new land and no marching on the enemy; just man the borders.
+      // Defensive: neutral land until it meets other countries, no marching on anyone; then
+      // man the borders.
       const target = this.style.defensive
-        ? (this.stagingArea(sim, b) ?? this.borderPost(sim, b))
+        ? (this.expandTarget(sim, b, targeted) ?? this.stagingArea(sim, b) ?? this.borderPost(sim, b))
         : (this.expandTarget(sim, b, targeted) ?? this.stagingArea(sim, b) ?? this.nearestEnemy(sim, b));
       if (target === null && !this.style.defensive) {
         spare.push(b);
