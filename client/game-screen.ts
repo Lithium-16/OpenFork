@@ -293,6 +293,7 @@ export class GameScreen {
       cam: () => ({ ...this.view.cam }),
       badges: () => this.view.frontBadgeRects(),
       selected: () => [...this.selected],
+      ghosts: () => this.view.ghostCount,
       focus: (region: number) => {
         const r = this.map.regions[region];
         this.view.focus(r.x, r.y, 1.3);
@@ -1107,6 +1108,8 @@ export class GameScreen {
       this.send({ o: 'stop', blobs: sel });
     } else if (k === 'k' && sel.length) {
       this.toggleAim();
+    } else if (k === 'a' && sel.length) {
+      this.toggleAuto();
     } else if (k === 'm') {
       this.setMuted(!this.sfx.muted);
     } else if (k === 'v') {
@@ -1869,6 +1872,7 @@ export class GameScreen {
                 : this.map.regions[b[6]].name;
     // Only what's worth saying: full supply, no training and not dug in go unmentioned.
     const status: string[] = [];
+    if (b[11] & 16) status.push('auto');
     if (b[5] > 0) status.push(`trained ${b[5]}`);
     if (b[10] < 0.99) status.push(`supply ${Math.round(b[10] * 100)}%${this.supplyWhy(b) ? ` (${this.supplyWhy(b)})` : ''}`);
     if (!UNITS[type].naval && this.map.regions[b[6]]?.sea) status.push('at sea');
@@ -1910,6 +1914,23 @@ export class GameScreen {
     });
   }
 
+  /** The selected land units (Auto is for them; ships don't take land). */
+  private selectedLand(): BlobRow[] {
+    return [...this.selected].map((id) => this.blob(id)).filter((b): b is BlobRow => !!b && b[1] === this.you && !UNITS[UNIT_INDEX[b[2]]].naval);
+  }
+
+  /** A: the selected land units take land on their own, or (if they all do already) stop. */
+  private toggleAuto(): void {
+    const land = this.selectedLand();
+    if (!land.length) {
+      toast('Select land units first, then A');
+      return;
+    }
+    const on = land.some((b) => !(b[11] & 16));
+    this.send({ o: 'auto', blobs: land.map((b) => b[0]), on });
+    toast(on ? 'Auto: they take nearby neutral and enemy land on their own, until you give them an order' : 'Auto off', 'info');
+  }
+
   /** K: the selected guns shell buildings, or (if they all do already) troops again. */
   private toggleAim(): void {
     const guns = this.selectedGuns();
@@ -1942,12 +1963,21 @@ export class GameScreen {
         btn('Halt (H)', () => this.send({ o: 'stop', blobs: sel.map((b) => b[0]) })),
         btn('Disband (Del)', () => this.disbandSelected()),
       ]),
-      el('div', { class: 'buttons' }, [btn('Front (C)', () => this.setFrontMode('hold')), btn('Battle plan (Z)', () => this.setFrontMode('attack'))]),
+      el('div', { class: 'buttons' }, [btn('Front (C)', () => this.setFrontMode('hold')), btn('Battle plan (Z)', () => this.setFrontMode('attack')), this.autoButton(btn)]),
       ...this.aimRow(btn),
       ...this.frontLines(sel, btn),
       ...this.splitRow(sel, btn),
       ...sel.slice(0, 30).map((b) => this.unitRow(b, true)),
     ];
+  }
+
+  /** Auto on or off for the selected land units (lit when they're all on Auto). */
+  private autoButton(btn: (label: string, fn: () => void) => HTMLElement): HTMLElement {
+    const b = btn('Auto (A)', () => this.toggleAuto());
+    const land = this.selectedLand();
+    b.classList.toggle('on', land.length > 0 && land.every((x) => x[11] & 16));
+    b.title = 'Take nearby neutral and enemy land on their own (only next to your supplied land); any order turns it off';
+    return b;
   }
 
   /** Guns selected: shell troops or buildings. */
