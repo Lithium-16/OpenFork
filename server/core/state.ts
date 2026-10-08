@@ -46,6 +46,8 @@ export interface Blob {
   bombarding: number;
   /** Guns (artillery, warships): shell the enemy's buildings instead of their troops. */
   hitBuildings: boolean;
+  /** Auto: it takes nearby neutral and enemy land on its own (see auto.ts) until given an order. */
+  auto: boolean;
 }
 
 export interface ProductionLine {

@@ -231,6 +231,7 @@ export function readSave(text: string, world: (id: string) => World | undefined)
         attacking: -1,
         bombarding: -1,
         hitBuildings: bool(o.hitBuildings ?? false),
+        auto: bool(o.auto ?? false),
       };
       if (!blob.path.length) blob.progress = 0;
       blobs.set(id, blob);

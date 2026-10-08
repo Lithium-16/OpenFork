@@ -14,6 +14,7 @@ import {
 } from '../../shared/protocol.ts';
 import { type BotDifficulty, type BotSetting, DISCONNECT_BOT_SECONDS, type StartingResources, unitStats } from '../../shared/rules.ts';
 import { Bot } from './bot.ts';
+import { AutoCommand } from './auto.ts';
 import { FrontCommand } from './fronts.ts';
 import { mulberry32 } from './rng.ts';
 import { dumpState, SAVE_VERSION, type SaveFile } from './save.ts';
@@ -42,6 +43,8 @@ export class Game {
   private readonly bots = new Map<number, Bot>();
   /** Fronts and battle plans, run for whoever made them (see fronts.ts). */
   private readonly fronts = new FrontCommand();
+  /** Units on Auto, taking land on their own (see auto.ts). */
+  private readonly autos = new AutoCommand();
   /** player index → sim time they dropped */
   private readonly away = new Map<number, number>();
   /** Bots that play a country for good (empty seats, people who left). */
@@ -126,9 +129,12 @@ export class Game {
     if (id === undefined) return 'you are watching this game';
     if (this.sim.state.players[id].control === 'bot') this.setConnected(identity, true);
     const s = this.sim;
-    // Units given orders by hand leave their fronts.
-    if (order.o === 'move' || order.o === 'stop' || order.o === 'merge' || order.o === 'disband') s.leaveFronts(id, order.blobs);
+    // Units given orders by hand leave their fronts, and stop taking land on their own; set
+    // to Auto, they leave their fronts too.
+    if (order.o === 'move' || order.o === 'stop' || order.o === 'merge' || order.o === 'disband' || order.o === 'auto') s.leaveFronts(id, order.blobs);
     if (order.o === 'split') s.leaveFronts(id, [order.blob]);
+    if (order.o === 'move' || order.o === 'stop' || order.o === 'merge' || order.o === 'front') s.manual(id, order.blobs);
+    if (order.o === 'split') s.manual(id, [order.blob]);
     switch (order.o) {
       case 'front':
         return s.setFront(id, order.blobs, order.enemy, order.attack, order.target ?? -1);
@@ -143,6 +149,8 @@ export class Game {
         return s.stop(id, order.blobs);
       case 'aim':
         return s.setHitBuildings(id, order.blobs, order.buildings);
+      case 'auto':
+        return s.setAuto(id, order.blobs, order.on);
       case 'split':
         return s.split(id, order.blob, order.amount);
       case 'merge':
@@ -238,6 +246,7 @@ export class Game {
     }
     for (const bot of this.bots.values()) bot.act(this.sim);
     this.fronts.act(this.sim);
+    this.autos.act(this.sim);
     this.sim.tick();
     this.pending.push(...this.sim.drainEvents());
     if (this.sim.state.winner !== null) this.over = true;
@@ -260,12 +269,41 @@ export class Game {
     const players = shared.players.map((p, i) => (i === you ? p : { ...p, ...hidden }) as PlayerRow);
     const mine = (a: number, b: number) => you !== null && (a === you || b === you);
     const offers = shared.offers.filter(([a, b]) => mine(a, b));
+    // Fog of war: a living player sees other countries' units (and what gives them away:
+    // fights, shelling, new units, captures under way) only within their vision. Spectators
+    // and players out of the game see everything.
+    const fog = you !== null && !!this.sim.state.players[you]?.alive;
+    const seen = fog ? this.visionOf(you) : null;
+    const sees = (r: number) => !seen || seen.has(r);
     const events = shared.events.filter((e) => {
       if (e.kind === 'peaceOffer' || e.kind === 'peaceRefused') return mine(e.from, e.to);
       if (e.kind === 'looted') return mine(e.by, e.from);
+      if (e.kind === 'battle') return sees(e.region) || (you !== null && e.sides.includes(you));
+      if (e.kind === 'routed') return sees(e.region) || mine(e.owner, e.by);
+      if (e.kind === 'produced') return sees(e.region) || e.owner === you;
       return true;
     });
-    return { ...shared, players, offers, events };
+    if (!seen) return { ...shared, players, offers, events };
+    const blobs = shared.blobs.filter((b) => b[1] === you || seen.has(b[6]));
+    const shelling = shared.shelling.filter(([gun, at]) => seen.has(gun) || seen.has(at));
+    const regions = shared.regions.map((r, i) => (seen.has(i) || r[4] === you || r[4] < 0 ? r : ([...r.slice(0, 4), -1, 0, ...r.slice(6)] as RegionRow)));
+    return { ...shared, players, offers, events, blobs, shelling, regions };
+  }
+
+  /**
+   * What `player` can see (fog of war): the regions they own or have units in (standing or
+   * on their way out), and every region next to those, land or sea.
+   */
+  visionOf(player: number): Set<number> {
+    const st = this.sim.state;
+    const base = new Set<number>();
+    st.regions.forEach((r, i) => {
+      if (r.owner === player) base.add(i);
+    });
+    for (const b of st.blobs.values()) if (b.owner === player) base.add(b.region);
+    const seen = new Set(base);
+    for (const r of base) for (const e of this.sim.world.neighbors(r)) seen.add(e.id);
+    return seen;
   }
 
   /** The parts of a snapshot that are the same for everyone. */
@@ -314,7 +352,7 @@ export class Game {
         round(b.progress, 3),
         round(b.entrench, 2),
         round(b.supply, 2),
-        (b.waiting ? 1 : 0) | (b.crossedRiver ? 2 : 0) | (b.attacking >= 0 ? 4 : 0) | (b.hitBuildings ? 8 : 0),
+        (b.waiting ? 1 : 0) | (b.crossedRiver ? 2 : 0) | (b.attacking >= 0 ? 4 : 0) | (b.hitBuildings ? 8 : 0) | (b.auto ? 16 : 0),
         b.from,
         b.bombarding,
       ]);
