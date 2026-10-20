@@ -98,6 +98,16 @@ export class MapView {
   private supplySnap: Snapshot | null = null;
   private supplyImg: ImageData | null = null;
   private shownSupply = new Uint8Array(0);
+  /** Fog of war: land you can't see, dimmed under a light haze (see updateFog). */
+  private readonly fogLayer: HTMLCanvasElement;
+  private fogImg: ImageData | null = null;
+  private shownFog = new Uint8Array(0);
+  private fogSnap: Snapshot | null = null;
+  /** What you can see this snapshot (null: everything; a spectator, or out of the game). */
+  private vision: Set<number> | null = null;
+  /** Other countries' units as last seen, and ones that went out of sight (faded ghosts). */
+  private lastSeen = new Map<number, BlobRow>();
+  private readonly ghosts = new Map<number, { row: BlobRow; since: number }>();
   private supply: SupplyInfo | null = null;
   private placed: Placed[] = [];
   /** The stack shown as single tokens after a click on it, or null. */
@@ -164,6 +174,7 @@ export class MapView {
     this.territory = offscreen(map.width, map.height);
     this.highlight = offscreen(map.width, map.height);
     this.supplyLayer = offscreen(map.width, map.height);
+    this.fogLayer = offscreen(map.width, map.height);
     this.placeLayer = offscreen(map.width, map.height);
     this.frontLayer = offscreen(map.width, map.height);
     this.developLayer = offscreen(map.width, map.height);
@@ -221,6 +232,7 @@ export class MapView {
     this.regionEdges = touching.map((t) => Int32Array.from(t));
     this.shownOwner = new Int16Array(R).fill(-3);
     this.shownSupply = new Uint8Array(R);
+    this.shownFog = new Uint8Array(R).fill(2);
     this.shownValid = new Uint8Array(R);
     this.shownCut = new Uint8Array(R);
   }
@@ -749,6 +761,105 @@ export class MapView {
       y1 = Math.max(y1, this.regionBox[o + 3]);
     });
     if (x1 >= x0) ctx.putImageData(this.supplyImg, 0, 0, x0, y0, x1 - x0 + 1, y1 - y0 + 1);
+  }
+
+  /**
+   * Fog of war, once per snapshot. You see the regions you own or have units in, and every
+   * region next to those (the server sends other countries' units only there). Land outside
+   * that is dimmed under a light haze, repainted only where it changed. Another country's
+   * unit that drops out of the snapshot while its last region is out of sight leaves a faded
+   * ghost there for GHOST_MS; one that drops out in plain sight is gone (it died).
+   */
+  private updateFog(snap: Snapshot, you: number | null): void {
+    if (snap === this.fogSnap) return;
+    this.fogSnap = snap;
+    const alive = you !== null && !!snap.players[you]?.alive;
+    let vision: Set<number> | null = null;
+    if (alive) {
+      const base = new Set<number>();
+      snap.regions.forEach((r, i) => {
+        if (r[0] === you) base.add(i);
+      });
+      for (const b of snap.blobs) if (b[1] === you) base.add(b[6]);
+      vision = new Set(base);
+      for (const r of base) for (const n of this.map.regions[r].neighbors) vision.add(n.id);
+    }
+    this.vision = vision;
+
+    // Ghosts: units that went out of sight, shown where they were last seen going: their
+    // region if that's now out of sight, else the unseen region they were heading into. One
+    // that vanished with nowhere unseen to go died in plain sight: no ghost. Back in sight
+    // (or gone too long), a ghost goes.
+    const now = performance.now();
+    const present = new Map(snap.blobs.map((b) => [b[0], b]));
+    for (const [id, row] of this.lastSeen) {
+      if (present.has(id) || !vision) continue;
+      const at = !vision.has(row[6]) ? row[6] : row[7] >= 0 && !vision.has(row[7]) ? row[7] : -1;
+      if (at < 0) continue;
+      const ghost = [...row] as BlobRow;
+      ghost[6] = at;
+      this.ghosts.set(id, { row: ghost, since: now });
+    }
+    for (const [id, g] of this.ghosts) if (present.has(id) || now - g.since > GHOST_MS || (vision && vision.has(g.row[6]))) this.ghosts.delete(id);
+    this.lastSeen = new Map(snap.blobs.filter((b) => b[1] !== you).map((b) => [b[0], b]));
+
+    // The haze over land out of sight (sea is left clear).
+    const W = this.map.width;
+    const ctx = this.fogLayer.getContext('2d') as CanvasRenderingContext2D;
+    this.fogImg ??= ctx.createImageData(W, this.map.height);
+    const d = this.fogImg.data;
+    let [x0, y0, x1, y1] = [W, this.map.height, -1, -1];
+    for (let i = 0; i < this.regionPixels.length; i++) {
+      const fogged = vision && !vision.has(i) ? 1 : 0;
+      if (fogged === this.shownFog[i]) continue;
+      this.shownFog[i] = fogged;
+      for (const p of this.regionPixels[i]) {
+        const x = p % W;
+        const y = (p - x) / W;
+        if (!fogged) {
+          d[p * 4 + 3] = 0;
+          continue;
+        }
+        // Darker, with every fifth pixel (on a slant) a pale fleck of haze.
+        const fleck = (x + 2 * y) % 5 === 0;
+        d[p * 4] = fleck ? 196 : 12;
+        d[p * 4 + 1] = fleck ? 206 : 16;
+        d[p * 4 + 2] = fleck ? 216 : 22;
+        d[p * 4 + 3] = fleck ? 70 : 105;
+      }
+      const o = i * 4;
+      x0 = Math.min(x0, this.regionBox[o]);
+      y0 = Math.min(y0, this.regionBox[o + 1]);
+      x1 = Math.max(x1, this.regionBox[o + 2]);
+      y1 = Math.max(y1, this.regionBox[o + 3]);
+    }
+    if (x1 >= x0) ctx.putImageData(this.fogImg, 0, 0, x0, y0, x1 - x0 + 1, y1 - y0 + 1);
+  }
+
+  /** Units shown as ghosts right now (for tests and the console). */
+  get ghostCount(): number {
+    return this.ghosts.size;
+  }
+
+  /** Other countries' units last seen where you can no longer see: dim tokens, fading out. */
+  private drawGhosts(players: GamePlayer[]): void {
+    if (!this.ghosts.size) return;
+    const ctx = this.ctx;
+    const px = this.pixel();
+    const now = performance.now();
+    const perRegion = new Map<number, number>();
+    for (const { row, since } of this.ghosts.values()) {
+      const fade = 1 - (now - since) / GHOST_MS;
+      if (fade <= 0) continue;
+      const reg = this.map.regions[row[6]];
+      const n = perRegion.get(row[6]) ?? 0;
+      perRegion.set(row[6], n + 1);
+      const [x, y] = this.toScreen(reg.x, reg.y);
+      const token = tokenSprite([row], colorOf(players, row[1]), px, 0);
+      ctx.globalAlpha = 0.4 * fade;
+      ctx.drawImage(token, Math.round(x - TOKEN_AX * px + n * 6 * px), Math.round(y + 14 - TOKEN_AY * px + n * 3 * px));
+    }
+    ctx.globalAlpha = 1;
   }
 
   /** Repaints the front lines when owners or wars changed (once per snapshot at most). */
@@ -1476,6 +1587,8 @@ export class MapView {
     ctx.imageSmoothingEnabled = false;
     this.drawBorders(w, h, dpr);
     ctx.imageSmoothingEnabled = false;
+    this.updateFog(snap, you);
+    if (this.vision) this.blitLayer(this.fogLayer);
     this.updateFrontLayer(snap, players);
     if (this.frontBox) this.blitLayer(this.frontLayer, this.frontBox);
     this.drawSites(snap);
@@ -1499,6 +1612,7 @@ export class MapView {
       }
     }
     this.drawBlobs(snap, players, selected, you);
+    this.drawGhosts(players);
     this.drawPending(players, you);
     if (you !== null) this.drawFrontBadges(snap, players, you);
 
@@ -2596,11 +2710,20 @@ export class MapView {
       const sh = shieldSprite(it.shield?.fort ?? 0, dig, it.shield?.river ?? false);
       blit(ctx, sh, x0 - (sh.width + 1) * px, y0 + px, px);
     }
+    // On Auto (taking land on its own): a small green "A" at the top left.
+    if (rows.every((b) => b[11] & 16)) blit(ctx, autoBadge(), x0 - 5 * px, y0 - 3 * px, px);
     // Selected: blinking corner brackets.
     if (selected && Math.floor(performance.now() / 400) % 2 === 0) {
       brackets(ctx, Math.round(p.x), Math.round(y0 + h / 2 + 2 * px), w / 2 + 2 * px, '#ffffff', px);
     }
   }
+}
+
+let autoBadgeSprite: HTMLCanvasElement | null = null;
+/** The Auto badge: a white A on green. */
+function autoBadge(): HTMLCanvasElement {
+  autoBadgeSprite ??= art(['OOOOOOO', 'ONNWNNO', 'ONWNWNO', 'ONWWWNO', 'ONWNWNO', 'ONNNNNO', 'OOOOOOO'], { N: '#2f9e5a' });
+  return autoBadgeSprite;
 }
 
 /** Where a unit fights: the region it attacks from next door, else its own. */
@@ -2651,6 +2774,9 @@ const SHELL_SPREAD = 18;
 const HALF_BASE_BELOW = 0.6;
 /** The biggest line cache, in device pixels (about 32 MB; there are two). */
 const MAX_LINE_PIXELS = 8_000_000;
+
+/** How long a unit that went out of sight stays on the map as a faded ghost. */
+const GHOST_MS = 30_000;
 
 /** Token bitmaps: the anchor (the token's centre) sits at (TOKEN_AX, TOKEN_AY) × px. */
 const TOKEN_AX = 40;

@@ -328,6 +328,29 @@ second:
 - Fronts are kept in save files. A bot playing for someone who dropped leaves front units to
   their front.
 
+## 5b. Auto
+- **Auto** (A, or the unit panel's button): the selected land units take land on their own.
+  Each idle one goes for the nearest region it can take: neutral or at-war enemy land with
+  nobody in it, or an enemy region it can win at a battle plan's odds (1.3:1, forts and
+  digging in counted). Only land next to your own supplied land, so it stays in supply; and
+  never where another of your Auto units is already going. It moves by ordinary orders, so
+  it attacks across the border and takes land from inside like anyone.
+- With nothing in reach it waits, still on Auto. Any order given by hand (move, halt,
+  merge, split, front) turns it off; turning it on takes the units off their fronts. Ships
+  ignore it. A green "A" marks the tokens; Auto is kept in save files.
+
+## 5c. Fog of war
+- Always on. You see the regions you own or have units in (standing or on their way out),
+  and every region next to those, land or sea. **Only other countries' units are hidden**
+  elsewhere: borders, owners, cities, forts and buildings stay on the map for everyone.
+- The server sends each person only what they may see, so it can't be read out of the
+  page: other countries' units, the fights and shelling they're in, units they produce and
+  captures under way, only within your vision (fights you're part of always).
+- Land out of sight is darker under a light haze. A unit that goes out of sight leaves a
+  faded **ghost** where it was last seen going, fading out over 30 s (gone at once when you
+  look there again); one that vanishes in plain sight died.
+- Spectators and players out of the game see everything. Bots see everything too.
+
 ## 6. Battles
 - **A battle is about a region:** the blobs standing in it, and the blobs attacking it from
   neighbouring regions. Fights inside a region still happen when both sides end up in it
@@ -413,9 +436,10 @@ second:
 ## 9. Bots
 Bots have **defensive, easy, normal and hard** difficulty. They use the same orders as humans.
 
-**Defensive** bots stay home: they never declare war and never take new land (not even
-neutral), build their economy, cities and forts, and make no new units. At war they only
-attack to take back their own land (what they held when they started), never the enemy's.
+**Defensive** bots never declare war and never attack anyone's land: they take neutral
+land until they meet other countries, build their economy, cities and forts, and make no
+new units. At war they only attack to take back their own land (what they held when they
+started, and the neutral land they took since), never the enemy's.
 
 The others:
 - expand into neutral land;
@@ -451,8 +475,7 @@ never starts a war. Mines and markets they upgrade rather than fill new slots, w
 ## Later (not in v1)
 - **Air:** air blobs that are fast, ignore terrain and ZoC, and return to airfields.
   Bombers hit forts, buildings and supply; fighters and AA defenses counter them.
-- **Alliances** (shared win; peace and war exist already) and **fog of war** (see your own regions and their neighbours,
-  last-known state elsewhere).
+- **Alliances** (shared win; peace and war exist already).
 - Procedural maps, more real-world maps.
 - The Kernel module (copy of flowrace: install/update from GitHub, kernel-host.ts,
   `/kernel/status`, Tailscale share, `openfork.match.*` events).

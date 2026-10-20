@@ -59,14 +59,48 @@ describe('bots on Europe', () => {
 });
 
 describe('defensive bots', () => {
-  it('stay home: no new land, no wars, no new units, but they build', () => {
+  it('take neutral land, but start no wars and make no units; they build', () => {
     const start = play('defensive', 1);
     const owned = (sim: Sim) => sim.state.regions.filter((r) => r.owner >= 0).length;
     const before = owned(start.sim);
     const { sim, events } = play('defensive', 300);
-    assert.equal(owned(sim), before, 'no new land');
-    assert.ok(!events.some((e) => e.kind === 'war' || e.kind === 'produced' || e.kind === 'captured'));
+    assert.ok(owned(sim) > before, 'they grew into neutral land');
+    assert.ok(!events.some((e) => e.kind === 'war' || e.kind === 'produced'));
     assert.ok(events.some((e) => e.kind === 'built'), 'they still develop');
+  });
+
+  it('land they took counts as home: they take it back', () => {
+    // A: 0..2, neutral 3..4, B (defensive bot): 5..7, capital 7.
+    const map = makeMap(
+      Array.from({ length: 8 }, (_, i) => (i < 3 ? { country: 'A' } : i > 4 ? { country: 'B', city: i === 7 ? 3 : undefined } : {})),
+      chain(8),
+      [
+        { id: 'A', capital: 0 },
+        { id: 'B', capital: 7 },
+      ],
+    );
+    const s = sim(map, ['A', 'B']);
+    clearBlobs(s);
+    s.state.regions.forEach((r, i) => (r.owner = i < 3 ? 0 : i > 4 ? 1 : -1));
+    place(s, 1, 'infantry', 7, 20); // the capital's guard
+    for (let i = 0; i < 2; i++) place(s, 1, 'infantry', 5, 20);
+    const bot = new Bot(1, 'defensive', mulberry32(5));
+    const run = (seconds: number) => {
+      for (let i = 0; i < seconds * 10; i++) {
+        bot.act(s);
+        s.tick();
+      }
+    };
+    run(150);
+    assert.equal(s.state.regions[4].owner, 1, 'it took the neutral land next to it');
+    assert.equal(s.state.regions[2].owner, 0, 'but nothing of A\'s');
+    // War, and A takes the newly won land: the bot takes it back.
+    s.declareWar(0, 1);
+    for (const b of [...s.state.blobs.values()]) if (b.region === 4) s.state.blobs.delete(b.id);
+    s.state.regions[4].owner = 0;
+    run(150);
+    assert.equal(s.state.regions[4].owner, 1, 'took it back');
+    assert.ok(s.state.regions.slice(0, 3).every((r) => r.owner === 0), 'and never pushed into A');
   });
 
   it('at war, take back their own lost land but never push into the enemy\'s', () => {
